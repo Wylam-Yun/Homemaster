@@ -21,6 +21,7 @@ Invariants preserved (Phase-1 hard gates):
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from collections.abc import AsyncIterator
@@ -202,7 +203,89 @@ class AsLLMClient:
         ]
         return aggregate_deltas(deltas)
 
+    # Transport failures *before any delta escaped* may be re-issued —
+    # nothing was aggregated yet, so a fresh identical request is clean.
+    # Once a delta has been yielded the caller's aggregation is already
+    # seeded, and a retried attempt's (different) text would corrupt it.
+    _STREAM_MAX_RETRIES = 2
+
     async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
+        event_sink: Any = None,
+        run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
+        max_output_tokens: int | None = None,
+        temperature: float | None = None,
+        attempt_sink: ProviderAttemptSink | None = None,
+        model_attempt_id: str | None = None,
+        provider_key_index: int = 0,
+    ) -> AsyncIterator[TransportDelta]:
+        from homemaster.providers.errors import (
+            LLMNetworkError,
+            LLMRateLimitError,
+        )
+
+        retries_left = self._STREAM_MAX_RETRIES
+        attempt_index = 0
+        while True:
+            emitted = 0
+            try:
+                async for delta in self._stream_once(
+                    messages,
+                    tools,
+                    system_prompt=system_prompt,
+                    event_sink=event_sink,
+                    run_id=run_id,
+                    session_id=session_id,
+                    turn_index=turn_index,
+                    iteration=iteration,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    attempt_sink=attempt_sink,
+                    model_attempt_id=model_attempt_id,
+                    provider_key_index=provider_key_index,
+                ):
+                    emitted += 1
+                    yield delta
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if isinstance(exc, TimeoutError):
+                    # Deadline expiry is not a transient transport fault —
+                    # retrying would burn the shared run budget (mirrors
+                    # ProviderRetryMiddleware's denial).
+                    raise
+                mapped = exc if isinstance(exc, LLMClientError) else map_sdk_error(exc)
+                if (
+                    emitted
+                    or retries_left <= 0
+                    or not isinstance(mapped, (LLMNetworkError, LLMRateLimitError))
+                ):
+                    raise
+                retries_left -= 1
+                attempt_index += 1
+                await emit_event(
+                    event_sink or self._event_sink,
+                    "transport.request_retrying",
+                    session_id=session_id,
+                    run_id=run_id or self._run_id,
+                    turn_index=turn_index,
+                    payload={
+                        "attempt": attempt_index + 1,
+                        "error": mapped.message,
+                        "error_type": mapped.error_type,
+                    },
+                )
+                continue
+
+    async def _stream_once(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,

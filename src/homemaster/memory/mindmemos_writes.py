@@ -584,15 +584,39 @@ class MindMemOSWriteMixin:
             raise RuntimeError(f"stored memory is not active: {memory_id}")
         metadata = dict(getattr(current, "metadata", {}) or {})
         semantic_name = self.mindmemos_config.database.qdrant.semantic_vector_name
+
+        async def _merge_metadata(updates: dict[str, Any]) -> None:
+            # Re-read at write time and overlay only the keys this pipeline
+            # owns; the stale snapshot taken above must not overwrite
+            # concurrent metadata changes made during the LLM window.
+            latest = await self._reader.get_memory(context, memory_id)
+            base = (
+                dict(getattr(latest, "metadata", {}) or {})
+                if latest is not None
+                else dict(metadata)
+            )
+            base.update(updates)
+            await self._qdrant.patch_memory(
+                context.project_id,
+                memory_id,
+                {"metadata": base},
+            )
+
         if metadata.get("vector_pending"):
             response = await self._flat_embed_client.embed(task="memory.add.embed", text=content)
             vectors = list(response.embeddings)
             if not vectors or not vectors[0]:
                 raise RuntimeError("enrichment embedding returned no vector")
+            latest = await self._reader.get_memory(context, memory_id)
+            current_meta = (
+                dict(getattr(latest, "metadata", {}) or {})
+                if latest is not None
+                else dict(metadata)
+            )
             await self._qdrant.patch_memory(
                 context.project_id,
                 memory_id,
-                {"metadata": metadata},
+                {"metadata": current_meta},
                 dense_vector=list(vectors[0]),
             )
             verified = await self._qdrant.get_memories(
@@ -619,12 +643,7 @@ class MindMemOSWriteMixin:
                 )
             ):
                 raise RuntimeError("enrichment vector readback failed")
-            metadata["vector_pending"] = False
-            await self._qdrant.patch_memory(
-                context.project_id,
-                memory_id,
-                {"metadata": metadata},
-            )
+            await _merge_metadata({"vector_pending": False})
 
         entity_ids: list[str] = []
         if metadata.get("entity_enrichment_pending"):
@@ -734,16 +753,17 @@ class MindMemOSWriteMixin:
                         raise RuntimeError(
                             f"entity enrichment graph readback failed: {entity_id}"
                         )
-            metadata["entity_enrichment_pending"] = False
-            metadata["entity_count"] = len(entity_ids)
-            metadata["entities"] = [
-                entity.canonical_name or entity.name for entity in entities
-            ]
-        await self._qdrant.patch_memory(
-            context.project_id,
-            memory_id,
-            {"metadata": metadata},
-        )
+            await _merge_metadata(
+                {
+                    "entity_enrichment_pending": False,
+                    "entity_count": len(entity_ids),
+                    "entities": [
+                        entity.canonical_name or entity.name for entity in entities
+                    ],
+                }
+            )
+        else:
+            await _merge_metadata({})
         final = await self._reader.get_memory(context, memory_id)
         final_metadata = dict(getattr(final, "metadata", {}) or {})
         if final_metadata.get("vector_pending") or final_metadata.get(

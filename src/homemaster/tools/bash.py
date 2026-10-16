@@ -80,6 +80,14 @@ class BashExecutor:
             if reader is not None:
                 await _finish_reader(reader, process.pid if process is not None else None)
             raise
+        except GeneratorExit:
+            # Async-generator teardown (``stream.aclose()`` on abort) delivers
+            # GeneratorExit into this awaited frame, bypassing the
+            # CancelledError path — kill the group synchronously because
+            # awaits are illegal while a generator close is unwinding.
+            if process is not None:
+                _signal_process_group(process.pid, signal.SIGKILL)
+            raise
         except OSError as exc:
             return _failure(
                 "subprocess_start_failed",

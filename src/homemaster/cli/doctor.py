@@ -486,6 +486,7 @@ def _memory_backend_check(path: Path) -> DoctorCheck:
                 "data_root": str(migration.data_root),
                 "legacy_fields": list(migration.legacy_fields),
                 **_neo4j_details(config),
+                **_qdrant_details(config),
             },
         )
     return DoctorCheck(
@@ -496,11 +497,38 @@ def _memory_backend_check(path: Path) -> DoctorCheck:
             "enabled": True,
             "probe": "not_opened",
             "embedding_provider_name": config.memory.embedding_provider_name,
-            "qdrant_path": str(config.memory.mindmemos_qdrant_path),
             "data_root": str(config.memory.data_root),
             **_neo4j_details(config),
+            **_qdrant_details(config),
         },
     )
+
+
+def _qdrant_details(config: Any) -> dict[str, Any]:
+    qdrant = config.memory.qdrant
+    details: dict[str, Any] = {"qdrant_mode": qdrant.mode}
+    if qdrant.mode == "embedded":
+        details["qdrant_path"] = str(config.memory.mindmemos_qdrant_path)
+    else:
+        details["qdrant_url"] = _redact_url_credentials(qdrant.effective_url)
+        if qdrant.mode == "managed_local":
+            details["qdrant_home"] = str(qdrant.home) if qdrant.home else None
+    return details
+
+
+def _redact_url_credentials(url: str) -> str:
+    """Strip userinfo from a reported URL — doctor output must never carry
+    credentials embedded as ``scheme://user:pass@host``."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port else ""
+    return urlunsplit((parts.scheme, f"{host}{port}", parts.path, "", ""))
 
 
 def _neo4j_details(config: Any) -> dict[str, Any]:

@@ -19,7 +19,7 @@ import pytest
 
 from agentscope.credential import OpenAICredential
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.message import Msg, TextBlock, ToolCallBlock
+from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
 from homemaster.agent.session import AgentSession
@@ -194,6 +194,114 @@ async def test_as_runtime_tool_call_round_trip(tmp_path: Path) -> None:
     assert payload["schema_version"] == 2
     assert payload["agentscope_state"]["context"], payload.keys()
     assert payload["agent_state"]["run_id"] == result.run_id
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_mid_stream_transport_retry(tmp_path: Path) -> None:
+    """A transport drop while tool-call arguments stream is pre-commit:
+    the middleware re-issues the same frozen call, the retried attempt's
+    fresh call id dispatches, and the abandoned id's phantom
+    ToolCallEndEvent stays silent (no bogus tool.call_started)."""
+    import httpx
+
+    from homemaster.providers.attempts import ListProviderAttemptSink
+
+    class MidStreamDeathModel(ScriptedModel):
+        """First call streams thinking + partial tool args then dies;
+        second call streams a fresh tool call id to completion."""
+
+        async def _call_api(self, model_name, messages, tools=None,
+                            tool_choice=None, **kwargs):
+            self.calls.append(messages)
+            self.call_tools.append(tools)
+            for msg in messages:
+                for block in getattr(msg, "content", ()) or ():
+                    if getattr(block, "type", None) == "tool_result":
+                        for out in getattr(block, "output", ()) or ():
+                            self.seen_tool_result_text += str(
+                                getattr(out, "text", "") or ""
+                            )
+            item = self._script.pop(0) if self._script else [
+                TextBlock(text="done")
+            ]
+            if isinstance(item, Exception):
+                raise item
+            blocks = item
+            if getattr(self, "_stream_mode", False):
+
+                async def _gen():
+                    for chunk in blocks:
+                        if isinstance(chunk, Exception):
+                            raise chunk
+                        yield chunk
+
+                return _gen()
+            return ChatResponse(
+                content=blocks,
+                is_last=True,
+                usage=ChatUsage(input_tokens=7, output_tokens=3, time=0.0),
+                metadata={"stop_reason": "end_turn"},
+            )
+
+    def _chunk(blocks, *, last=False):
+        return ChatResponse(
+            content=list(blocks),
+            is_last=last,
+            usage=ChatUsage(input_tokens=1, output_tokens=1, time=0.0),
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
+    ]
+    model = MidStreamDeathModel([
+        # call 1: thinking + half-written tool args, then the wire dies
+        [
+            _chunk([ThinkingBlock(thinking="plan")]),
+            _chunk([ToolCallBlock(id="stale", name="echo", input='{"x"')]),
+            httpx.ReadTimeout(
+                "mid-stream stall",
+                request=httpx.Request("POST", "https://provider.example/x"),
+            ),
+        ],
+        # call 2 (the retry): fresh id streams to completion
+        [
+            _chunk([ToolCallBlock(id="fresh", name="echo", input='{"x"')]),
+            _chunk([ToolCallBlock(id="fresh", name="echo", input=': 1}')]),
+            _chunk(
+                [ToolCallBlock(id="fresh", name="echo", input='{"x": 1}')],
+                last=True,
+            ),
+        ],
+        # call 3: post-tool reply
+        [_chunk([TextBlock(text="finished")], last=True)],
+    ])
+    model._stream_mode = True
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=tools,
+        max_tool_iterations=4,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+
+    assert result.status == "replied"
+    assert result.final_reply == "finished"
+    assert len(model.calls) == 3
+
+    event_types = [e.type for e in result.events]
+    assert "transport.request_retrying" in event_types
+    started = [e for e in result.events if e.type == "tool.call_started"]
+    assert [e.tool_call_id for e in started] == ["fresh"]
+    completed = [e for e in result.events if e.type == "tool.call_completed"]
+    assert [e.tool_call_id for e in completed] == ["fresh"]
+    tool_msg = next(m for m in session.messages if m.role == "tool")
+    assert tool_msg.tool_call_id == "fresh"
 
 
 @pytest.mark.asyncio
@@ -1758,3 +1866,180 @@ async def test_as_runtime_interrupted_result_dedup(
     )
 
 
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_truncated_output_stall_fails_fast(tmp_path: Path) -> None:
+    """A model call whose ``output_tokens`` reaches the effective output cap
+    while dispatching zero tool calls means its tool_use was truncated
+    mid-generation — the truncated call never surfaces, so the loop would
+    re-request the same oversized response forever (eval T12 burned two
+    ~8192-token rounds with zero tool calls). Two consecutive stalls must
+    fail the run with ``model_output_truncation_stall``."""
+
+    class CappedModel(ScriptedModel):
+        async def _call_api(self, model_name, messages, tools=None, tool_choice=None, **kwargs):
+            self.calls.append(messages)
+            return ChatResponse(
+                content=[ThinkingBlock(thinking="reasoning..." * 100)],
+                is_last=True,
+                usage=ChatUsage(input_tokens=10, output_tokens=8192, time=0.0),
+                metadata={"stop_reason": "max_tokens"},
+            )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
+    ]
+    model = CappedModel([])
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=tools,
+        max_tool_iterations=10,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+
+    assert result.status == "failed"
+    assert result.error_code == "model_output_truncation_stall"
+    # Default budget: exactly two stalled rounds, no silent third burn.
+    assert len(model.calls) == 2
+    guard_events = [e for e in result.events if e.type == "runtime.guard_triggered"]
+    assert guard_events and guard_events[0].payload["guard"] == (
+        "model_output_truncation_stall"
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_productive_round_resets_stall_counter(
+    tmp_path: Path,
+) -> None:
+    """A capped response that *did* dispatch a tool call is progress, not a
+    stall — it must reset the consecutive-stall counter so legitimate
+    long generations are not misjudged."""
+
+    class MixedModel(ScriptedModel):
+        def __init__(self) -> None:
+            super().__init__([])
+            self._responses = [
+                # stall round 1
+                ([ThinkingBlock(thinking="t" * 5)], 8192),
+                # capped but productive round — resets the counter
+                (
+                    [ToolCallBlock(id="tc1", name="echo", input='{"x": 1}')],
+                    8192,
+                ),
+                # stall round 2 (counter restarts at 1, must not trip)
+                ([ThinkingBlock(thinking="t" * 5)], 8192),
+                # normal finishing round
+                ([TextBlock(text="done")], 100),
+            ]
+
+        async def _call_api(self, model_name, messages, tools=None, tool_choice=None, **kwargs):
+            self.calls.append(messages)
+            for msg in messages:
+                for block in getattr(msg, "content", ()) or ():
+                    if getattr(block, "type", None) == "tool_result":
+                        for out in getattr(block, "output", ()) or ():
+                            self.seen_tool_result_text += str(
+                                getattr(out, "text", "") or ""
+                            )
+            blocks, out = self._responses.pop(0)
+            return ChatResponse(
+                content=blocks,
+                is_last=True,
+                usage=ChatUsage(input_tokens=10, output_tokens=out, time=0.0),
+                metadata={"stop_reason": "max_tokens"},
+            )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
+    ]
+    model = MixedModel()
+    runtime = AsAgentRuntime(
+        model=model, system_prompt="sys", tools=tools, max_tool_iterations=10
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert len(model.calls) == 4
+    assert "echo:1" in model.seen_tool_result_text
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_sigint_kills_subprocess_group(tmp_path: Path) -> None:
+    """F5: SIGINT during ``terminal`` execution must kill the whole child
+    process group — eval t09-sigint showed the orphaned bash kept writing
+    progress.log for ~65s after cancellation (HM even hung at interpreter
+    shutdown waiting on the abandoned asyncgen)."""
+    import os
+    import signal
+    import subprocess
+
+    from homemaster.adapters import build_tool_registry
+
+    marker = tmp_path / "sigint-marker.log"
+    registry = build_tool_registry(environment="local_robot")
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
+    ]
+    model = ScriptedModel(
+        [
+            [
+                ToolCallBlock(
+                    id="tc1",
+                    name="terminal",
+                    input=(
+                        '{"command": "for i in 1 2 3 4 5 6 7 8 9 10; do '
+                        'echo s$i >> ' + str(marker) + '; sleep 3; done", '
+                        '"timeout_seconds": 120}'
+                    ),
+                )
+            ],
+            [TextBlock(text="done")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model, system_prompt="sys", tools=tools, max_tool_iterations=4
+    )
+    session = AgentSession("as-runtime-test")
+
+    async def _sigint_when_running() -> None:
+        # Wait until the child actually started writing, then SIGINT.
+        for _ in range(200):
+            if marker.exists() and marker.read_text():
+                break
+            await asyncio.sleep(0.05)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    task = asyncio.create_task(_sigint_when_running())
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+    await task
+
+    assert result.status == "cancelled"
+    # External terminal state: the process group must be dead — the marker
+    # file must stop growing (writers killed, not detached).
+    before = marker.read_text() if marker.exists() else ""
+    await asyncio.sleep(4)
+    after = marker.read_text() if marker.exists() else ""
+    assert before == after, (
+        f"child process kept running after cancel: {before!r} -> {after!r}"
+    )
+    leftover = subprocess.run(
+        ["pgrep", "-f", f"sigint-marker"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert not leftover, f"orphaned process(es): {leftover}"

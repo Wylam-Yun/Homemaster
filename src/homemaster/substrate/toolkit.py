@@ -41,6 +41,7 @@ from homemaster.tools.contracts import (
     CancellationHandle,
     DeadlineHandle,
     PermissionSubject,
+    ResultProjection,
     ToolExecutionContext,
     ToolExecutionResult,
     ToolExecutionStatus,
@@ -69,6 +70,13 @@ class RunScope:
     domain_observer: object | None = None
     services: Mapping[str, object] = field(default_factory=dict)
     turn_index: int = 0
+    # Results already produced by the executor that may never reach the
+    # persisted ToolResultBlock — a cancel lands ``aclose()`` before
+    # ``call_tool`` can yield the terminal ``ToolResponse``, so the agent
+    # context keeps a dangling tool_use. The reconcile path reads this map
+    # to emit the REAL result (``backend_attempted=True`` /
+    # ``outcome_unknown``) instead of synthesizing ``attempted=False``.
+    late_tool_results: dict[str, object] = field(default_factory=dict)
 
 
 class RunScopeMiddleware(MiddlewareBase):
@@ -130,7 +138,8 @@ _STATUS_TO_AS: dict[ToolExecutionStatus, ToolResultState] = {
 def result_to_chunk(result: ToolExecutionResult, tool_name: str = "") -> ToolChunk:
     """Project a canonical ``ToolExecutionResult`` into one terminal chunk.
 
-    Model-visible content = text + images only; every machine field rides in
+    Model-visible content = ``data`` as JSON (when non-empty) plus
+    ``text``/images; the full machine copy still rides in
     ``metadata["hm"]`` so ``backend_attempted``/``outcome_unknown`` survive on
     the serialized ``ToolResultBlock`` (CLAUDE.md machine-field discipline).
     """
@@ -152,13 +161,37 @@ def result_to_chunk(result: ToolExecutionResult, tool_name: str = "") -> ToolChu
     if result.error is not None:
         data.setdefault("error_code", result.error.code)
     content: list[TextBlock | DataBlock]
-    if tool_name in MEMORY_TOOL_NAMES and data:
-        # Mirror ``application/tool_executor._message``: memory tools project
-        # the full payload as model-visible JSON so the model can read
-        # record values — plain ``result.text`` is only a human summary.
-        model_payload = dict(data)
+    model_payload: dict[str, Any] = {}
+    if data:
+        # Every tool projects its data payload as model-visible JSON, not
+        # just memory tools — ``load_skill`` (skill body) and ``web_fetch``
+        # (error_code) put their substantive output in ``data``, so hiding
+        # it left the model staring at an empty result. Fields that merely
+        # repeat ``result.text`` (e.g. read_file's ``content``) are dropped
+        # so the same bytes are not paid for twice.
+        model_payload = {
+            key: value
+            for key, value in data.items()
+            # Envelope fields injected above stay machine-only — a ``status``
+            # that was NOT present in the tool's own data (pure inject), and
+            # ``backend_attempted``. ``artifacts`` are published ACL-store
+            # handles — machine refs, not content — and stay out of the
+            # model payload too (the media itself rides as image blocks). A
+            # domain ``status`` the tool emitted — memory results report
+            # ``status:"success"`` as payload — stays model-visible, as do
+            # ``domain_status``/``error_code``.
+            if key not in ("backend_attempted", "artifacts")
+            and not (key == "status" and existing_status is None)
+            and not (result.text and value == result.text)
+        }
         if result.text:
             model_payload.setdefault("text", result.text)
+    if result.model_projection is ResultProjection.IMAGE_ONLY:
+        # ``IMAGE_ONLY`` results (e.g. screenshots) deliberately hide
+        # ``data``/``text`` — the model consumes the image, the envelope
+        # rides in ``metadata["hm"]``.
+        model_payload = {}
+    if model_payload and set(model_payload) != {"text"}:
         content = [
             TextBlock(
                 text=json.dumps(
@@ -169,6 +202,15 @@ def result_to_chunk(result: ToolExecutionResult, tool_name: str = "") -> ToolChu
                 )
             )
         ]
+        for image in result.images:
+            content.append(
+                DataBlock(
+                    source=Base64Source(
+                        data=image.data_base64,
+                        media_type=image.media_type,
+                    ),
+                )
+            )
     else:
         content = []
         if result.text:
@@ -335,12 +377,17 @@ class HomeToolAdapter(ToolBase):
         for_substrate = getattr(self._executor, "execute_for_substrate", None)
         if callable(for_substrate):
             outcome = await for_substrate(call, run_context=self._scope.services.get("run_context"))
+            # Record before yielding — if cancellation closes the stream
+            # between the executor returning and this yield being consumed,
+            # the reconcile path still sees the real result.
+            self._scope.late_tool_results[call.id] = outcome
             if isinstance(outcome, ToolResultMessage):
                 yield message_to_chunk(outcome)
             else:
                 yield result_to_chunk(outcome, self._tool.name)
             return
         result = await self._executor.execute(call, self._build_context())
+        self._scope.late_tool_results[call.id] = result
         yield result_to_chunk(result, self._tool.name)
 
     def _validate(self, tool_input: dict[str, Any]) -> BaseModel:

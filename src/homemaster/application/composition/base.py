@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import os
 import sys
 import uuid
@@ -52,6 +53,7 @@ from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
+from homemaster.memory.managed_qdrant import ManagedQdrantRuntime
 from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.permissions import PermissionMode, PermissionSettingsConfig
@@ -63,6 +65,8 @@ from homemaster.tools.runtime_services import HomeToolServices
 
 if TYPE_CHECKING:
     from homemaster.extensions.reloader import ExtensionReloader
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -451,6 +455,7 @@ def _finish_home_application(
     frozen_memory_context: FrozenMemoryContextService | None = None
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
     managed_neo4j: ManagedNeo4jRuntime | None = None
+    managed_qdrant: ManagedQdrantRuntime | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
     trajectory_writer: AlfworldTrajectoryWriter | None = None
@@ -494,6 +499,11 @@ def _finish_home_application(
         if memory_full_tier:
             memory_migration = MemoryMigrationCoordinator(resolved.memory)
             managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
+            managed_qdrant = (
+                ManagedQdrantRuntime(resolved.memory)
+                if resolved.memory.qdrant.mode == "managed_local"
+                else None
+            )
             mindmemos = EmbeddedMindMemOS(resolved)
             memory_add_queue = MemoryAddQueue(
                 mindmemos,
@@ -536,6 +546,16 @@ def _finish_home_application(
                     lifetime=ResourceLifetime.APPLICATION,
                 )
             )
+            if managed_qdrant is not None:
+                # Bound before embedded-mindmemos so scope teardown (LIFO)
+                # closes MindMemOS first and stops the Qdrant service last.
+                scope.bind(
+                    ResourceBinding.owned(
+                        "managed-qdrant",
+                        managed_qdrant,
+                        lifetime=ResourceLifetime.APPLICATION,
+                    )
+                )
             scope.bind(
                 ResourceBinding.owned(
                     "embedded-mindmemos",
@@ -571,6 +591,8 @@ def _finish_home_application(
                 assert mindmemos is not None
                 assert memory_add_queue is not None
                 await managed_neo4j.start()
+                if managed_qdrant is not None:
+                    await managed_qdrant.start()
                 await mindmemos.start()
                 if not mindmemos.available:
                     cause = mindmemos.unavailable_cause or "unknown startup failure"
@@ -668,6 +690,36 @@ def _finish_home_application(
     )
     session_end_handler = session_finalization.enqueue if session_finalization is not None else None
 
+    # Queued finalization jobs are in-memory, but every accepted job persists a
+    # durable job.json + episode.json under experience_jobs/. On startup, sweep
+    # for unfinished jobs and re-queue them so a crash or a killed drain cannot
+    # silently drop a session's archival.
+    if finalizer is not None and memory_add_queue is not None:
+
+        async def resume_finalization_jobs(_application: ApplicationRuntime) -> None:
+            scan = getattr(finalizer, "incomplete_jobs", None)
+            resume = getattr(finalizer, "resume_job", None)
+            if not callable(scan) or not callable(resume):
+                return
+            pending = await asyncio.to_thread(scan)
+            for job_dir, session_id in pending:
+
+                async def resume_work(job_dir: Path = job_dir) -> None:
+                    await resume(job_dir)
+
+                memory_add_queue.enqueue_work(
+                    job_type="session_finalization_resume",
+                    session_id=session_id,
+                    work=resume_work,
+                )
+                logger.info(
+                    "re-queued incomplete session finalization %s (session=%s)",
+                    job_dir.name,
+                    session_id,
+                )
+
+        starter_steps.append(resume_finalization_jobs)
+
     async def start_application_services(application: ApplicationRuntime) -> None:
         for starter in starter_steps:
             await starter(application)
@@ -716,6 +768,7 @@ def _finish_home_application(
                             "dreaming_coordinator": dreaming_coordinator,
                             "memory_migration": memory_migration,
                             "managed_neo4j": managed_neo4j,
+                            "managed_qdrant": managed_qdrant,
                         }
                         if resolved.memory.mode == "full" and mindmemos is not None
                         else {}

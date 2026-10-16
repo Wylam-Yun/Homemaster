@@ -74,6 +74,11 @@ class AsRunHandle:
     tool_call_names: dict[str, str] = field(default_factory=dict)
     pending_args: dict[str, str] = field(default_factory=dict)
     tool_call_args: dict[str, Any] = field(default_factory=dict)
+    # Tool-call ids whose argument stream was abandoned mid-flight by a
+    # transport retry (ProviderRetryMiddleware records them). AS still emits
+    # a phantom ToolCallEndEvent for them at stream end — the projection
+    # must reconcile the bookkeeping without emitting tool.call_started.
+    abandoned_tool_call_ids: set[str] = field(default_factory=set)
     reply_finished_reason: str | None = None
     reply_error: Any = None
     tool_registry: Any = None
@@ -101,6 +106,14 @@ class AsRunHandle:
     # stop_condition is evaluated over this batch only (legacy parity:
     # the condition saw the just-dispatched batch, not all history).
     round_result_ids: set[str] = field(default_factory=set)
+    # ToolCallStartEvent count for the current model call — a response that
+    # hits the provider's output cap mid-generation dispatches no calls.
+    round_tool_calls: int = 0
+    # Consecutive rounds that hit the output cap without dispatching a tool
+    # call — each one silently burns a full response budget (the truncated
+    # tool_use never surfaces), so the loop must fail fast instead of
+    # re-requesting the same oversized generation.
+    consecutive_truncated_stalls: int = 0
     # Tool calls whose result event was already projected — results that
     # land inside a closing stream skip ``_project_event`` entirely, so the
     # teardown sweep reconciles them against this set.
@@ -767,6 +780,7 @@ class AsAgentRuntime:
         elif isinstance(item, ThinkingBlockDeltaEvent):
             await emit("transport.delta", payload={"reasoning_delta": item.delta})
         elif isinstance(item, ToolCallStartEvent):
+            handle.round_tool_calls += 1
             handle.tool_call_names[item.tool_call_id] = item.tool_call_name
             handle.pending_args[item.tool_call_id] = ""
         elif isinstance(item, ToolCallDeltaEvent):
@@ -775,6 +789,15 @@ class AsAgentRuntime:
             )
         elif isinstance(item, ToolCallEndEvent):
             raw = handle.pending_args.pop(item.tool_call_id, "")
+            if item.tool_call_id in handle.abandoned_tool_call_ids:
+                # Phantom end event for a call dropped by a transport retry
+                # — clean the bookkeeping and undo its start-event count;
+                # the retried attempt's call carries a fresh id.
+                handle.tool_call_names.pop(item.tool_call_id, None)
+                handle.abandoned_tool_call_ids.discard(item.tool_call_id)
+                if handle.round_tool_calls > 0:
+                    handle.round_tool_calls -= 1
+                return None
             try:
                 arguments = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
@@ -911,6 +934,7 @@ class AsAgentRuntime:
             # New reasoning round — stop_condition sees only results
             # produced since this point (legacy batch semantics).
             handle.round_result_ids.clear()
+            handle.round_tool_calls = 0
             # Watermark the merged assistant Msg: blocks appended after this
             # point belong to the round that this model call produces.
             _ctx = handle_engine_context(handle)
@@ -956,6 +980,53 @@ class AsAgentRuntime:
                 emit=emit,
             )
             await self._emit_assistant_events(handle, emit)
+            # Truncation stall: a response that burned the entire output
+            # budget without dispatching a tool call means the generation
+            # was cut at max_tokens before its tool_use block completed —
+            # the truncated call never surfaces, so a thinking-only round
+            # loops forever burning a full response each time (eval T12:
+            # two ~210s/8192-token responses produced zero tool calls).
+            # The model cannot observe the cut; fail fast after
+            # ``max_consecutive_truncated_responses`` rounds instead of
+            # re-requesting the same oversized generation until timeout.
+            output_cap = _model_output_cap(self._model)
+            if (
+                output_cap
+                and item.output_tokens >= output_cap
+                and handle.round_tool_calls == 0
+            ):
+                handle.consecutive_truncated_stalls += 1
+            else:
+                handle.consecutive_truncated_stalls = 0
+            max_stalls = getattr(
+                getattr(handle.settings, "runtime_guards", None),
+                "max_consecutive_truncated_responses",
+                2,
+            )
+            if (
+                max_stalls > 0
+                and handle.consecutive_truncated_stalls >= max_stalls
+            ):
+                await self._close_dangling_tool_calls(handle, emit)
+                await stream.aclose()
+                await emit(
+                    "runtime.guard_triggered",
+                    payload={
+                        "guard": "model_output_truncation_stall",
+                        "error_code": "model_output_truncation_stall",
+                        "output_tokens": item.output_tokens,
+                        "output_cap": output_cap,
+                        "consecutive_stalls": handle.consecutive_truncated_stalls,
+                    },
+                )
+                save_snapshot("failed")
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status="failed",
+                    session=session,
+                    events=handle.events,
+                    error_code="model_output_truncation_stall",
+                )
         elif isinstance(item, ReplyEndEvent):
             # The assistant Msg lands in the engine context possibly after
             # MODEL_CALL_END — rescan the tail so no round loses its
@@ -1159,37 +1230,93 @@ class AsAgentRuntime:
             if block.id in existing_result_ids:
                 continue
             block.state = ToolCallState.FINISHED
-            last_msg.content.append(
-                ToolResultBlock(
-                    id=block.id,
+            real = getattr(handle.scope, "late_tool_results", {}).pop(
+                block.id, None
+            )
+            real_chunk = None
+            if real is not None:
+                try:
+                    from homemaster.agent.messages import ToolResultMessage
+                    from homemaster.substrate.toolkit import (
+                        message_to_chunk,
+                        result_to_chunk,
+                    )
+
+                    real_chunk = (
+                        message_to_chunk(real)
+                        if isinstance(real, ToolResultMessage)
+                        else result_to_chunk(real, block.name or "")
+                    )
+                except Exception:
+                    real_chunk = None
+            if real_chunk is not None:
+                # The executor produced a real result (e.g. outcome_unknown /
+                # backend_attempted=True) but aclose() hit before call_tool
+                # could yield the terminal ToolResponse — persist and emit it
+                # instead of the synthetic "not attempted" placeholder.
+                real_hm = dict(
+                    (getattr(real_chunk, "metadata", None) or {}).get("hm")
+                    or {}
+                )
+                last_msg.content.append(
+                    ToolResultBlock(
+                        id=block.id,
+                        name=block.name,
+                        output=real_chunk.content,
+                        state=real_chunk.state,
+                        metadata=real_chunk.metadata,
+                    )
+                )
+                is_error = real_chunk.state in _REASON_ERROR_STATES
+                real_data = real_hm.get("data")
+                await emit(
+                    "tool.call_failed" if is_error else "tool.call_completed",
+                    tool_call_id=block.id,
                     name=block.name,
-                    output=reminder,
-                    state=ToolResultState.INTERRUPTED,
-                    metadata={
-                        "hm": {
-                            "data": {
-                                "backend_attempted": False,
-                                "status": "interrupted",
-                            }
-                        }
+                    payload={
+                        "is_error": is_error,
+                        "result": "".join(
+                            getattr(b, "text", "") or ""
+                            for b in real_chunk.content
+                            if getattr(b, "type", None) == "text"
+                        ),
+                        "data": real_data if isinstance(real_data, dict) else {},
+                        "backend_attempted": real_hm.get("backend_attempted"),
+                        "status": real_hm.get("status"),
                     },
                 )
-            )
-            await emit(
-                "tool.call_failed",
-                tool_call_id=block.id,
-                name=block.name,
-                payload={
-                    "is_error": True,
-                    "result": reminder,
-                    "data": {
+            else:
+                last_msg.content.append(
+                    ToolResultBlock(
+                        id=block.id,
+                        name=block.name,
+                        output=reminder,
+                        state=ToolResultState.INTERRUPTED,
+                        metadata={
+                            "hm": {
+                                "data": {
+                                    "backend_attempted": False,
+                                    "status": "interrupted",
+                                }
+                            }
+                        },
+                    )
+                )
+                await emit(
+                    "tool.call_failed",
+                    tool_call_id=block.id,
+                    name=block.name,
+                    payload={
+                        "is_error": True,
+                        "result": reminder,
+                        "data": {
+                            "backend_attempted": False,
+                            "status": "interrupted",
+                        },
                         "backend_attempted": False,
                         "status": "interrupted",
                     },
-                    "backend_attempted": False,
-                    "status": "interrupted",
-                },
-            )
+                )
             existing_result_ids.add(block.id)
             handle.tool_event_emitted_ids.add(block.id)
 
@@ -1398,6 +1525,20 @@ def _unfinished_tool_calls(agent: Any) -> list[Any]:
     if callable(get_unfinished):
         return list(get_unfinished(getattr(agent, "name", "")))
     return []
+
+
+def _model_output_cap(model: Any) -> int | None:
+    """Effective output cap for the vendored chat model.
+
+    AgentScope's Anthropic-family models fall back to 8192 when the caller
+    leaves ``max_tokens`` unset (``parameters.max_tokens or 8192``), so the
+    same fallback is mirrored here to keep the truncation detector honest.
+    """
+    parameters = getattr(model, "parameters", None)
+    value = getattr(parameters, "max_tokens", None)
+    if isinstance(value, int) and value > 0:
+        return value
+    return 8192
 
 
 def _check_guards(handle: AsRunHandle) -> str | None:

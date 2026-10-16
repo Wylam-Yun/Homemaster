@@ -106,6 +106,8 @@ def chat_model_from_profile(
             client_kwargs["timeout"] = timeout_s
         parameters = AnthropicChatModel.Parameters(
             max_tokens=profile.max_output_tokens,
+            thinking_enable=bool(profile.thinking_enable),
+            thinking_budget=profile.thinking_budget,
         )
         return AnthropicChatModel(
             credential=credential,
@@ -124,6 +126,8 @@ def chat_model_from_profile(
         client_kwargs = {"timeout": timeout_s} if timeout_s is not None else None
         parameters = AnthropicChatModel.Parameters(
             max_tokens=profile.max_output_tokens,
+            thinking_enable=bool(profile.thinking_enable),
+            thinking_budget=profile.thinking_budget,
         )
         return AnthropicChatModel(
             credential=credential,

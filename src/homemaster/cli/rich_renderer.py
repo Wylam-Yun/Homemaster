@@ -69,6 +69,25 @@ class RichOutputRenderer:
         self._stop_live()
         self._state = "waiting-confirmation"
 
+    def user_question_requested(self, question: str) -> None:
+        """Yield terminal ownership before the blocking ``ask_user`` prompt.
+
+        The tool-running spinner must not keep redrawing over the question or
+        the ``input()`` echo line, or the prompt looks frozen to the user.
+        """
+
+        self._stop_spinner()
+        self._stop_live()
+        self._state = "waiting-user-question"
+        self.console.print(
+            Panel(
+                Text(question),
+                title="Question",
+                border_style="cyan",
+                padding=(0, 1),
+            )
+        )
+
     def render(self, event: StreamEvent) -> None:
         if self._state == "closed":
             return

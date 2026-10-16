@@ -17,6 +17,7 @@ from typing import Any, Literal, Protocol
 
 from homemaster.config import load_config
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
+from homemaster.memory.managed_qdrant import ManagedQdrantRuntime
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 
 RecordKind = Literal["target", "near_distractor", "unrelated_distractor"]
@@ -721,10 +722,17 @@ async def _read_raw_content(config: Any, memory_id: str) -> str | None:
     managed = (
         ManagedNeo4jRuntime(config.memory) if config.memory.neo4j.mode == "managed_local" else None
     )
+    managed_qdrant = (
+        ManagedQdrantRuntime(config.memory)
+        if config.memory.qdrant.mode == "managed_local"
+        else None
+    )
     store = EmbeddedMindMemOS(config)
     try:
         if managed is not None:
             await managed.start()
+        if managed_qdrant is not None:
+            await managed_qdrant.start()
         await store.start()
         if not store.available:
             raise RuntimeError(store.unavailable_cause or "MindMemOS is unavailable")
@@ -752,6 +760,8 @@ async def _read_raw_content(config: Any, memory_id: str) -> str | None:
         return content if isinstance(content, str) else None
     finally:
         await store.close()
+        if managed_qdrant is not None:
+            await managed_qdrant.close()
         if managed is not None:
             await managed.close()
 

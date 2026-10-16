@@ -81,31 +81,40 @@ class SessionFinalizer:
         self._dreaming_coordinator = dreaming_coordinator
         self._event_sink = event_sink
 
-    async def finalize(self, session_id: str, exit_reason: str) -> FinalizeResult:
+    async def finalize(
+        self,
+        session_id: str,
+        exit_reason: str,
+        *,
+        trace_end: int | None = None,
+    ) -> FinalizeResult:
         started = time.monotonic()
-        job: dict[str, Any] | None = None
-        job_path: Path | None = None
-        current_phase: str | None = None
-        context: Any | None = None
         try:
-            events, excluded = self._collect(session_id)
-            if not events:
-                return FinalizeResult(session_id=session_id, status="empty")
-            from homemaster.experience.schema_episode import (
-                build_schema_episode,
-                serialize_schema_episode,
+            events, excluded, coverage_end = await asyncio.to_thread(
+                self._collect_window, session_id, trace_end
             )
-
-            episode = build_schema_episode(session_id, exit_reason, events)
-            input_bytes = serialize_schema_episode(episode).encode("utf-8")
-            input_hash = "sha256:" + hashlib.sha256(input_bytes).hexdigest()
+            if not events:
+                await asyncio.to_thread(self._write_coverage, session_id, coverage_end)
+                return FinalizeResult(session_id=session_id, status="empty")
+            episode, input_hash = await asyncio.to_thread(
+                self._build_episode_material, session_id, exit_reason, events
+            )
             job_id = hashlib.sha256(
                 f"{session_id}\0{input_hash}\0{_EXTRACTOR_VERSION}".encode()
             ).hexdigest()
             job_dir = self._jobs_root / job_id
-            job_path = job_dir / "job.json"
-            job = self._read_json(job_path)
-            if job and job.get("status") == "completed":
+            job, job_path, episode = await asyncio.to_thread(
+                self._load_or_create_job,
+                job_dir,
+                session_id=session_id,
+                exit_reason=exit_reason,
+                input_hash=input_hash,
+                episode=episode,
+                coverage_end=coverage_end,
+                collected=len(events),
+            )
+            if job.get("status") == "completed":
+                await asyncio.to_thread(self._write_coverage, session_id, coverage_end)
                 return FinalizeResult(
                     session_id=session_id,
                     status="already_completed",
@@ -113,33 +122,122 @@ class SessionFinalizer:
                     excluded_transport_deltas=excluded,
                     rendered_messages=len(episode["events"]),
                 )
-            job_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if job is None:
-                job = {
-                    "schema_version": 3,
-                    "job_id": job_id,
-                    "status": "pending",
-                    "session_id": session_id,
-                    "input_hash": input_hash,
-                    "extractor_version": _EXTRACTOR_VERSION,
-                    "add": {"status": "pending"},
-                    "implicit_feedback": {"status": "pending"},
-                    "dreaming_counter": {"status": "pending"},
-                    "dreaming": {"status": "not_due"},
-                }
-                self._write_json(job_path, job)
-            from mindmemos.typing import MemoryRequestContext
-
-            context = MemoryRequestContext(
-                request_id=job_id,
-                account_id=self._memory_tenant_id,
-                project_id=self._memory_tenant_id,
-                api_key_uuid="embedded-local",
-                user_id=self._memory_tenant_id,
-                app_id="homemaster",
+            context = self._new_context(session_id=session_id, request_id=job_id)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            logger.exception("session experience finalization failed")
+            return FinalizeResult(
                 session_id=session_id,
-                agent_id="homemaster",
+                status="failed",
+                duration_ms=(time.monotonic() - started) * 1000,
+                error=error,
             )
+        return await self._run_job(
+            job=job,
+            job_path=job_path,
+            session_id=session_id,
+            episode=episode,
+            context=context,
+            coverage_end=coverage_end,
+            started=started,
+            collected_events=len(events),
+            excluded_transport_deltas=excluded,
+            rendered_messages=len(episode["events"]),
+        )
+
+    async def resume_job(self, job_dir: Path) -> FinalizeResult:
+        """Resume a persisted job after restart; the frozen episode is authoritative."""
+
+        started = time.monotonic()
+        session_id = ""
+        try:
+            job_path = job_dir / "job.json"
+            job = self._read_json(job_path)
+            if not isinstance(job, dict) or not isinstance(job.get("session_id"), str):
+                raise ValueError(f"finalization job receipt is unreadable: {job_path}")
+            episode = self._read_json(job_dir / "episode.json")
+            if not isinstance(episode, dict) or not isinstance(episode.get("events"), list):
+                raise ValueError(f"finalization episode snapshot is unreadable: {job_dir}")
+            session_id = job["session_id"]
+            job_id = str(job["job_id"])
+            if job.get("status") == "completed":
+                return FinalizeResult(session_id=session_id, status="already_completed")
+            coverage = job.get("coverage") or {}
+            coverage_raw = coverage.get("end")
+            coverage_end = coverage_raw if isinstance(coverage_raw, int) else None
+            context = self._new_context(session_id=session_id, request_id=job_id)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            logger.exception("session experience finalization resume failed")
+            return FinalizeResult(
+                session_id=session_id,
+                status="failed",
+                duration_ms=(time.monotonic() - started) * 1000,
+                error=error,
+            )
+        collected = job.get("collected_events")
+        return await self._run_job(
+            job=job,
+            job_path=job_path,
+            session_id=session_id,
+            episode=episode,
+            context=context,
+            coverage_end=coverage_end,
+            started=started,
+            collected_events=collected if isinstance(collected, int) else 0,
+            excluded_transport_deltas=0,
+            rendered_messages=len(episode["events"]),
+        )
+
+    def incomplete_jobs(self) -> list[tuple[Path, str]]:
+        """Return (job_dir, session_id) for unfinished jobs that can still resume."""
+
+        pending: list[tuple[Path, str]] = []
+        if not self._jobs_root.is_dir():
+            return pending
+        for job_dir in sorted(self._jobs_root.iterdir()):
+            if not job_dir.is_dir() or job_dir.name.startswith("_"):
+                continue
+            job_path = job_dir / "job.json"
+            try:
+                job = self._read_json(job_path)
+            except (OSError, json.JSONDecodeError):
+                logger.warning("skipping unreadable finalization job receipt: %s", job_path)
+                continue
+            if not isinstance(job, dict) or job.get("status") == "completed":
+                continue
+            session_id = job.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                logger.warning(
+                    "skipping finalization job without session_id: %s", job_dir.name
+                )
+                continue
+            if not (job_dir / "episode.json").exists():
+                logger.warning(
+                    "finalization job %s is unrecoverable (episode snapshot missing)",
+                    job_dir.name,
+                )
+                continue
+            pending.append((job_dir, session_id))
+        return pending
+
+    async def _run_job(
+        self,
+        *,
+        job: dict[str, Any],
+        job_path: Path,
+        session_id: str,
+        episode: dict[str, Any],
+        context: Any,
+        coverage_end: int | None,
+        started: float,
+        collected_events: int,
+        excluded_transport_deltas: int,
+        rendered_messages: int,
+    ) -> FinalizeResult:
+        job_id = str(job.get("job_id", ""))
+        current_phase: str | None = None
+        try:
             if job["add"]["status"] != "completed":
                 current_phase = "add"
                 for add_attempt in range(1, _SCHEMA_ADD_ATTEMPTS + 1):
@@ -150,7 +248,7 @@ class SessionFinalizer:
                             metadata={
                                 "source_type": "homemaster_schema_episode",
                                 "source_session_id": session_id,
-                                "input_hash": input_hash,
+                                "input_hash": job["input_hash"],
                                 "extractor_version": _EXTRACTOR_VERSION,
                                 "domain_schema_version": episode["schema_version"],
                             },
@@ -311,18 +409,20 @@ class SessionFinalizer:
             job["status"] = "completed"
             job.pop("failed_phase", None)
             self._write_json(job_path, job)
+            if coverage_end is not None:
+                await asyncio.to_thread(self._write_coverage, session_id, coverage_end)
             return FinalizeResult(
                 session_id=session_id,
                 status="completed",
-                collected_events=len(events),
-                excluded_transport_deltas=excluded,
-                rendered_messages=len(episode["events"]),
+                collected_events=collected_events,
+                excluded_transport_deltas=excluded_transport_deltas,
+                rendered_messages=rendered_messages,
                 duration_ms=(time.monotonic() - started) * 1000,
                 operations=operations,
             )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            if job is not None and job_path is not None and current_phase is not None:
+            if current_phase is not None:
                 job["status"] = "failed"
                 job["failed_phase"] = current_phase
                 phase = dict(job.get(current_phase, {}))
@@ -495,23 +595,180 @@ class SessionFinalizer:
                     f"implicit feedback terminal verification failed: {action.action}"
                 )
 
-    def _collect(self, session_id: str) -> tuple[list[dict[str, Any]], int]:
+    def capture_trace_boundary(self) -> int | None:
+        """Snapshot the trace size; events appended later stay out of this archive."""
+
+        try:
+            return self._trace_path.stat().st_size
+        except OSError:
+            return None
+
+    def _collect_window(
+        self, session_id: str, trace_end: int | None
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        """Collect this session's events in (last archived offset, boundary]."""
+
+        start = self._coverage_start(session_id)
+        end = trace_end if trace_end is not None else self.capture_trace_boundary()
+        if end is None:
+            end = 0
+        if end < start:
+            # The trace file shrank or was replaced; rescan from the beginning.
+            start = 0
+        return self._collect(session_id, start, end)
+
+    def _collect(
+        self, session_id: str, start: int, end: int
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        """Return (events, excluded_delta_count, effective_end_offset).
+
+        Only complete JSONL lines inside [start, end) are read; a trailing
+        partial line is left for the next window so coverage never skips bytes.
+        """
+
         events: list[dict[str, Any]] = []
         excluded = 0
-        if not self._trace_path.exists():
-            return events, excluded
-        with self._trace_path.open(encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                event = json.loads(line)
-                if event.get("session_id") != session_id:
-                    continue
-                if event.get("type") == "transport.delta":
-                    excluded += 1
-                    continue
-                events.append(event)
-        return events, excluded
+        try:
+            size = self._trace_path.stat().st_size
+        except OSError:
+            return events, excluded, start
+        if end > size:
+            end = size
+        if end <= start:
+            return events, excluded, start
+        with self._trace_path.open("rb") as handle:
+            handle.seek(start)
+            data = handle.read(end - start)
+        effective_end = start + len(data)
+        lines = data.split(b"\n")
+        if lines and not data.endswith(b"\n"):
+            tail = lines.pop()
+            effective_end -= len(tail)
+        for raw in lines:
+            if not raw.strip():
+                continue
+            event = json.loads(raw)
+            if event.get("session_id") != session_id:
+                continue
+            if event.get("type") == "transport.delta":
+                excluded += 1
+                continue
+            events.append(event)
+        return events, excluded, effective_end
+
+    def _coverage_path(self, session_id: str) -> Path:
+        key = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+        return self._jobs_root / "_coverage" / f"{key}.json"
+
+    def _coverage_start(self, session_id: str) -> int:
+        """Offset up to which this session's trace was already archived.
+
+        Coverage is bound to one trace file; a different path (new run dir
+        after restart) resets the window to zero, because only the current
+        file can contain this process's new events.
+        """
+
+        try:
+            state = self._read_json(self._coverage_path(session_id))
+        except (OSError, json.JSONDecodeError):
+            logger.warning(
+                "session archive coverage state unreadable for %s; rescanning trace",
+                session_id,
+            )
+            return 0
+        if not state or state.get("trace_path") != str(self._trace_path):
+            return 0
+        end = state.get("end")
+        return end if isinstance(end, int) and end >= 0 else 0
+
+    def _write_coverage(self, session_id: str, end: int) -> None:
+        path = self._coverage_path(session_id)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._write_json(
+            path,
+            {
+                "schema_version": 1,
+                "session_id": session_id,
+                "trace_path": str(self._trace_path),
+                "end": end,
+            },
+        )
+
+    @staticmethod
+    def _build_episode_material(
+        session_id: str, exit_reason: str, events: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], str]:
+        from homemaster.experience.schema_episode import (
+            build_schema_episode,
+            serialize_schema_episode,
+        )
+
+        episode = build_schema_episode(session_id, exit_reason, events)
+        # exit_reason is provenance, not identity: exclude it from the dedup
+        # material so re-archival with a different reason reuses the same job.
+        dedup_input = dict(episode)
+        dedup_input["exit_reason"] = None
+        input_bytes = serialize_schema_episode(dedup_input).encode("utf-8")
+        input_hash = "sha256:" + hashlib.sha256(input_bytes).hexdigest()
+        return episode, input_hash
+
+    def _load_or_create_job(
+        self,
+        job_dir: Path,
+        *,
+        session_id: str,
+        exit_reason: str,
+        input_hash: str,
+        episode: dict[str, Any],
+        coverage_end: int,
+        collected: int,
+    ) -> tuple[dict[str, Any], Path, dict[str, Any]]:
+        job_path = job_dir / "job.json"
+        episode_path = job_dir / "episode.json"
+        job = self._read_json(job_path)
+        if job is None:
+            job_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # The frozen episode is the durable handoff: crash recovery only
+            # needs this file plus job.json, never the original trace.
+            self._write_json(episode_path, episode)
+            job = {
+                "schema_version": 4,
+                "job_id": job_dir.name,
+                "status": "pending",
+                "session_id": session_id,
+                "exit_reason": exit_reason,
+                "input_hash": input_hash,
+                "extractor_version": _EXTRACTOR_VERSION,
+                "collected_events": collected,
+                "coverage": {
+                    "trace_path": str(self._trace_path),
+                    "end": coverage_end,
+                },
+                "add": {"status": "pending"},
+                "implicit_feedback": {"status": "pending"},
+                "dreaming_counter": {"status": "pending"},
+                "dreaming": {"status": "not_due"},
+            }
+            self._write_json(job_path, job)
+        else:
+            stored = self._read_json(episode_path)
+            if isinstance(stored, dict):
+                episode = stored
+        return job, job_path, episode
+
+    def _new_context(self, *, session_id: str, request_id: str) -> Any:
+        from mindmemos.typing import MemoryRequestContext
+
+        return MemoryRequestContext(
+            request_id=request_id,
+            account_id=self._memory_tenant_id,
+            project_id=self._memory_tenant_id,
+            api_key_uuid="embedded-local",
+            user_id=self._memory_tenant_id,
+            app_id="homemaster",
+            session_id=session_id,
+            agent_id="homemaster",
+        )
 
     @staticmethod
     def _build_envelope(

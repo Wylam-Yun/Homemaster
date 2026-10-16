@@ -32,8 +32,11 @@ class _FakeHandle:
 
 
 class _Block:
-    def __init__(self, type_: str) -> None:
+    def __init__(self, type_: str, id: str = "") -> None:
         self.type = type_
+        self.id = id
+        self.name = "tool"
+        self.input = "{}"
 
 
 class _Chunk:
@@ -119,15 +122,99 @@ async def test_mid_stream_transport_error_retries_while_reasoning_only() -> None
 
 
 @pytest.mark.asyncio
-async def test_post_commit_stream_failure_is_not_retried() -> None:
-    """A text chunk already reached the consumer — the response committed —
-    so a later transport drop must propagate, not silently re-issue."""
+async def test_in_flight_text_delta_does_not_commit() -> None:
+    """A text delta mid-stream is preview-only — the canonical response is
+    rebuilt from the retried attempt's is_last chunk, so a transport drop
+    after text retries too. (What commits is a *finished* tool call, whose
+    ToolCallEndEvent already emitted tool.call_started — see the dedicated
+    finished-tool test.)"""
+    sink = ListProviderAttemptSink()
+    handle, retry, observability = _stack(sink)
+
+    calls: list[int] = []
+
+    async def model_call() -> Any:
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return await _stream_of(
+                [_Chunk((_Block("text"),)), _remote_protocol_error()]
+            )
+        return await _stream_of(
+            [_Chunk((_Block("text"),)), _Chunk((), is_last=True)]
+        )
+
+    async def next_handler() -> Any:
+        return await observability.on_model_call(None, {}, model_call)
+
+    result = await retry.on_model_call(None, {"messages": []}, next_handler)
+    emitted = [chunk async for chunk in result]
+
+    assert len(calls) == 2
+    assert any(e[0] == "transport.request_retrying" for e in handle.events)
+    assert [r.response_completed for r in sink.records] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_mid_stream_tool_call_args_still_pre_commit() -> None:
+    """A tool call whose arguments were mid-flight when the transport died
+    emitted nothing user-visible (tool.call_started fires only at
+    ToolCallEndEvent) — the attempt is pre-commit and may retry. Its stale
+    block id must be flagged abandoned so AS's end-sweep stays silent."""
+    sink = ListProviderAttemptSink()
+    handle, retry, observability = _stack(sink)
+
+    calls: list[int] = []
+
+    async def model_call() -> Any:
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return await _stream_of(
+                [
+                    _Chunk((_Block("thinking"),)),
+                    _Chunk((_Block("tool_call", id="call-a"),)),
+                    httpx.ReadTimeout(
+                        "mid-args stall",
+                        request=httpx.Request(
+                            "POST", "https://provider.example/v1/messages"
+                        ),
+                    ),
+                ]
+            )
+        return await _stream_of(
+            [
+                _Chunk((_Block("tool_call", id="call-b"),)),
+                _Chunk((), is_last=True),
+            ]
+        )
+
+    async def next_handler() -> Any:
+        return await observability.on_model_call(None, {}, model_call)
+
+    result = await retry.on_model_call(None, {"messages": []}, next_handler)
+    emitted = [chunk async for chunk in result]
+
+    assert len(calls) == 2
+    assert any(e[0] == "transport.request_retrying" for e in handle.events)
+    assert handle.abandoned_tool_call_ids == {"call-a"}
+    assert [r.response_completed for r in sink.records] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_finished_tool_call_commits_the_attempt() -> None:
+    """Once a tool_call id disappears from the chunk stream, AS emits
+    ToolCallEndEvent → tool.call_started is already user-visible — the
+    response committed and a later drop must propagate, not replay."""
     sink = ListProviderAttemptSink()
     handle, retry, observability = _stack(sink)
 
     async def model_call() -> Any:
         return await _stream_of(
-            [_Chunk((_Block("text"),)), _remote_protocol_error()]
+            [
+                _Chunk((_Block("tool_call", id="call-a"),)),
+                # Next chunk lacks call-a → AS ends it → tool.call_started emitted.
+                _Chunk((_Block("thinking"),)),
+                _remote_protocol_error(),
+            ]
         )
 
     async def next_handler() -> Any:
@@ -136,9 +223,33 @@ async def test_post_commit_stream_failure_is_not_retried() -> None:
     result = await retry.on_model_call(None, {"messages": []}, next_handler)
     with pytest.raises(httpx.RemoteProtocolError):
         _ = [chunk async for chunk in result]
-
     assert not any(e[0] == "transport.request_retrying" for e in handle.events)
-    assert len(sink.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_retried_call_phase_failure_continues_retrying() -> None:
+    """A transport failure while *re-issuing* the request flows through the
+    same gate — observability records it, the budget still applies."""
+    sink = ListProviderAttemptSink()
+    handle, retry, observability = _stack(sink)
+
+    calls: list[int] = []
+
+    async def model_call() -> Any:
+        calls.append(len(calls))
+        if len(calls) <= 2:
+            return await _stream_of([_remote_protocol_error()])
+        return await _stream_of([_Chunk((), is_last=True)])
+
+    async def next_handler() -> Any:
+        return await observability.on_model_call(None, {}, model_call)
+
+    result = await retry.on_model_call(None, {"messages": []}, next_handler)
+    emitted = [chunk async for chunk in result]
+
+    assert len(calls) == 3
+    assert len(emitted) == 1
+    assert len(sink.records) == 3
 
 
 @pytest.mark.asyncio

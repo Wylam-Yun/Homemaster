@@ -293,15 +293,17 @@ async def test_finalizer_collects_session_and_persists_schema_result(tmp_path: P
 
     jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
     job = json.loads(jobs[0].read_text(encoding="utf-8"))
-    assert job["schema_version"] == 3
+    assert job["schema_version"] == 4
     assert job["add"]["status"] == "completed"
     assert job["add"]["algorithm"] == "schema_add_v1"
     assert job["add"]["types"]["object_location"]["memory_ids"] == ["memory-1"]
     assert job["add"]["types"]["search_observation"]["status"] == "not_detected"
     assert job["implicit_feedback"]["status"] == "completed"
 
-    repeated = await finalizer.finalize("s1", "user_exit")
-    assert repeated.status == "already_completed"
+    # Coverage advanced past the first archive: a second trigger finds no new
+    # events and is a no-op rather than re-extracting the same window.
+    repeated = await finalizer.finalize("s1", "new_session")
+    assert repeated.status == "empty"
     assert len(mindmemos.calls) == 1
 
 
@@ -502,6 +504,150 @@ async def test_finalizer_retries_implicit_feedback_then_completes(tmp_path: Path
     assert job["status"] == "completed"
     assert job["implicit_feedback"]["status"] == "completed"
     assert job["implicit_feedback"]["attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_finalizer_trace_boundary_excludes_later_events(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+    boundary = trace.stat().st_size
+    with trace.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "type": "runtime.turn_started",
+                    "session_id": "s1",
+                    "run_id": "r2",
+                    "turn_index": 2,
+                    "timestamp": "2026-08-12T10:01:00Z",
+                    "payload": {"user_text": "归档之后才发生"},
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+
+    result = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=FakeMindMemOS(),
+    ).finalize("s1", "archived", trace_end=boundary)
+
+    assert result.status == "completed"
+    assert result.collected_events == 2
+
+
+@pytest.mark.asyncio
+async def test_finalizer_second_archive_collects_only_new_events(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+    mindmemos = FakeMindMemOS()
+    finalizer = SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=mindmemos,
+    )
+
+    first = await finalizer.finalize("s1", "archived")
+    assert first.status == "completed"
+    first_episode, _, _ = mindmemos.calls[0]
+    assert len(mindmemos.calls) == 1
+
+    with trace.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "type": "runtime.turn_started",
+                    "session_id": "s1",
+                    "run_id": "r2",
+                    "turn_index": 2,
+                    "timestamp": "2026-08-12T10:01:00Z",
+                    "payload": {"user_text": "归档后的新轮次"},
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+
+    second = await finalizer.finalize("s1", "new_session")
+
+    assert second.status == "completed"
+    assert second.collected_events == 1
+    assert len(mindmemos.calls) == 2
+    second_episode, _, _ = mindmemos.calls[1]
+    assert second_episode["events"] != first_episode["events"]
+    assert len(second_episode["events"]) == 1
+    jobs = sorted((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
+    assert len(jobs) == 2
+
+
+@pytest.mark.asyncio
+async def test_finalizer_exit_reason_does_not_change_job_identity(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+    mindmemos = FakeMindMemOS()
+    finalizer = SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=mindmemos,
+    )
+
+    first = await finalizer.finalize("s1", "archived")
+    assert first.status == "completed"
+    job_dirs = [p.parent for p in (tmp_path / "memory" / "experience_jobs").glob("*/job.json")]
+    assert len(job_dirs) == 1
+
+    # A second archive over the same window with a different exit reason maps
+    # to the same job: no duplicate extraction, no second job directory.
+    coverage = tmp_path / "memory" / "experience_jobs" / "_coverage"
+    for stale in coverage.glob("*.json"):
+        stale.unlink()
+    repeated = await finalizer.finalize("s1", "new_session")
+
+    assert repeated.status == "already_completed"
+    assert len(mindmemos.calls) == 1
+    assert [p.parent for p in (tmp_path / "memory" / "experience_jobs").glob("*/job.json")] == job_dirs
+
+
+@pytest.mark.asyncio
+async def test_finalizer_resume_job_completes_after_crash(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+
+    class CrashingImplicit(FakeMindMemOS):
+        async def feedback_implicit(self, context):
+            del context
+            return SimpleNamespace(status="error", message="crash-window", actions=[])
+
+    failed = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=CrashingImplicit(),
+    ).finalize("s1", "user_exit")
+    assert failed.status == "failed"
+
+    job_dirs = [p.parent for p in (tmp_path / "memory" / "experience_jobs").glob("*/job.json")]
+    assert len(job_dirs) == 1
+    assert (job_dirs[0] / "episode.json").exists()
+
+    # A new finalizer instance (new process) discovers the unfinished job and
+    # resumes it from the frozen episode — no trace re-collection needed.
+    recovered = SessionFinalizer(
+        trace_path=tmp_path / "runtime_events_new_run.jsonl",
+        data_root=tmp_path / "memory",
+        mindmemos=FakeMindMemOS(),
+    )
+    incomplete = recovered.incomplete_jobs()
+    assert [entry[0] for entry in incomplete] == job_dirs
+
+    result = await recovered.resume_job(job_dirs[0])
+
+    assert result.status == "completed"
+    job = json.loads((job_dirs[0] / "job.json").read_text(encoding="utf-8"))
+    assert job["status"] == "completed"
+    assert job["add"]["status"] == "completed"
+    assert job["implicit_feedback"]["status"] == "completed"
+    assert recovered.incomplete_jobs() == []
 
 
 @pytest.mark.asyncio

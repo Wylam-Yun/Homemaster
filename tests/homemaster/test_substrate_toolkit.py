@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +99,12 @@ async def test_call_runs_executor_and_projects_chunk(tmp_path) -> None:
     assert isinstance(chunk, ToolChunk)
     assert chunk.state == "success"
     assert chunk.is_last is True
-    assert chunk.content[0].text == "echo:hi"
+    # Model-visible projection = tool ``data`` as JSON — the tool's own
+    # ``status`` is domain payload and stays visible; only injected
+    # envelope fields (``backend_attempted``) stay machine-only.
+    # ``echo`` must reach the model, not hide in metadata.
+    payload = json.loads(chunk.content[0].text)
+    assert payload == {"echo": "hi", "status": "success", "text": "echo:hi"}
     hm = chunk.metadata["hm"]
     assert hm["status"] == "success"
     assert hm["data"]["echo"] == "hi"
@@ -226,6 +232,67 @@ def test_result_to_chunk_carries_images_and_attachments() -> None:
     assert hm["backend_attempted"] is True
     assert hm["data"]["backend_attempted"] is True
     assert hm["attachments"][0]["filename"] == "log.txt"
+
+
+def test_result_to_chunk_projects_non_memory_tool_data() -> None:
+    """``load_skill``-style results carry the payload in ``data`` with empty
+    ``text`` — previously only MEMORY_TOOL_NAMES projected ``data``, so the
+    model received an empty result and went hunting for the file on disk."""
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="",
+        data={"name": "pdf", "content": "# PDF skill\nsteps..."},
+    )
+    chunk = result_to_chunk(result, tool_name="load_skill")
+    payload = json.loads(chunk.content[0].text)
+    assert payload["name"] == "pdf"
+    assert payload["content"].startswith("# PDF skill")
+
+
+def test_result_to_chunk_dedupes_text_and_hides_envelope() -> None:
+    """Fields identical to ``result.text`` (read_file ``content``) must not
+    be paid for twice; injected envelope fields stay machine-only."""
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="file body",
+        data={"content": "file body", "path": "/x", "has_more": True},
+        backend_attempted=True,
+    )
+    chunk = result_to_chunk(result)
+    payload = json.loads(chunk.content[0].text)
+    assert "content" not in payload
+    assert payload == {"has_more": True, "path": "/x", "text": "file body"}
+    # Canonical machine copy still carries the full data incl. envelope.
+    assert chunk.metadata["hm"]["data"]["content"] == "file body"
+    assert chunk.metadata["hm"]["backend_attempted"] is True
+
+
+def test_result_to_chunk_failure_data_reaches_model() -> None:
+    """Failed tools put the diagnosis in ``data.error_code`` — the model
+    must see why the call failed, not just a bare failure flag."""
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.FAILURE,
+        text="fetch failed",
+        data={"url": "https://x"},
+        error=ToolExecutionError(code="http_404", message="not found"),
+        backend_attempted=True,
+    )
+    chunk = result_to_chunk(result)
+    payload = json.loads(chunk.content[0].text)
+    assert payload["error_code"] == "http_404"
+    assert payload["url"] == "https://x"
+
+
+def test_result_to_chunk_data_free_result_stays_plain_text() -> None:
+    """A result whose ``data`` is only injected envelope fields (no
+    tool-owned payload) must keep the plain text path — no JSON noise."""
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="plain answer",
+        data={},
+    )
+    chunk = result_to_chunk(result)
+    assert chunk.content[0].text == "plain answer"
 
 
 def test_outcome_unknown_never_maps_to_interrupted() -> None:

@@ -19,6 +19,192 @@
   completion authority (`task_progress_check` gets the external-owner
   terminal rule under the robocasa profile).
 
+- Mid-stream provider transport failures now retry instead of killing the
+  run. `ProviderRetryMiddleware` previously refused to re-issue a request
+  once any non-thinking chunk had streamed; but text/thinking/tool-arg
+  deltas are preview-only — the canonical response is rebuilt from the
+  retried attempt's `is_last` chunk — so a `ReadTimeout`/
+  `RemoteProtocolError` mid-generation no longer discards the whole turn.
+  The gate is now precise: only a *finished* tool call commits the
+  attempt (its `ToolCallEndEvent` already projected `tool.call_started`,
+  and replaying would dispatch duplicate call events). Ids of tool calls
+  abandoned mid-flight are recorded (`AsRunHandle.abandoned_tool_call_ids`)
+  so the stream-end sweep's phantom `ToolCallEndEvent` reconciles
+  bookkeeping without emitting a bogus `tool.call_started`.
+  `AsLLMClient.stream()` (doctor / verdict / memory distillation path)
+  gains the same narrow retry while zero deltas have escaped.
+  Long-context tasks that stalled mid-stream (observed: `ReadTimeout`
+  after 65-124 streamed deltas on request ~22-39 of a deep architecture
+  survey) now survive via `transport.request_retrying`.
+
+- Full memory mode gains `memory.qdrant.mode: managed_local`: HomeMaster
+  now spawns and babysits one private `qdrant` binary itself — no docker,
+  no root, no systemd. The lifecycle mirrors `neo4j.mode: managed_local`:
+  the first process takes `manager.lock`, spawns `qdrant` bound to
+  `127.0.0.1:{rest_port,grpc_port}` with storage under
+  `data_root/mindmemos/qdrant_service/storage`, waits for readiness, and
+  claims an ownership sentinel (a `_homemaster_runtime` collection whose
+  point carries the runtime root plus an owner token); later processes
+  see the claimed sentinel,
+  verify it against the `managed-owner.json` record, and attach by lease
+  file only. Mid-lifecycle exits leave the service running; the last
+  lease holder stops it iff the pid+start-time identity still matches —
+  a Qdrant on the port that isn't ours (foreign sentinel, missing
+  sentinel with a dead owner, or a non-Qdrant service) is refused rather
+  than adopted or killed. `qdrant.home` (dir or binary path) is the only
+  required field. Verified live with the official qdrant 1.19.2 macOS
+  binary: two concurrent full-mode processes shared one spawned service
+  (one qdrant pid, two leases), a third fresh process recalled the fact
+  the first stored, and the service exited with the last lease — no
+  orphan process, no leftover owner file.
+
+- Full memory mode (`memory.mode: full`) can now share one Qdrant across
+  any number of HomeMaster processes. `memory.qdrant` gains
+  `mode: embedded | server` (plus `url`/`api_key`/`prefer_grpc`/
+  `grpc_port`): embedded keeps the previous zero-deployment behavior —
+  the process-local directory under `data_root/mindmemos/qdrant` — while
+  server connects to an externally managed Qdrant service. Previously the
+  embedded directory's exclusive file lock made a second full-mode
+  process fail at startup (~10 s, zero events), so concurrent sessions
+  could never share MindMemOS memory. Verified live against a real qdrant
+  1.19.2 binary: two concurrent full-mode runs both completed, both wrote
+  to the shared server, and a third fresh process recalled the fact the
+  first one stored. Neo4j was already multi-process-safe via
+  `managed_local` leases; server mode closes the remaining gap. `doctor`
+  now reports `qdrant_mode` (and `qdrant_url` in server mode) instead of
+  only the embedded path.
+
+- SIGINT cancellation now actually interrupts in-flight tool execution
+  instead of waiting for it to finish. `InterruptController.handle_sigint`
+  is a synchronous `signal.signal` handler running on the loop thread; the
+  cancellation callbacks it queues (`task.cancel()` → `Future.cancel()` →
+  `loop.call_soon`) only append to `_ready` — they never write the
+  selector self-pipe, and PEP 475 restarts the interrupted `kevent` call
+  with its old timeout. The loop therefore slept until the next natural fd
+  event — in practice the subprocess child watcher firing on exit — so a
+  Ctrl+C during `run_terminal` took effect only after the child finished
+  on its own (~80 s in eval). `handle_sigint` now queues a no-op via
+  `call_soon_threadsafe`, which writes the self-pipe byte and wakes the
+  selector immediately: observed cancellation latency went from ~65-80 s
+  to the same millisecond as the SIGINT.
+
+- Cancelling a run mid-tool no longer leaves the spawned process running.
+  `BashExecutor` now handles `GeneratorExit` (delivered by
+  `stream.aclose()` during abort, which bypasses the `CancelledError`
+  path) by signalling `SIGKILL` to the whole process group synchronously —
+  awaits are illegal inside generator-close unwinding. Verified live: the
+  marker file a cancelled `longjob.sh` was appending to stops growing at
+  the SIGINT and `pgrep` finds no orphan.
+
+- A cancelled run's turn is now persisted and resumable. Both cancel paths
+  in `RunDriver` (the driver's own task being cancelled, and the engine
+  reporting `status="cancelled"`) previously returned without committing a
+  session revision — `--resume` cold-started with zero history even though
+  `session.json` held the interrupted turn. Both paths now call
+  `session_manager.save()` (failures stay non-fatal: a persist error must
+  not turn a clean cancel into a failed run). Verified live: a resumed
+  session correctly recalls that `longjob.sh` was interrupted mid-run.
+
+- Reconciled results for tool calls cut off by cancellation are now
+  honest about backend execution. When `aclose()` lands between the
+  executor returning and `call_tool` yielding its terminal chunk, the real
+  result never reached the persisted `ToolResultBlock`, so the teardown
+  sweep synthesized `backend_attempted: false / status: interrupted` even
+  though bash had spawned and killed a real process group. The adapter now
+  records every executor outcome into `RunScope.late_tool_results` *before*
+  yielding, and `_close_dangling_tool_calls` emits the real result —
+  `backend_attempted: true`, `status: "outcome_unknown"` for mutating
+  tools whose final external state can't be proven — instead of the
+  synthetic placeholder.
+
+- Tool results no longer hide their `data` payload from the model on the
+  AgentScope path. `result_to_chunk` previously rendered `data` as
+  model-visible JSON only for the seven memory tools, so `load_skill`
+  returned an empty string (the SKILL.md body lived in `data`) and
+  `web_fetch` failures surfaced without their `error_code` — the model
+  resorted to `find /` to locate skill files. Every tool now projects
+  `data`; fields that merely duplicate `result.text` (e.g. `read_file`'s
+  `content`) are deduplicated, and injected envelope fields
+  (`backend_attempted`, `artifacts`, and a `status` the tool did not emit
+  itself) stay machine-only in `metadata["hm"]`. `IMAGE_ONLY` results
+  still project the image with no JSON sidecar.
+
+- A response truncated at the provider output cap without dispatching a
+  tool call is now detected and bounded. Oversized thinking (or an
+  oversized `tool_use` payload) can consume the entire `max_tokens` budget
+  before the tool call completes — the truncated call never surfaces, the
+  model re-issues the same generation, and eval T12 burned two ~210 s
+  responses producing zero tool calls. `AsAgentRuntime` now counts
+  `ToolCallStartEvent`s per model call; `output_tokens >= cap` with zero
+  calls increments `consecutive_truncated_stalls`, and after
+  `runtime_guards.max_consecutive_truncated_responses` (default 2) the run
+  fails fast with `model_output_truncation_stall` instead of looping to
+  timeout. `ProviderProfileConfig` also gains optional `thinking_enable` /
+  `thinking_budget`, passed through to the Anthropic-wire models, so the
+  reasoning budget can be capped inside the output budget (agentscope
+  auto-expands `max_tokens` when `budget >= max_tokens`).
+
+- Cancelling a run at the `ask_user_question` prompt no longer corrupts
+  the *next* run. The prompt's Ctrl+C binding raises `KeyboardInterrupt`
+  inside the `ask_user` coroutine; because `Task.__step` re-raises
+  `BaseException` out of `loop._run_once`, the raw exception aborted
+  `run_until_complete` mid-flight, left the run task suspended at its
+  `asyncio.gather` await, and the stale done-callback re-raised the same
+  `KeyboardInterrupt` inside the *next* `runner.run` loop — so the
+  following task instantly printed "Run cancelled." and the prompt
+  appeared responsive but never ran anything. `ask_user` now routes the
+  abort through `application.cancel()` (proper engine teardown:
+  `runtime.cancelled` event, dangling tool-call closure, cancelled
+  `agent_state`) and re-raises `asyncio.CancelledError`, which unwinds
+  inside the event loop instead of escaping it. Ctrl+D at the question
+  (`EOFError`) gets the same treatment.
+
+- Cancelling a run while `ask_user_question` waits for input no longer
+  leaves a zombie stdin reader: on TTYs the answer prompt now uses
+  `prompt_toolkit.PromptSession.prompt_async`, which unwinds cleanly on
+  cancellation. Previously the `asyncio.to_thread(input)` call could not
+  be cancelled, so the orphaned thread kept competing for keystrokes and
+  made the next `homemaster>` prompt look hung. Non-TTY shells keep the
+  `to_thread` fallback.
+
+- The interactive shell no longer hides `ask_user_question` prompts behind
+  the tool-running spinner: `ask_user` now emits a
+  `user_question.requested` runtime event, and `RichStreamEventSink` hands
+  it to `RichOutputRenderer`, which stops the spinner/Live region, prints
+  the question in a bordered panel, and parks the renderer in a
+  `waiting-user-question` state before `input()` blocks for the answer.
+  If event delivery fails (or the run is not live-rendered), the prompt
+  falls back to embedding the question text directly, so the question can
+  never go unanswered invisibly.
+
+- Session finalization no longer freezes the main event loop or loses
+  work on restart:
+
+  - Trace collection, schema-episode build, and job-state I/O run on a
+    worker thread via `asyncio.to_thread`, so a finalization pass can
+    no longer stall interactive sessions between awaits.
+  - Every accepted job now persists `episode.json` (the frozen schema
+    episode) next to `job.json`, making the job resumable without the
+    original per-run trace file. `schema_version` bumps to 4.
+  - Job identity drops `exit_reason`: re-archiving the same session
+    window under a different exit reason maps to the same job instead
+    of double-extracting. The reason remains stored as metadata.
+  - A per-session coverage watermark
+    (`experience_jobs/_coverage/<hash>.json`) plus a trigger-time byte
+    boundary splits archival into units: a second archive only
+    collects events appended after the first, so `/archive` followed
+    by `/new` no longer re-extracts overlapping content.
+  - `SessionFinalizationController` deduplicates in-flight admissions
+    per session — a second trigger before the queued job starts merges
+    into it (boundary and reason roll forward, same receipt returned);
+    after the job starts, a new job queues for the new delta only.
+  - Application startup sweeps `experience_jobs/` for unfinished jobs
+    and re-queues them (`session_finalization_resume`), so a crash or
+    killed drain no longer silently drops a session's archival.
+  - `enrich_flat_memory` re-reads memory metadata before each write
+    and overlays only the fields it owns; concurrent metadata updates
+    during the LLM window are no longer clobbered by a stale snapshot.
+
 - Manual session archival: `POST /api/sessions/{id}/archive` admits the
   session to the application-owned finalization queue (episode schema
   add → implicit feedback → dreaming check), returning a job receipt.

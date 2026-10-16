@@ -109,6 +109,61 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert module.build_mindmemos_config(uncapped).chat_model_router.endpoints[0].max_tokens == 8192
 
 
+def test_build_mindmemos_config_maps_server_mode_qdrant(tmp_path: Path) -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    config = HomeMasterConfig(
+        providers={"default": "Mimo", "items": [_chat_provider(), _embedding_provider()]},
+        runtime_defaults={
+            "default_provider_name": "Mimo",
+            "default_embedding_provider_name": "MemoryEmbedding",
+        },
+        memory={
+            "data_root": tmp_path / "memory",
+            "qdrant": {
+                "mode": "server",
+                "url": "http://qdrant.internal:6333",
+                "api_key": "private-qdrant-key",
+                "prefer_grpc": True,
+                "grpc_port": 6400,
+            },
+        },
+    )
+
+    mapped = module.build_mindmemos_config(config)
+
+    assert mapped.database.qdrant.url == "http://qdrant.internal:6333"
+    assert mapped.database.qdrant.api_key == "private-qdrant-key"
+    assert mapped.database.qdrant.prefer_grpc is True
+    assert mapped.database.qdrant.grpc_port == 6400
+
+
+def test_build_mindmemos_config_maps_managed_local_qdrant(tmp_path: Path) -> None:
+    """managed_local must hand MindMemOS the loopback URL HomeMaster binds —
+    never the embedded local path."""
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    config = HomeMasterConfig(
+        providers={"default": "Mimo", "items": [_chat_provider(), _embedding_provider()]},
+        runtime_defaults={
+            "default_provider_name": "Mimo",
+            "default_embedding_provider_name": "MemoryEmbedding",
+        },
+        memory={
+            "data_root": tmp_path / "memory",
+            "qdrant": {
+                "mode": "managed_local",
+                "home": tmp_path / "qdrant-home",
+                "rest_port": 16333,
+                "grpc_port": 16334,
+            },
+        },
+    )
+
+    mapped = module.build_mindmemos_config(config)
+
+    assert mapped.database.qdrant.url == "http://127.0.0.1:16333"
+    assert mapped.database.qdrant.grpc_port == 16334
+
+
 def test_homemaster_schema_prompt_requires_native_entity_output() -> None:
     module = importlib.import_module("homemaster.memory.mindmemos_runtime")
 
@@ -237,6 +292,73 @@ async def test_embedded_mindmemos_reports_unavailable_without_configured_provide
 
     assert runtime.available is False
     assert "provider" in runtime.unavailable_cause
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_server_mode_mindmemos_uses_remote_qdrant_without_local_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``memory.qdrant.mode: server`` must not create the embedded directory
+    or inject a ``path=`` client — that constructor takes the exclusive lock
+    that blocks every other process. The engine builds its own client from
+    the mapped url/api_key instead."""
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    infra_db = importlib.import_module("mindmemos.infra.db")
+
+    captured: dict[str, Any] = {}
+
+    class FakeQdrantStore:
+        def __init__(self, cfg: Any, *, client: Any = None) -> None:
+            captured["cfg"] = cfg
+            captured["client"] = client
+            captured["store"] = self
+            self.engine = object()
+
+        async def ensure_schema(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    class FakeNeo4jStore:
+        def __init__(self, _config: Any) -> None:
+            pass
+
+        async def ensure_schema(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    class FakeSkillVersionRepository:
+        def __init__(self, _config: Any, *, engine: Any) -> None:
+            captured["skill_engine"] = engine
+
+        async def ensure_schema(self) -> None:
+            return None
+
+    monkeypatch.setattr(infra_db, "QdrantStore", FakeQdrantStore)
+    monkeypatch.setattr(infra_db, "Neo4jStore", FakeNeo4jStore)
+    monkeypatch.setattr(infra_db, "SkillVersionRepository", FakeSkillVersionRepository)
+    config = HomeMasterConfig(
+        providers={"items": [_chat_provider(), _embedding_provider()]},
+        memory={
+            "data_root": tmp_path / "memory",
+            "embedding_dimensions": 8,
+            "qdrant": {"mode": "server", "url": "http://127.0.0.1:6333"},
+        },
+    )
+
+    runtime = module.EmbeddedMindMemOS(config)
+    await runtime.start()
+
+    assert captured["client"] is None
+    assert captured["cfg"].url == "http://127.0.0.1:6333"
+    assert captured["skill_engine"] is captured["store"].engine
+    assert not config.memory.mindmemos_qdrant_path.exists()
+    assert runtime.jieba_cache_path.is_dir()
     await runtime.close()
 
 
