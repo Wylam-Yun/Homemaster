@@ -257,6 +257,11 @@ class AsLLMClient:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if isinstance(exc, TimeoutError):
+                    # Deadline expiry is not a transient transport fault —
+                    # retrying would burn the shared run budget (mirrors
+                    # ProviderRetryMiddleware's denial).
+                    raise
                 mapped = exc if isinstance(exc, LLMClientError) else map_sdk_error(exc)
                 if (
                     emitted

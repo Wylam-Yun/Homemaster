@@ -794,6 +794,7 @@ class AsAgentRuntime:
                 # — clean the bookkeeping and undo its start-event count;
                 # the retried attempt's call carries a fresh id.
                 handle.tool_call_names.pop(item.tool_call_id, None)
+                handle.abandoned_tool_call_ids.discard(item.tool_call_id)
                 if handle.round_tool_calls > 0:
                     handle.round_tool_calls -= 1
                 return None
