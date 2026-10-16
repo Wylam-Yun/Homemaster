@@ -288,7 +288,6 @@ def test_compose_tool_registry_threads_memory_mode():
 
     readonly = compose_tool_registry(
         environment="robocasa",
-        world_path=None,
         memory_path=None,
         runtime_memory_root=Path("/tmp/mem"),
         memory_enabled=True,

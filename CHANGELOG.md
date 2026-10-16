@@ -1,5 +1,19 @@
 # Unreleased
 
+- Removed the local simulated home world: `HomeWorldBackend` /
+  `HomeBackendReceipt` (`domain/home_backend.py`), the home-environment
+  `robot_go_to` / `robot_manipulate` / `robot_verify` tools (whose verify
+  path unconditionally echoed the model's expected state as success), the
+  `world_path` plumbing through CLI (`--world`), composition and registry,
+  the `world.json` data files (`data/homes/elder_home_v1/`,
+  `tests/homemaster/fixtures/home_tasks/`), and the `fetch_object` /
+  `check_object_state` builtin skills. `environment="local_robot"` now
+  composes only the common tool surface — no local robot backend exists —
+  while `robot_*` tools remain registered under `alfworld` and RoboCasa,
+  which talk to real external environments. `observe` screen capture is
+  unchanged. This closes the false-verification path where the Web Console
+  could report a fetched object while no backend action was ever attempted.
+
 - RoboCasa benchmark integration (RPent stack): a new
   `benchmark-robocasa` CLI command runs Target50-style cells through an
   isolated `workers/robocasa_worker/` NDJSON subprocess living in RPent's

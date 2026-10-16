@@ -31,7 +31,6 @@ from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feish
 from homemaster.cli.live_output import RichStreamEventSink
 from homemaster.cli.rich_renderer import RichOutputRenderer
 from homemaster.config import HomeMasterConfig, load_config
-from homemaster.domain.home_backend import HomeBackendReceipt, HomeWorldBackend
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import FanoutEventSink
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
@@ -108,7 +107,6 @@ class ApplicationCompositionRequest:
     tool_memory_mode: str | None = None
     runtime_root: Path | None = None
     session_root: Path | None = None
-    world_path: Path | None = None
     memory_path: Path | None = None
     # Hard kill-switch for every memory tier, including the dependency-free
     # files tier.  ``memory.enabled`` cannot express this: under
@@ -137,7 +135,6 @@ class HomeCliBackend:
     def __init__(
         self,
         *,
-        world_path: Path | None,
         memory_path: Path | None,
     ) -> None:
         self.backend_id = f"home-cli:{uuid.uuid4().hex[:12]}"
@@ -145,9 +142,7 @@ class HomeCliBackend:
         self.generation = 0
         self.state_sequence = 0
         self.event_sequence = 0
-        self.world_path = world_path
         self.memory_path = memory_path
-        self.world = HomeWorldBackend(world_path) if world_path is not None else None
 
     def bind_application_run(self, run_id: str, generation: int) -> None:
         self.run_id = run_id
@@ -156,22 +151,6 @@ class HomeCliBackend:
     def advance(self) -> None:
         self.state_sequence += 1
         self.event_sequence += 1
-
-    def go_to(self, target: str) -> HomeBackendReceipt:
-        if self.world is None:
-            raise RuntimeError("HomeWorld backend is not configured")
-        receipt = self.world.go_to(target)
-        self.advance()
-        return receipt
-
-    def manipulate(
-        self, *, action: str, target: str, receptacle: str | None = None
-    ) -> HomeBackendReceipt:
-        if self.world is None:
-            raise RuntimeError("HomeWorld backend is not configured")
-        receipt = self.world.manipulate(action=action, target=target, receptacle=receptacle)
-        self.advance()
-        return receipt
 
     async def screenshot(self) -> bytes:
         return await asyncio.to_thread(self._capture_display_png)
@@ -192,7 +171,6 @@ def compose_application(
     request: ApplicationCompositionRequest | None = None,
     *,
     config: HomeMasterConfig | None = None,
-    world_path: Path | None = None,
     memory_path: Path | None = None,
     memory_off: bool = False,
     run_label: str | None = None,
@@ -219,7 +197,6 @@ def compose_application(
 
     if request is not None:
         config = request.config
-        world_path = request.world_path
         memory_path = request.memory_path
         memory_off = request.memory_off
         run_label = request.run_label
@@ -265,7 +242,6 @@ def compose_application(
     )
     registry = compose_tool_registry(
         environment=effective_tool_environment,
-        world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
         memory_enabled=(

@@ -108,7 +108,7 @@ def run_interactive_shell(
             session_id=session_id,
             config_path=config_path,
         )
-        ctx.backend = HomeCliBackend(world_path=None, memory_path=None)
+        ctx.backend = HomeCliBackend(memory_path=None)
 
         async def ask_user(question: str) -> str:
             # The tool-call spinner keeps redrawing while input() blocks, which
@@ -175,7 +175,7 @@ def run_interactive_shell(
                 )
 
         def reset_backend() -> None:
-            ctx.backend = HomeCliBackend(world_path=None, memory_path=None)
+            ctx.backend = HomeCliBackend(memory_path=None)
 
         ctx.close_session = end_session
         ctx.reset_backend = reset_backend

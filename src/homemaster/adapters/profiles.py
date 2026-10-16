@@ -10,9 +10,6 @@ from homemaster.domain.tools import (
     make_load_skill,
     make_memory_retriever,
     make_memory_writer,
-    make_robot_go_to,
-    make_robot_manipulate,
-    make_robot_verify,
     make_target_grounder,
     make_task_interpreter,
     make_task_summarizer,
@@ -67,10 +64,7 @@ _MEMORY_WRITE_TOOL_NAMES = frozenset(
 )
 
 _INTENTIONAL_COLLISIONS = {
-    "robot_go_to": ("alfworld", frozenset({"home", "alfworld"})),
     "observe": ("home", frozenset({"home", "alfworld"})),
-    "robot_manipulate": ("alfworld", frozenset({"home", "alfworld"})),
-    "robot_verify": ("alfworld", frozenset({"home", "alfworld"})),
     "task_planner": ("home", frozenset({"home", "alfworld"})),
     "task_progress_check": ("home", frozenset({"home", "alfworld"})),
 }
@@ -115,7 +109,6 @@ class _ReceiptVerifier:
 def build_tool_registry(
     *,
     environment: Literal["local_robot", "alfworld", "browser", "robocasa"] | None,
-    world_path: Path | None = None,
     memory_path: Path | None = None,
     runtime_memory_root: Path | None = None,
     memory_mode: str = "disabled",
@@ -125,21 +118,13 @@ def build_tool_registry(
     """Compose common tools with exactly one explicit environment tool set."""
 
     home_tools = _home_tools(
-        world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=runtime_memory_root,
         memory_enabled=memory_enabled,
         memory_tier=memory_tier,
     )
-    robot_names = {"robot_go_to", "robot_manipulate", "robot_verify"}
-    sources: dict[str, tuple[RegisteredTool, ...]] = {
-        "home": tuple(tool for tool in home_tools if tool.definition.model_alias not in robot_names)
-    }
-    if environment == "local_robot":
-        sources["local_robot"] = tuple(
-            tool for tool in home_tools if tool.definition.model_alias in robot_names
-        )
-    elif environment == "alfworld":
+    sources: dict[str, tuple[RegisteredTool, ...]] = {"home": home_tools}
+    if environment == "alfworld":
         sources["alfworld"] = _alfworld_tools(
             memory_mode=memory_mode,
             memory_path=memory_path,
@@ -153,7 +138,7 @@ def build_tool_registry(
             memory_path=memory_path,
             runtime_memory_root=runtime_memory_root,
         )
-    elif environment is not None:
+    elif environment not in (None, "local_robot"):
         raise ValueError(f"unsupported tool environment: {environment}")
 
     selected = _select_universal_tools(sources)
@@ -229,7 +214,6 @@ def _select_universal_tools(
 
 def _home_tools(
     *,
-    world_path: Path | None,
     memory_path: Path | None,
     runtime_memory_root: Path | None,
     memory_enabled: bool = True,
@@ -248,11 +232,8 @@ def _home_tools(
         tool.definition.model_alias: tool
         for tool in (
             make_task_interpreter(),
-            make_target_grounder(world_path=world_path),
+            make_target_grounder(),
             make_load_skill(),
-            make_robot_go_to(),
-            make_robot_manipulate(),
-            make_robot_verify(),
             make_task_summarizer(),
             make_task_planner_tool(),
             make_task_progress_check_tool(),
@@ -262,10 +243,7 @@ def _home_tools(
         "task_interpreter",
         "target_grounder",
         "load_skill",
-        "robot_go_to",
         "observe",
-        "robot_manipulate",
-        "robot_verify",
         "task_summarizer",
         "task_planner",
         "task_progress_check",
@@ -284,9 +262,7 @@ def _home_tools(
                 tool,
                 environment="homemaster" if name == "load_skill" else "home",
                 policy=_policy_for(name, environment="home"),
-                state_effects=("backend.advance",)
-                if name in {"robot_go_to", "robot_manipulate"}
-                else (),
+                state_effects=(),
                 required_capabilities=("tool.read",) if name == "load_skill" else (),
             )
         )

@@ -5,19 +5,6 @@ from pathlib import Path
 
 from homemaster.skills.loader import load_skill_registry
 
-_HOME_TOOLS = (
-    "task_interpreter",
-    "memory_retriever",
-    "target_grounder",
-    "load_skill",
-    "robot_go_to",
-    "observe",
-    "robot_manipulate",
-    "robot_verify",
-    "memory_writer",
-    "task_summarizer",
-)
-
 
 def _write_skill(root: Path, name: str, description: str, tool: str = "observe") -> Path:
     path = root / name / "SKILL.md"
@@ -185,11 +172,11 @@ def test_plugin_skills_dir_symlink_must_remain_inside_plugin_root(tmp_path: Path
 
 def test_plugin_cannot_replace_builtin_without_named_authorization(tmp_path: Path) -> None:
     plugins = tmp_path / "plugins"
-    _write_plugin(plugins, "override-plugin", "fetch_object")
+    _write_plugin(plugins, "override-plugin", "change-ticket-executor")
 
     registry = load_skill_registry(plugin_roots=(plugins,))
 
-    skill = registry.get("fetch_object")
+    skill = registry.get("change-ticket-executor")
     assert skill is not None
     assert skill.description != "override-plugin description"
     assert [item.source for item in registry.provenance_for(skill)] == ["builtin"]
@@ -200,14 +187,14 @@ def test_plugin_cannot_replace_builtin_without_named_authorization(tmp_path: Pat
 
 def test_plugin_can_replace_builtin_with_named_authorization(tmp_path: Path) -> None:
     plugins = tmp_path / "plugins"
-    _write_plugin(plugins, "override-plugin", "fetch_object")
+    _write_plugin(plugins, "override-plugin", "change-ticket-executor")
 
     registry = load_skill_registry(
         plugin_roots=(plugins,),
-        allowed_builtin_overrides=("fetch_object",),
+        allowed_builtin_overrides=("change-ticket-executor",),
     )
 
-    skill = registry.get("fetch_object")
+    skill = registry.get("change-ticket-executor")
     assert skill is not None
     assert skill.description == "override-plugin description"
     assert [item.source for item in registry.provenance_for(skill)] == ["builtin", "plugin"]
@@ -232,14 +219,14 @@ def test_explicit_source_can_replace_builtin_only_with_recorded_provenance(
     tmp_path: Path,
 ) -> None:
     explicit = tmp_path / "explicit"
-    _write_skill(explicit, "fetch_object", "approved replacement")
+    _write_skill(explicit, "change-ticket-executor", "approved replacement")
 
     registry = load_skill_registry(
         explicit_dirs=(explicit,),
-        allowed_builtin_overrides=("fetch_object",),
+        allowed_builtin_overrides=("change-ticket-executor",),
     )
 
-    skill = registry.get("fetch_object")
+    skill = registry.get("change-ticket-executor")
     assert skill is not None
     assert skill.description == "approved replacement"
     assert [item.source for item in registry.provenance_for(skill)] == ["builtin", "explicit"]
@@ -249,7 +236,7 @@ def test_explicit_source_cannot_replace_builtin_without_named_authorization(
     tmp_path: Path,
 ) -> None:
     explicit = tmp_path / "explicit"
-    _write_skill(explicit, "fetch_object", "unapproved replacement")
+    _write_skill(explicit, "change-ticket-executor", "unapproved replacement")
 
     try:
         load_skill_registry(
@@ -269,7 +256,7 @@ def test_automatic_skill_text_cannot_grant_an_unavailable_tool(
 
     registry = load_skill_registry(user_dirs=(user,))
 
-    assert registry.get("fetch_object") is not None
+    assert registry.get("change-ticket-executor") is not None
     unsafe = registry.get("unsafe")
     assert unsafe is not None
     assert "robot_admin" in unsafe.content

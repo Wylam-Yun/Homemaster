@@ -128,7 +128,7 @@ def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider
                 text="hello",
                 session_id="entry-one",
                 profile="home",
-                environment=HomeCliBackend(world_path=None, memory_path=None),
+                environment=HomeCliBackend(memory_path=None),
             )
         )
         await bundle.application.aclose()
@@ -218,7 +218,7 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
                 text="first",
                 session_id="resumable",
                 profile="home",
-                environment=HomeCliBackend(world_path=None, memory_path=None),
+                environment=HomeCliBackend(memory_path=None),
             )
         )
         compact = await first.application.compact("resumable")
@@ -238,7 +238,7 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
                 session_id="resumable",
                 profile="home",
                 resume=True,
-                environment=HomeCliBackend(world_path=None, memory_path=None),
+                environment=HomeCliBackend(memory_path=None),
             )
         )
         revision = second.application.status("resumable").revision

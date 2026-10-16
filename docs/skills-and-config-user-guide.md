@@ -171,7 +171,7 @@ skills:
   explicit_dirs:
     - ~/.homemaster/approved-skills
   allowed_builtin_overrides:
-    - fetch_object
+    - change-ticket-executor
 ```
 
 Skill 文件和它引用的资源在读取前都会解析真实路径，并要求仍位于授权 root。绝对路径、`..`

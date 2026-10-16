@@ -17,7 +17,6 @@ def build_dry_run_preview(
     prompt: str | None,
     config: HomeMasterConfig | None = None,
     config_path: Path | None = None,
-    world_path: Path | None = None,
     memory_path: Path | None = None,
     provider_name: str | None = None,
     model: str | None = None,
@@ -49,7 +48,6 @@ def build_dry_run_preview(
         }
     registry = build_tool_registry(
         environment="local_robot",
-        world_path=world_path,
         memory_path=memory_path,
         # Mirror compose_application: the files tier is a dependency-free
         # always-on tier, so memory tools exist whenever it is selected.

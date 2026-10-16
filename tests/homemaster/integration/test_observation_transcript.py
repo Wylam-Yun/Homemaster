@@ -37,8 +37,8 @@ async def test_explicit_screenshot_is_image_only_and_creates_no_action_debt() ->
     registry = build_tool_registry(environment="local_robot")
     backend = Backend()
     observe = registry.get("observe")
-    action = registry.get("robot_go_to")
-    assert observe is not None and action is not None
+    assert observe is not None
+    assert registry.get("robot_go_to") is None
 
     result = await execute(
         registry,
@@ -57,4 +57,3 @@ async def test_explicit_screenshot_is_image_only_and_creates_no_action_debt() ->
     assert result.text == ""
     assert len(result.images) == 1
     assert result.images[0].media_type == "image/png"
-    assert action.name == "robot_go_to"

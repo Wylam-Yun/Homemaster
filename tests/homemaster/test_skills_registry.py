@@ -12,8 +12,8 @@ def test_bundled_and_home_builtin_skills_register_as_full_markdown_packages() ->
     load_builtin_skills(registry)
 
     names = set(registry.all_names())
-    assert {"skill-creator", "commit", "fetch_object", "check_object_state"} <= names
-    skill = registry.get("fetch_object")
+    assert {"skill-creator", "commit", "change-ticket-executor"} <= names
+    skill = registry.get("change-ticket-executor")
     assert skill is not None
     assert skill.content.startswith("---")
     assert skill.base_dir is not None

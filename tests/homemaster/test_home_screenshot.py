@@ -18,7 +18,7 @@ async def test_home_backend_encodes_the_current_display_as_png(monkeypatch) -> N
 
     monkeypatch.setenv("DISPLAY", ":99")
     monkeypatch.setattr(ImageGrab, "grab", grab)
-    backend = HomeCliBackend(world_path=None, memory_path=None)
+    backend = HomeCliBackend(memory_path=None)
 
     screenshot = await backend.screenshot()
 

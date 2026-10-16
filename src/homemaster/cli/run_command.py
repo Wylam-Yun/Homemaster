@@ -50,7 +50,6 @@ class OneShotExecution:
 def execute_one_shot(
     *,
     prompt: str,
-    world_path: Path | None = None,
     memory_path: Path | None = None,
     run_label: str | None = None,
     progress: bool = False,
@@ -85,7 +84,6 @@ def execute_one_shot(
     try:
         bundle = compose_application(
             config=config,
-            world_path=world_path,
             memory_path=memory_path,
             run_label=run_label,
             progress=progress,
@@ -127,7 +125,6 @@ def execute_one_shot(
                         ),
                         dependencies={"skill_registry": bundle.skill_registry},
                         environment=HomeCliBackend(
-                            world_path=world_path,
                             memory_path=memory_path,
                         ),
                     )
@@ -154,7 +151,6 @@ def execute_one_shot(
 def handle_run(
     *,
     utterance: str | None,
-    world_path: Path | None = None,
     memory_path: Path | None = None,
     run_id: str | None = None,
     log_level: str = "INFO",
@@ -175,7 +171,6 @@ def handle_run(
         raise ValueError("--utterance is required")
     execution = execute_one_shot(
         prompt=utterance,
-        world_path=world_path,
         memory_path=memory_path,
         run_label=run_id,
         progress=progress,

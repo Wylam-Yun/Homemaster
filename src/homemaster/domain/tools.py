@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from homemaster.domain.home_backend import HomeBackendReceipt
 from homemaster.tools.contracts import (
     RegisteredTool,
     ToolDefinition,
@@ -45,39 +43,6 @@ def _failure(code: str, message: str, *, attempted: bool = False) -> ToolExecuti
         status=ToolExecutionStatus.FAILURE,
         error=ToolExecutionError(code=code, message=message),
         backend_attempted=attempted,
-    )
-
-
-def _home_backend(context: ToolExecutionContext) -> Any:
-    backend = context.backend or context.services.get("backend")
-    if backend is None or not callable(getattr(backend, "go_to", None)):
-        return None
-    return backend
-
-
-def _home_receipt_result(receipt: HomeBackendReceipt, *, action: str) -> ToolExecutionResult:
-    data = {
-        "action": action,
-        "external_return_code": receipt.external_return_code,
-        "backend_code": receipt.code,
-        "state": dict(receipt.state),
-    }
-    if receipt.ok:
-        return _result(
-            text=receipt.detail,
-            data=data,
-            evidence_refs=(receipt.evidence_ref,),
-            backend_attempted=True,
-            external_return_code=receipt.external_return_code,
-        )
-    return ToolExecutionResult(
-        status=ToolExecutionStatus.FAILURE,
-        text=receipt.detail,
-        data=data,
-        evidence_refs=(receipt.evidence_ref,),
-        error=ToolExecutionError(code=receipt.code, message=receipt.detail),
-        backend_attempted=True,
-        external_return_code=receipt.external_return_code,
     )
 
 
@@ -222,67 +187,6 @@ async def _load_skill(
     )
 
 
-async def _robot_go_to(
-    arguments: dict[str, Any], context: ToolExecutionContext
-) -> ToolExecutionResult:
-    backend = _home_backend(context)
-    if backend is None:
-        return _failure("backend_unavailable", "HomeWorld backend is not configured")
-    target = arguments.get("room_hint", arguments.get("target_room", ""))
-    try:
-        receipt = backend.go_to(str(target))
-        if inspect.isawaitable(receipt):
-            receipt = await receipt
-    except Exception as exc:
-        return _failure("backend_error", f"HomeWorld navigation failed: {exc}", attempted=True)
-    if not isinstance(receipt, HomeBackendReceipt):
-        return _failure(
-            "backend_protocol_error",
-            "HomeWorld navigation returned no typed receipt",
-            attempted=True,
-        )
-    return _home_receipt_result(receipt, action="go_to")
-
-
-async def _robot_manipulate(
-    arguments: dict[str, Any], context: ToolExecutionContext
-) -> ToolExecutionResult:
-    action = arguments.get("action", "pick_up")
-    target = arguments.get("target_object", "unknown")
-    backend = _home_backend(context)
-    if backend is None or not callable(getattr(backend, "manipulate", None)):
-        return _failure("backend_unavailable", "HomeWorld backend is not configured")
-    try:
-        receipt = backend.manipulate(
-            action=str(action),
-            target=str(target),
-            receptacle=arguments.get("target_receptacle"),
-        )
-        if inspect.isawaitable(receipt):
-            receipt = await receipt
-    except Exception as exc:
-        return _failure("backend_error", f"HomeWorld manipulation failed: {exc}", attempted=True)
-    if not isinstance(receipt, HomeBackendReceipt):
-        return _failure(
-            "backend_protocol_error",
-            "HomeWorld manipulation returned no typed receipt",
-            attempted=True,
-        )
-    return _home_receipt_result(receipt, action=str(action))
-
-
-async def _robot_verify(
-    arguments: dict[str, Any], context: ToolExecutionContext
-) -> ToolExecutionResult:
-    del context
-    target = arguments.get("target_object", "unknown")
-    expected = arguments.get("expected_state", "delivered")
-    return _result(
-        text=f"Verified {target} ({expected})",
-        data={"verified": True, "target_object": target, "expected_state": expected},
-    )
-
-
 async def _memory_writer(
     arguments: dict[str, Any], context: ToolExecutionContext
 ) -> ToolExecutionResult:
@@ -381,8 +285,7 @@ def make_memory_retriever(*, memory_path: Any = None) -> RegisteredTool:
     )
 
 
-def make_target_grounder(*, world_path: Any = None) -> RegisteredTool:
-    del world_path
+def make_target_grounder() -> RegisteredTool:
     return _registered(
         name="target_grounder",
         description="Assess memory hits and select a grounded target for execution.",
@@ -410,59 +313,6 @@ def make_load_skill() -> RegisteredTool:
             "additionalProperties": False,
         },
         function=_load_skill,
-    )
-
-
-def make_robot_go_to() -> RegisteredTool:
-    return _registered(
-        name="robot_go_to",
-        description="Navigate robot to a target location.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "room_hint": {"type": "string", "description": "Target room."},
-                "target_room": {"type": "string", "description": "Target room."},
-            },
-            "anyOf": [{"required": ["room_hint"]}, {"required": ["target_room"]}],
-        },
-        function=_robot_go_to,
-        state_effects=("backend.advance",),
-    )
-
-
-def make_robot_manipulate() -> RegisteredTool:
-    return _registered(
-        name="robot_manipulate",
-        description="Manipulate an object (pick up, put down, and related actions).",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "description": "Action to perform."},
-                "target_object": {"type": "string", "description": "Object to manipulate."},
-                "target_receptacle": {
-                    "type": "string",
-                    "description": "Receptacle for put/place actions.",
-                },
-            },
-            "required": ["action", "target_object"],
-        },
-        function=_robot_manipulate,
-        state_effects=("backend.advance",),
-    )
-
-
-def make_robot_verify() -> RegisteredTool:
-    return _registered(
-        name="robot_verify",
-        description="Verify whether a task objective is achieved.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "target_object": {"type": "string", "description": "Object to verify."},
-                "expected_state": {"type": "string", "description": "Expected state."},
-            },
-        },
-        function=_robot_verify,
     )
 
 
@@ -513,9 +363,6 @@ __all__ = [
     "make_load_skill",
     "make_memory_retriever",
     "make_memory_writer",
-    "make_robot_go_to",
-    "make_robot_manipulate",
-    "make_robot_verify",
     "make_target_grounder",
     "make_task_interpreter",
     "make_task_summarizer",

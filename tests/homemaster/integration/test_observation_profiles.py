@@ -18,7 +18,7 @@ def test_environment_registries_expose_only_the_selected_surface() -> None:
 
     assert {"terminal", "search_files", "observe", "ask_user_question"} <= common
     assert not {"robot_go_to", "browser_navigate"} & common
-    assert {"robot_go_to", "robot_manipulate"} <= local_robot
+    assert not {"robot_go_to", "robot_manipulate", "robot_verify"} & local_robot
     assert "browser_navigate" not in local_robot
     assert {"robot_go_to", "robot_manipulate"} <= alfworld
     assert "browser_navigate" not in alfworld

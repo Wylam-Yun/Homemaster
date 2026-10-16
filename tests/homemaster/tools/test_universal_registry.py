@@ -234,7 +234,7 @@ def test_composed_registry_preserves_execution_safety_capabilities() -> None:
         "tool.mutate",
         "process.exec",
     }
-    assert "device.control" in registry.get("robot_go_to").required_capabilities
+    assert registry.get("robot_go_to") is None
     assert "device.read" in registry.get("observe").required_capabilities
 
 

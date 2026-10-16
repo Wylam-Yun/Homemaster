@@ -200,7 +200,6 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
     assert ANT_ORIGIN is not None
     registry = build_tool_registry(
         environment="local_robot",
-        world_path=None,
         memory_path=None,
         runtime_memory_root=tmp_path / "memory",
     )

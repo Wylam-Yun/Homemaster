@@ -9,7 +9,7 @@ Entry points after the web-first rearrangement:
   points at a managed one); ``shell --local`` keeps the in-process shell;
 * ``homemaster run`` / ``-p`` — one-shot thin-client run streaming WebEvents;
   ``--local`` keeps the in-process compose path, and compose-time flags
-  (``--world``/``--memory``/``--alfworld``/``--browser``) are legal only there;
+  (``--memory``/``--alfworld``/``--browser``) are legal only there;
 * ``serve``/``doctor``/``memory``/``session``/``cron``/``benchmark-*`` stay
   local machine-management commands.
 """
@@ -453,10 +453,6 @@ def run_command(
         str | None,
         typer.Option("--server", help="HomeMaster server URL (or HOMEMASTER_SERVER)."),
     ] = None,
-    world_path: Annotated[
-        Path | None,
-        typer.Option("--world", help="Optional world.json override (--local only)."),
-    ] = None,
     memory_path: Annotated[
         Path | None,
         typer.Option("--memory", help="Optional base memory.json override (--local only)."),
@@ -517,7 +513,6 @@ def run_command(
 
     try:
         for flag, value in (
-            ("--world", world_path),
             ("--memory", memory_path),
             ("--run-id", run_id),
         ):
@@ -530,7 +525,6 @@ def run_command(
         if local:
             handle_run(
                 utterance=utterance,
-                world_path=world_path,
                 memory_path=memory_path,
                 run_id=run_id,
                 log_level=log_level,

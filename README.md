@@ -11,10 +11,6 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 飞书消息通道与 MCP 扩展生态。同一套 Runtime 驱动 CLI、交互 Shell、本地 Web Console、飞书 Gateway
 （含 ALFWorld 具身环境与通用浏览器两种模式）以及 ALFWorld benchmark。
 
-> [!IMPORTANT]
-> 机器人 skill 当前运行在 `skill_mode=simulated`：navigation / operation / verification
-> 由模拟执行器完成，尚未接入真实机器人、VLA 或 VLM。详见[当前边界](#当前边界)。
-
 ## 目录
 
 - [核心能力](#核心能力)
@@ -39,8 +35,9 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 - **通用工具集** — 文件（`read_file` / `write_file` / `edit_file` / `search_files`）、`terminal`
   （模型自选命令，Runtime 管工作目录、超时、取消与进程组清理）、联网、LSP、图片生成/理解、
   计划模式、配置、Cron、后台任务、子 agent 与团队协作。
-- **领域机器人工具** — `robot_go_to`、`robot_manipulate`、`robot_verify`、`task_progress_check`
-  和共用的画面截图工具 `observe`。
+- **具身环境工具** — `robot_go_to`、`robot_manipulate`、`robot_verify` 仅在接入外部
+  模拟器（`--alfworld` / RoboCasa）时注册；本地 home 环境不内置机器人后端。`observe`
+  为共用的画面截图工具。
 - **分层记忆系统** — `SOUL.md` / `USER.md` / `MEMORY.md` 三层本地文件记忆 + embedded MindMemOS
   结构化检索（本地 Qdrant + Neo4j）；支持自动召回、用户反馈纠正、会话结束隐式反馈，以及每 8 条有效
   新增记忆触发的可恢复 dreaming。具有明确结束点的入口共用异步 Session Finalizer；切换 session 不等待，
@@ -85,7 +82,7 @@ flowchart LR
     end
 
     PERM --> TOOLS[通用工具<br/>文件 / terminal / Web / LSP / Cron / 子 agent]
-    PERM --> DOMAIN[领域工具<br/>robot_go_to / manipulate / verify / observe]
+    PERM --> DOMAIN[具身环境工具<br/>ALFWorld / RoboCasa robot_* / observe]
     PERM --> BROWSER[浏览器工具<br/>DOM / AX / semantic refs / screenshots]
     PERM --> MCP[MCP Servers<br/>stdio / HTTP]
     RT --> MEM[记忆系统<br/>SOUL/USER/MEMORY + MindMemOS<br/>Qdrant + Neo4j]
@@ -383,8 +380,8 @@ Skill 是 OpenHarness 兼容的按需 instruction document：模型先看名称�
 plugin Python）。
 
 内置 bundled skills：`commit` / `debug` / `diagnose` / `plan` / `review` / `simplify` /
-`skill-creator` / `test`；builtin skills：`change-ticket-executor` / `check_object_state` /
-`fetch_object`。完整示例见 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。
+`skill-creator` / `test`；builtin skills：`change-ticket-executor`。完整示例见
+[Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。
 
 ## MCP 扩展
 
@@ -537,8 +534,8 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
 
 - **真实** — Mimo chat provider；SiliconFlow `Qwen/Qwen3-Embedding-8B` 4096 维 embedding；
   文件记忆、embedded Qdrant/BM25 检索与证据门；飞书 Gateway 文本/媒体主链路。
-- **模拟** — navigation / operation / verification 机器人 skill（`skill_mode=simulated`），
-  未接真实机器人、VLA、VLM。
+- **机器人** — 本地不内置机器人后端（原 `world.json` 模拟世界已移除）；`robot_*` 工具
+  只在 `--alfworld`（THOR 模拟器）或 RoboCasa benchmark 环境下注册。
 - **Benchmark** — `AlfredThorEnv` 已接入 trial/reset/snapshot/typed-feedback 产品边界，内部回归通过，
   但完整 Gate B 与十 Episode 真实 API 证据仍不可用（Gate A 19/20，不能宣称完整 PASS）。
   Browser V3.1 已通过通用 DOM/ARIA fixture 与 Ant Design Pro 工作流门；真实业务成功仍需独立后端终态。
