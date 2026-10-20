@@ -11,6 +11,13 @@
   `docs/reports/robocasa-composite-seen-s1-findings-2026-10-16.md` (H1,
   H4); the H2 embedding-400 distillation gap is still open.
 
+- MindMemOS `close_llm_clients()` now sweeps every cached async client
+  generically (`aclose()`/`close()` duck-typing over litellm's
+  module-level cache and each Router's DualCache) and closes the shared
+  `aclient_session`; `close_litellm_async_clients`'s type matching missed
+  `AsyncOpenAI`-style entries, leaving their aiohttp sessions for the GC
+  to report as "Unclosed client session" during long runs.
+
 - Fixed tool-call argument loss for models that write the real call as
   `<tool_call>` markup in the reply text while streaming an empty
   structured `tool_use` input (observed as `search_files` failing three

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
+from typing import Any
+
 import litellm
 
 from ..config import get_config
@@ -9,7 +12,7 @@ from ..errors import InvalidConfigError
 from .chat import LLMClient
 from .embedding import EmbedClient
 from .rerank import RerankClient
-from .router import clear_router_cache, get_router
+from .router import _ROUTER_CACHE, clear_router_cache, get_router
 
 
 def init_llm_client() -> LLMClient:
@@ -116,8 +119,67 @@ def reset_clients() -> None:
     clear_router_cache()
 
 
+async def _close_cached_clients(cache_dict: Any) -> None:
+    """Generically close every client object held in a litellm cache dict.
+
+    ``close_litellm_async_clients`` only knows ``BaseLLMAIOHTTPHandler`` and
+    objects exposing ``.client``/``.aclose`` in a specific shape — cached
+    ``AsyncOpenAI`` SDK clients (which wrap an httpx client whose transport
+    may back an aiohttp ``ClientSession``) match none of those branches and
+    survive until GC reports "Unclosed client session". Walk the dict and use
+    ``aclose()``/``close()`` duck-typing instead.
+    """
+    if not isinstance(cache_dict, dict):
+        return
+    for client in list(cache_dict.values()):
+        closer = getattr(client, "aclose", None)
+        if not callable(closer):
+            closer = getattr(client, "close", None)
+        if not callable(closer):
+            continue
+        try:
+            result = closer()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            continue
+
+
+async def _close_router_cached_clients(router: Any) -> None:
+    """Close async clients a litellm Router holds in its own DualCache.
+
+    Defensive: current litellm keeps deployment clients only in the
+    module-level ``in_memory_llm_clients_cache``, but Router internals have
+    varied across versions — sweep its per-instance cache too since it is
+    about to be dropped from ``_ROUTER_CACHE``.
+    """
+    cache = getattr(router, "cache", None)
+    in_memory = getattr(cache, "in_memory_cache", None)
+    await _close_cached_clients(getattr(in_memory, "cache_dict", None))
+
+
 async def close_llm_clients() -> None:
     """Close LiteLLM-managed async HTTP clients and drop cached Routers."""
+    # Close the module-level client cache first with our generic walker —
+    # ``close_litellm_async_clients``'s type matching misses AsyncOpenAI-style
+    # entries, leaving their aiohttp sessions for the GC to warn about.
+    await _close_cached_clients(
+        getattr(litellm.in_memory_llm_clients_cache, "cache_dict", None)
+    )
+    for entry in list(_ROUTER_CACHE.values()):
+        router = entry[0] if isinstance(entry, tuple) else entry
+        try:
+            await _close_router_cached_clients(router)
+        except Exception:
+            continue
     clear_router_cache()
     await litellm.close_litellm_async_clients()
+    shared_session = getattr(litellm, "aclient_session", None)
+    if shared_session is not None:
+        try:
+            result = shared_session.close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            pass
     litellm.aclient_session = None
