@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeMaster · Agent 系统架构图</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --ink:#1c2434; --ink2:#4a5568; --ink3:#7a8699;
+    --line:#d8dde6; --accent:#2f5fd0; --accent-soft:#e8effc;
+    --c-control:#34517e; --c-data:#2b7fc4; --c-state:#8b5cf6; --c-memory:#0d9488;
+    --c-approval:#d97706; --c-observe:#94a3b8; --c-extern:#a5b0bf;
+    --shadow:0 1px 3px rgba(20,30,55,.10),0 4px 14px rgba(20,30,55,.06);
+    --mono:"SF Mono",Menlo,Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Segoe UI","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden;
+  }
+  /* ---------- header ---------- */
+  header{
+    flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:10px 18px;
+    background:var(--panel);border-bottom:1px solid var(--line);z-index:30;
+  }
+  .logo{font-size:17px;font-weight:800;letter-spacing:.3px}
+  .logo em{font-style:normal;color:var(--accent)}
+  .subtitle{font-size:12px;color:var(--ink3);margin-top:1px}
+  nav.modes{display:flex;gap:6px;margin-left:18px}
+  .modes button{
+    border:1px solid var(--line);background:#f8fafc;color:var(--ink2);font-size:13px;
+    padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:600;transition:.15s;
+  }
+  .modes button:hover{border-color:var(--accent);color:var(--accent)}
+  .modes button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .head-right{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3)}
+  /* ---------- layout ---------- */
+  main{flex:1;display:flex;min-height:0}
+  #canvasWrap{flex:1;position:relative;overflow:hidden;background:
+    radial-gradient(circle at 30% 20%,#fbfcfe 0%,var(--bg) 60%)}
+  svg{width:100%;height:100%;display:block;cursor:grab}
+  svg.dragging{cursor:grabbing}
+  aside{
+    flex:0 0 372px;border-left:1px solid var(--line);background:var(--panel);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  /* ---------- side panel ---------- */
+  .tabs{display:flex;gap:4px;padding:10px 12px 0;border-bottom:1px solid var(--line)}
+  .tabs button{
+    flex:1;border:none;background:none;font-size:12.5px;font-weight:700;color:var(--ink3);
+    padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent;
+  }
+  .tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+  #panelBody{flex:1;overflow-y:auto;padding:14px 16px;font-size:13px;line-height:1.62}
+  #panelBody h3{font-size:16px;margin:2px 0 2px}
+  #panelBody h4{font-size:12px;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 5px}
+  .en{font-family:var(--mono);font-size:12.5px;color:var(--accent);word-break:break-all}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1.5px 7px;border-radius:99px;margin:2px 4px 2px 0}
+  .tag.layer{background:var(--accent-soft);color:var(--accent)}
+  .tag.warn{background:#fdf0dd;color:#b45309}
+  .tag.ok{background:#e6f6f3;color:#0f766e}
+  .files li{font-family:var(--mono);font-size:11.5px;color:var(--ink2);margin:3px 0;list-style:none;word-break:break-all}
+  .files li::before{content:"› ";color:var(--accent)}
+  ul.plain{padding-left:18px}
+  ul.plain li{margin:3px 0}
+  .muted{color:var(--ink3)}
+  .gloss dt{font-weight:700;margin-top:10px}
+  .gloss dt span{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:12px}
+  .gloss dd{margin:2px 0 4px 0;color:var(--ink2)}
+  .card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:#fbfcfe}
+  .card h5{font-size:13.5px;margin-bottom:4px}
+  .card .num{display:inline-block;background:var(--accent);color:#fff;font-size:11px;font-weight:800;
+    width:20px;height:20px;border-radius:6px;text-align:center;line-height:20px;margin-right:7px}
+  .bd li{margin:6px 0 6px 2px;list-style:none;padding-left:14px;position:relative}
+  .bd li::before{content:"—";position:absolute;left:0;color:#c0392b}
+  .bd code{font-family:var(--mono);font-size:11px;background:#f1f4f9;padding:0 4px;border-radius:4px}
+  .jumplink{display:inline-block;margin-top:10px;padding:7px 14px;border-radius:8px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none}
+  /* ---------- toolbar overlays ---------- */
+  .chips{position:absolute;top:12px;left:14px;display:flex;flex-wrap:wrap;gap:6px;z-index:10;max-width:76%}
+  .chip{
+    border:1px solid var(--line);background:rgba(255,255,255,.94);color:var(--ink2);
+    font-size:12px;padding:5px 11px;border-radius:99px;cursor:pointer;font-weight:600;
+    box-shadow:var(--shadow);transition:.15s;
+  }
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .chip.hint{cursor:default;color:var(--ink3);box-shadow:none;background:rgba(255,255,255,.8)}
+  .legend{
+    position:absolute;left:14px;bottom:12px;z-index:10;background:rgba(255,255,255,.95);
+    border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:11px;color:var(--ink2);
+    box-shadow:var(--shadow);display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-width:76%;
+  }
+  .legend .li{display:flex;align-items:center;gap:5px}
+  .legend svg{display:block}
+  .zoomctl{position:absolute;right:14px;top:12px;z-index:10;display:flex;gap:5px}
+  .zoomctl button{
+    width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:8px;
+    font-size:15px;cursor:pointer;color:var(--ink2);box-shadow:var(--shadow);
+  }
+  .zoomctl button:hover{color:var(--accent);border-color:var(--accent)}
+  /* ---------- tour bar ---------- */
+  #tourBar{
+    position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:12;
+    width:min(880px,88%);background:rgba(255,255,255,.97);border:1px solid var(--line);
+    border-radius:12px;box-shadow:0 6px 24px rgba(20,30,55,.14);padding:10px 14px;display:none;
+  }
+  #tourBar.show{display:block}
+  .tour-top{display:flex;align-items:center;gap:10px}
+  .tour-top .stepno{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .tour-top .stitle{font-size:13.5px;font-weight:700;flex:1}
+  .tour-btns{display:flex;gap:6px}
+  .tour-btns button{
+    border:1px solid var(--line);background:#fff;border-radius:7px;font-size:12px;
+    padding:4px 12px;cursor:pointer;font-weight:600;color:var(--ink2);
+  }
+  .tour-btns button:hover{color:var(--accent);border-color:var(--accent)}
+  .tour-script{font-size:12.5px;color:var(--ink2);margin-top:6px;line-height:1.6}
+  .tour-script code{font-family:var(--mono);font-size:11px;background:#f1f4f9;padding:0 3px;border-radius:3px}
+  /* ---------- svg elements ---------- */
+  .band{fill:#eceff4;stroke:#d4dae4;stroke-width:1;rx:10}
+  .bandLbl{font-size:11.5px;font-weight:800;fill:#8a94a6;letter-spacing:1.6px}
+  .bandSub{font-size:9.5px;fill:#a5adbb;letter-spacing:.4px}
+  .railbox{fill:#f3f6f9;stroke:#ccd4de;stroke-dasharray:5 4;rx:10}
+  .seclbl{font-size:12px;font-weight:800;fill:#96a0b1;letter-spacing:2.4px}
+  .secsub{font-size:9.5px;fill:#aab2c0;letter-spacing:.4px}
+  .node{cursor:pointer}
+  .node rect{fill:#fff;stroke:#c6cedb;stroke-width:1.2;filter:drop-shadow(0 1px 2px rgba(20,30,55,.08))}
+  .node .bar{fill:var(--accent)}
+  .node text{pointer-events:none}
+  .node .nCn{font-size:15px;font-weight:800;fill:var(--ink)}
+  .node .nCnS{font-size:12.5px;font-weight:800;fill:var(--ink)}
+  .node .nEn{font-size:10px;font-weight:600;fill:var(--accent);font-family:var(--mono)}
+  .node .nRole{font-size:10px;fill:var(--ink3)}
+  .node .nFull{font-size:11.5px;font-weight:800;fill:var(--ink)}
+  .node .nFullCn{font-size:10px;fill:var(--ink3)}
+  .node:hover rect{stroke:var(--accent);stroke-width:1.8}
+  .node.sel rect{stroke:var(--accent);stroke-width:2.2;filter:drop-shadow(0 3px 8px rgba(47,95,208,.25))}
+  .node.plane rect{fill:#fbfdff;stroke:#b9c5d6}
+  .node.iochip rect{fill:#f0f4fa;stroke:#9fb0c8;stroke-dasharray:4 3;filter:none}
+  .node.navchip rect{fill:#fff8ec;stroke:#d9a45b;stroke-dasharray:4 3;filter:none}
+  .badge{font-size:8.5px;font-weight:800}
+  .edge{fill:none;stroke-width:1.6;opacity:.9;stroke-linejoin:round;stroke-linecap:round}
+  .edge.control{stroke:var(--c-control);stroke-width:2}
+  .edge.data{stroke:var(--c-data);stroke-dasharray:6 4}
+  .edge.state{stroke:var(--c-state);stroke-dasharray:2 3}
+  .edge.memory{stroke:var(--c-memory)}
+  .edge.approval{stroke:var(--c-approval);stroke-dasharray:9 3 2 3;opacity:.6}
+  .edge.approval.on{opacity:1}
+  .edge.observe{stroke:var(--c-observe);stroke-width:1.2;opacity:.65}
+  .edge.extern{stroke:var(--c-extern);stroke-dasharray:3 3;stroke-width:1.1;opacity:.55}
+  .elabel{font-size:10px;fill:#4c5866;paint-order:stroke;stroke:#f5f6f8;stroke-width:4px;display:none}
+  .elabel.on{display:block}
+  .elabel.always{display:block}
+  .node.dim,.edge.dim,.elabel.dim,.band.dim,.deco.dim{opacity:.07;transition:opacity .25s}
+  .lit{opacity:1;transition:opacity .25s}
+  .edge.on{stroke-width:3;opacity:1}
+  .node.litn rect{stroke-width:2.2;filter:drop-shadow(0 2px 7px rgba(20,30,55,.2))}
+  .stepnum{font-size:10px;font-weight:800;fill:#fff}
+  .stepcirc{fill:var(--accent)}
+  ::-webkit-scrollbar{width:9px}
+  ::-webkit-scrollbar-thumb{background:#cbd3df;border-radius:6px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="logo">HomeMaster <em>· Agent 系统架构图</em></div>
+    <div class="subtitle">LLM-first 通用 Agent 运行时 · 单一 ApplicationRuntime · vendored AgentScope ReAct · 源码级调研（file:line 可追溯）</div>
+  </div>
+  <nav class="modes">
+    <button data-mode="l1" class="on">总体架构</button>
+    <button data-mode="sub">核心子系统</button>
+    <button data-mode="full">完整架构图</button>
+    <button data-mode="tour">讲解模式</button>
+    <button data-mode="cards">亮点与边界</button>
+  </nav>
+  <div class="head-right"><span id="stat"></span></div>
+</header>
+<main>
+  <div id="canvasWrap">
+    <svg id="svg" viewBox="0 0 1600 800" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7b8794"></path>
+        </marker>
+      </defs>
+      <g id="world"></g>
+    </svg>
+    <div class="chips" id="chips"></div>
+    <div class="zoomctl">
+      <button id="zin" title="放大">+</button><button id="zout" title="缩小">−</button><button id="zfit" title="复位">⤢</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div id="tourBar">
+      <div class="tour-top">
+        <span class="stepno" id="tNo"></span><span class="stitle" id="tTitle"></span>
+        <div class="tour-btns">
+          <button id="tPrev">← 上一步</button><button id="tNext">下一步 →</button><button id="tAuto">▶ 自动</button>
+        </div>
+      </div>
+      <div class="tour-script" id="tScript"></div>
+    </div>
+  </div>
+  <aside>
+    <div class="tabs">
+      <button class="on" data-tab="detail">模块详情</button>
+      <button data-tab="gloss">术语表</button>
+      <button data-tab="cards">亮点/边界</button>
+    </div>
+    <div id="panelBody"></div>
+  </aside>
+</main>
+<script>
+"use strict";
+/* =====================================================================
+   数据模型：三级信息层级
+   L1 = 总览（主链路 5 节点 + 4 支撑面）   L2 = 6 个子系统展开
+   L3 = 完整 46 节点图 + 详情面板 file:line
+   ===================================================================== */
+const EDGE_TYPES={
+ control:{name:"控制流（主调用）",color:"#34517e",dash:""},
+ data:{name:"数据/反馈流",color:"#2b7fc4",dash:"6 4"},
+ state:{name:"状态流",color:"#8b5cf6",dash:"2 3"},
+ memory:{name:"记忆流",color:"#0d9488",dash:""},
+ approval:{name:"审批流",color:"#d97706",dash:"9 3 2 3"},
+ observe:{name:"事件/观测",color:"#94a3b8",dash:""},
+ extern:{name:"外部调用",color:"#a5b0bf",dash:"3 3"},
+};
+/* ============================ L1 总览 ============================ */
+const L1={
+ vw:1600,vh:800,
+ decor:[
+  {t:"txt",x:60,y:250,cls:"seclbl",s:"主执行链路 · MAIN FLOW"},
+  {t:"txt",x:60,y:266,cls:"secsub",s:"用户任务 → 五环节 → 环境执行 → 观察回流 · 点击模块进入子系统"},
+  {t:"txt",x:382,y:528,cls:"seclbl",s:"横向支撑能力 · CROSS-CUTTING PLANES"},
+ ],
+ nodes:[
+ {id:"entry",x:60,y:300,w:230,h:120,kind:"big",cn:"任务入口",en:"Entry Adapters",role:"5 类入口 → 统一 RunRequest",
+  desc:"CLI / Interactive Shell、Web Console(FastAPI+React)、Feishu Gateway、ALFWorld Benchmark、Browser —— 全部入口只做适配：把外部输入翻译成不可变 RunRequest，不持有任何运行时。",
+  io:"in: 用户指令/事件 → out: RunRequest",files:["cli/app.py","web/serve.py","channels/impl/feishu.py","alfworld/benchmark/runner.py","browser/application.py"],
+  rel:[],value:"五个入口零份重复的运行时——任何渠道 bug 修一次，全渠道受益。"},
+ {id:"apprt",x:382,y:300,w:230,h:120,kind:"big",cn:"应用运行时",en:"ApplicationRuntime + Session",role:"唯一Runtime·会话生命周期·代际栅栏",sub:"harness",
+  desc:"全系统唯一的应用级生命周期 owner：run() 准入→open_or_resume→turn(generation+1)→RunDriver→commit_and_save；cancel=generation 自增。",
+  io:"in: RunRequest → out: RunResult",files:["application/runtime.py:167,268-345","application/session.py:98-216","application/composition/base.py"],
+  rel:["driver","sessmgr","sessfs"],value:"入口差异在它之下完全消失。"},
+ {id:"engine",x:704,y:300,w:230,h:120,kind:"big",cn:"Agent 决策引擎",en:"AsAgentRuntime ⊃ ReAct",role:"决策循环·权威留在 HM",sub:"harness",
+  desc:"HM 语义外壳包裹 vendored AgentScope ReAct 循环：AS 原生 context mutator/injection/ASK 全关，deadline/取消/迭代守卫/上下文/权限权威全在 HM。",
+  io:"in: 装配好的 run → out: tool_call / final reply",files:["substrate/runtime.py:127-446,909-945","src/agentscope/agent/_agent.py"],
+  rel:["asagent","mw","toolsexec"],value:"借引擎不借语义——引擎可替换，宿主语义不变。"},
+ {id:"toolgate",x:1026,y:300,w:230,h:120,kind:"big",cn:"统一工具门",en:"ToolExecutor",role:"唯一路径·权限·租约·结果分类",sub:"tools",
+  desc:"所有工具调用（通用/领域/MCP/扩展）过同一条链：参数校验→evaluate_tool→physical 分支/资源租约→wait_for(deadline)→异常与终态分类→artifact 发布。",
+  io:"in: ToolExecutionContext → out: ToolExecutionResult",files:["application/tool_executor.py:26-335","tools/executor.py:223-1171"],
+  rel:["perm","devices","registry"],value:"没有第二条工具路径——治理点只有一个。"},
+ {id:"env",x:1348,y:300,w:230,h:120,kind:"big",cn:"执行环境",en:"Domain Adapters",role:"三类环境注入·权威终态",sub:"env",
+  desc:"三种环境=三个 profile 注入同一 Runtime：HomeWorld 文件型模拟、ALFWorld Harness(grounding/oracle)、Browser run 级 Playwright；MCP 为外部工具源。外部世界的回执是唯一权威终态。",
+  io:"in: 授权后动作 → out: 环境回执/终态",files:["domain/","alfworld/","browser/","mcp/","adapters/profiles.py"],
+  rel:["workercli","alfworker"],value:"模型口头声明不算数——只认环境 won/done。"},
+ {id:"state",x:382,y:560,w:230,h:96,kind:"plane",cn:"状态与持久化",en:"Session State Plane",role:"gen栅栏·CAS快照·断点恢复",sub:"state",
+  desc:"generation 计数器做全量写屏障；revisions/NNNN.json+latest.json CAS 是唯一 resume 源，session.json 仅观测旁路。",
+  io:"in: turn/agent_state → out: 磁盘快照",files:["application/session.py:219-276","substrate/snapshot.py"],rel:["sessmgr","sessfs"],value:"取消不污染会话。"},
+ {id:"memory",x:704,y:560,w:230,h:96,kind:"plane",cn:"记忆系统",en:"Memory Plane",role:"召回注入 · 证据门写 · 读回终态",sub:"memory",
+  desc:"三层存储（文件/MindMemOS/后台队列）；召回 gen 门控只注一次；写路径全过证据门+读回验证。",
+  io:"in: query/写请求 → out: <memory-context>/已验证写入",files:["memory/","application/memory_recall.py","experience/finalizer.py"],rel:["mem_mm","recall","mem_queue"],value:"receipt≠终态。"},
+ {id:"perm",x:1026,y:560,w:230,h:96,kind:"plane",cn:"权限风控",en:"Permission & HITL",role:"即时判定 · 物理精确审批 · 设备租约",sub:"perm",
+  desc:"普通工具即时判定；物理工具走 SQLite 审批状态机+三通道人审+binding signature 复查；设备租约串行化外部副作用。",
+  io:"in: tool+args+subject → out: grant/deny",files:["permissions/policy.py","permissions/store.py","devices/"],rel:["permstore","devices"],value:"交互成本只花在真副作用上。"},
+ {id:"events",x:1348,y:560,w:230,h:96,kind:"plane",cn:"事件与观测",en:"Event Plane",role:"Bus→投影→JSONL",sub:"events",
+  desc:"有界 RuntimeEvent 总线是系统唯一事件脊柱；三级投影是信任边界（allowlist+generation 固化+opaque ref）；JSONL sink 纯旁路。",
+  io:"in: RuntimeEvent → out: DTO/envelope/JSONL",files:["events/bus.py","events/public_projection.py","events/sinks.py"],rel:["ev_bus","ev_proj","ev_sink"],value:"对外零泄漏。"},
+ ],
+ edges:[
+ {f:"entry",t:"apprt",k:"control",l:"统一为 RunRequest",la:true},
+ {f:"apprt",t:"engine",k:"control",l:"RunDriver 装配本轮",la:true},
+ {f:"engine",t:"toolgate",k:"control",l:"tool_call",la:true},
+ {f:"toolgate",t:"env",k:"control",l:"授权后执行",la:true},
+ {f:"env",t:"engine",k:"data",l:"观察/回执 → 下一轮决策",arc:190,la:true},
+ {f:"engine",t:"entry",k:"data",l:"最终回答 + 事件流",arc:140,la:true},
+ {f:"apprt",t:"state",k:"state",l:"快照·代际·commit",la:true},
+ {f:"memory",t:"engine",k:"memory",l:"召回注入(gen 门控)",la:true,dx:-40},
+ {f:"engine",t:"memory",k:"memory",l:"运行中写·收尾固化",la:true,dx:40},
+ {f:"toolgate",t:"perm",k:"approval",l:"评估·审批·租约",la:true},
+ {f:"engine",t:"events",k:"observe",l:"emit 结构化事件",route:"bwrap"},
+ {f:"env",t:"events",k:"observe",l:"回执/终态",la:true},
+ ],
+};
+/* ============================ L2 子系统 ============================ */
+const SUBS={
+harness:{
+ name:"Harness · Agent Runtime",
+ tag:"运行时如何组织和驱动 Agent",
+ ioIn:"RunRequest",ioOut:"tool_call → 工具门",
+ intro:"每次 run 由 <b>RunDriver</b> 现装配依赖（工具视图/provider/工作副本/deadline），<b>AsAgentRuntime</b> 把 HM 的权威注入 vendored ReAct 循环——AS 原生 context mutator/injection/ASK 全部显式关闭，max_iters 仅 +2 缓冲。<b>借引擎的循环，不借引擎的语义。</b>",
+ nodes:[
+ {id:"s1in",x:40,y:330,w:150,h:84,kind:"iochip",cn:"输入",en:"RunRequest",role:"不可变契约"},
+ {id:"s1sess",x:230,y:330,w:190,h:84,cn:"会话准入",en:"SessionRuntime·turn()",role:"准入·代际+1",
+  desc:"SessionManager 持锁 generation+1 并配新 CancellationSource；之后所有写（事件/快照/commit）都过代际栅栏。",
+  files:["application/session.py:98-216,529-597"],rel:["s1drv"],value:""},
+ {id:"s1drv",x:460,y:330,w:200,h:84,cn:"单 run 装配",en:"RunDriver",role:"工具视图·provider·副本",
+  desc:"每次 run 装配：run-scoped tool view→provider scope→agent_state/task_state 深拷贝→ApplicationToolExecutor(自身即 deadline)→召回→FencedAgentSession→AsAgentRuntime→commit_fn。",
+  files:["application/run_driver.py:119-402"],rel:["s1asrt","s1ctx"],value:"不可变工作副本+终局原子换入。"},
+ {id:"s1asrt",x:700,y:330,w:200,h:84,cn:"引擎外壳",en:"AsAgentRuntime",role:"deadline·取消·守卫",
+  desc:"HM 语义包裹 AS Agent：SIGINT 接管、共享 run deadline、事件投影、_check_guards(迭代/连续错误/无进展)、stop_condition 求值、快照边界。",
+  files:["substrate/runtime.py:127-446,909-945"],rel:["s1react","s1mw","s1pol"],value:""},
+ {id:"s1react",x:940,y:330,w:220,h:84,cn:"ReAct 决策循环",en:"AgentScope Agent(vendored)",role:"reasoning→acting 循环",badge:"vendored",
+  desc:"vendored 框架 Agent.reply_stream 驱动 推理→工具→观察 循环。HM 显式关闭其原生语义：ContextConfig/InjectionConfig 全关、AS ASK 不用、max_iters=HM 预算+2 仅缓冲。",
+  files:["src/agentscope/agent/_agent.py:289-331","substrate/runtime.py:368-409"],rel:["s1mw","s1ctx"],value:""},
+ {id:"s1mw",x:1200,y:330,w:180,h:84,cn:"中间件链 ×5",en:"装配期注册",role:"围栏·重试·Scope·追踪",
+  desc:"RunScopeMiddleware 绑 tool_call_id；ContextAssembly 每轮模型调用前 aprepare；ProtocolFence 校验 offered 集；ProviderRetry 仅传输错误；ProviderObservability。",
+  files:["substrate/middleware_runtime.py","substrate/toolkit.py:55-93"],rel:["s1react"],value:""},
+ {id:"s1out",x:1430,y:330,w:140,h:84,kind:"iochip",cn:"输出",en:"tool_call",role:"→ 统一工具门",nav:"tools"},
+ {id:"s1pol",x:700,y:560,w:200,h:80,kind:"plane",cn:"运行策略",en:"RunPolicy",role:"deadline·取消·迭代守卫",
+  desc:"宿主权威由 RunPolicy+RunDriver 下发：绝对 deadline、CancellationSource、迭代上限；AS 只负责循环本身。",
+  files:["application/contracts.py","application/run_driver.py"],rel:["s1asrt"],value:""},
+ {id:"s1ctx",x:940,y:560,w:220,h:80,kind:"plane",cn:"上下文装配",en:"ContextAssembler.aprepare",role:"预算·压缩·召回注入",
+  desc:"多源 ContextItem→ContextBudget→usage anchor→两段压缩(卫生微压缩+LLM 摘要折叠)；每轮模型调用前重算。",
+  files:["agent/context.py"],rel:["s1react"],value:""},
+ ],
+ edges:[
+ {f:"s1in",t:"s1sess",k:"control",l:"RunRequest",la:true},
+ {f:"s1sess",t:"s1drv",k:"control",l:"工作副本",la:true},
+ {f:"s1drv",t:"s1asrt",k:"control",l:"execute()",la:true},
+ {f:"s1asrt",t:"s1react",k:"control",l:"reply_stream",la:true},
+ {f:"s1react",t:"s1mw",k:"control",l:"每轮经中间件",la:true},
+ {f:"s1mw",t:"s1out",k:"control",l:"合法 tool_call",la:true},
+ {f:"s1pol",t:"s1asrt",k:"state",l:"权威注入",la:true},
+ {f:"s1ctx",t:"s1react",k:"data",l:"prepared context/轮",la:true},
+ {f:"s1drv",t:"s1ctx",k:"data",l:"装配",route:"bback"},
+ ],
+ decor:[{t:"txt",x:940,y:300,cls:"secsub",s:"AS mutator/injection/ASK 全关 · max_iters=HM预算+2 仅缓冲"}],
+},
+tools:{
+ name:"Agent 决策与工具执行",
+ tag:"模型决策如何变成真实工具调用，结果如何回流",
+ ioIn:"tool_call",ioOut:"ToolResultBlock → 回 ReAct",
+ intro:"模型产出 tool_call 之后必须经过唯一一道门：<b>协议围栏</b>先核对调用名∈本轮 offered 集（越界整批原子拒绝）→<b>HomeToolAdapter</b> 把 HM 权限语义穿透引擎边界→<b>ToolExecutor</b> 校验/权限/租约/deadline/分类。<b>所有路径收敛于同一治理点。</b>",
+ nodes:[
+ {id:"s2in",x:40,y:320,w:140,h:84,kind:"iochip",cn:"输入",en:"tool_call",role:"ToolCallBlock"},
+ {id:"s2fence",x:210,y:320,w:180,h:84,cn:"协议围栏",en:"ProtocolFence+RunScope",role:"∈offered集？整批拒绝",
+  desc:"Middleware 校验 tool_call 名∈本轮供出的工具集；越界整批 protocol_blocked；RunScope 绑 tool_call_id/deadline/subject。",
+  files:["substrate/middleware_runtime.py","substrate/toolkit.py"],rel:["s2adapt"],value:""},
+ {id:"s2adapt",x:430,y:320,w:180,h:84,cn:"语义适配",en:"HomeToolAdapter",role:"HM 权限语义穿透引擎",
+  desc:"BaseTool→AS ToolBase；check_permissions 只产 ALLOW/DENY（AS ASK 不用）；结果→ToolResultBlock，机器字段藏 metadata[\"hm\"]。",
+  files:["substrate/toolkit.py:55-364","substrate/messages.py:150-416"],rel:["s2exec"],value:""},
+ {id:"s2exec",x:650,y:320,w:200,h:84,cn:"统一执行",en:"Application+ToolExecutor",role:"校验·权限·租约·分类",
+  desc:"ApplicationToolExecutor 建 ToolExecutionContext→ToolExecutor.execute：参数校验→evaluate_tool→physical 分支或租约→wait_for(remaining)→异常分类；execute_many 按 conflict_key 并发分组。",
+  files:["application/tool_executor.py","tools/executor.py:223-1171"],rel:["s2perm","s2art","s2dev"],value:""},
+ {id:"s2perm",x:890,y:320,w:180,h:84,cn:"权限判定",en:"PermissionChecker",role:"普通即时·物理精确",
+  desc:"evaluate_tool 固定序：路径敏感→deny/allow 精确集→denied→capability⊆subject→plan_mode→allowed→mode；physical 走 evaluate_physical 精确授权。",
+  files:["permissions/policy.py:77-243,387-399"],rel:["s2dev"],value:""},
+ {id:"s2dev",x:1110,y:320,w:180,h:84,cn:"资源租约",en:"Devices·连接池",role:"串行化+代际围栏",
+  desc:"DeviceLeaseManager per-device FIFO+generation fence；DeviceConnectionPool 按(tenant,device,backend)精确连接；审计 append-only。",
+  files:["devices/lease_manager.py","devices/connection_pool.py"],rel:["s2env"],value:""},
+ {id:"s2env",x:1330,y:320,w:200,h:84,cn:"环境后端",en:"robot_*·browser_*·mcp_*",role:"真实副作用",nav:"env",
+  desc:"领域工具落到真实环境后端；回执携 external_return_code+backend_attempted+state+evidence。",
+  files:["domain/","alfworld/","browser/","mcp/"],rel:[],value:""},
+ {id:"s2class",x:890,y:560,w:220,h:80,kind:"plane",cn:"结果分类",en:"attempted × OUTCOME_UNKNOWN",role:"外部有没有被改动？类型上分清",
+  desc:"backend_attempted(是否真发到外部)×certainty(能否证明未变更)→三态；mutating+attempted+无法证明=outcome_unknown，契约级禁重试。",
+  files:["tools/contracts.py:548-571","tools/executor.py:325-357"],rel:["s2env"],value:""},
+ {id:"s2art",x:650,y:560,w:200,h:80,kind:"plane",cn:"工件存储",en:"TaskState+ToolOutputStore",role:"大结果→opaque ref",
+  desc:"tenant/session/run 分区 ACL 存储，模型只拿 preview+hm-artifact: 句柄；TaskStateStore 供 task_progress_check。",
+  files:["task_state/store.py","artifacts/tool_output_store.py"],rel:["s2exec"],value:""},
+ {id:"s2nav",x:1110,y:560,w:180,h:80,kind:"navchip",cn:"physical 分支",en:"→ 权限风控展开 ↗",role:"物理精确授权+人审",nav:"perm"},
+ ],
+ edges:[
+ {f:"s2in",t:"s2fence",k:"control",l:"ToolCallBlock",la:true},
+ {f:"s2fence",t:"s2adapt",k:"control",l:"校验通过",la:true},
+ {f:"s2adapt",t:"s2exec",k:"control",l:"call→execute_many",la:true},
+ {f:"s2exec",t:"s2perm",k:"control",l:"evaluate_tool",la:true},
+ {f:"s2perm",t:"s2dev",k:"control",l:"allow→acquire",la:true},
+ {f:"s2dev",t:"s2env",k:"control",l:"invoke",la:true},
+ {f:"s2env",t:"s2class",k:"data",l:"回执",route:"bback",la:true},
+ {f:"s2class",t:"s2adapt",k:"data",l:"ToolResultBlock→回模型",route:"bback",la:true},
+ {f:"s2exec",t:"s2art",k:"data",l:"大结果→ACL store",la:true},
+ {f:"s2perm",t:"s2nav",k:"approval",l:"physical 分支",la:true},
+ ],
+ decor:[{t:"txt",x:40,y:290,cls:"seclbl",s:"唯一工具路径 · SINGLE GATE"}],
+},
+perm:{
+ name:"权限与人工审批 · HITL",
+ tag:"如何防止 Agent 越权或执行高风险操作",
+ ioIn:"tool+args+subject",ioOut:"授权执行 + observe",
+ intro:"普通工具<b>即时判定</b>（固定序规则链）；物理工具走<b>精确授权</b>：审批精确到(环境,资源类型,资源ID,动作)元组→人审通道→批准后<b>重 prepare+绑定签名比对</b>防 TOCTOU→逐步 grant 原子领取→执行+observe。飞书刻意 fail-closed——异步消息满足不了精确授权语义。",
+ nodes:[
+ {id:"s3in",x:40,y:330,w:150,h:84,kind:"iochip",cn:"输入",en:"tool+subject",role:"权限主体"},
+ {id:"s3eval",x:230,y:330,w:190,h:84,cn:"权限判定",en:"evaluate_tool/physical",role:"固定序规则链",
+  desc:"普通：路径敏感→deny/allow 集→denied→capability→plan_mode→allowed→mode；物理：once-credential/grant 命中/session_allows 逐项覆盖。",
+  files:["permissions/policy.py:77-243,387-399"],rel:["s3store","s3direct"],value:""},
+ {id:"s3direct",x:560,y:180,w:200,h:70,cn:"普通工具",en:"allow / deny",role:"即时判定·不落库",
+  desc:"非物理工具在内存中即时裁决；当前 policy 无交互确认（requires_confirmation 不启用）。",
+  files:["permissions/policy.py"],rel:[],value:""},
+ {id:"s3store",x:560,y:420,w:200,h:84,cn:"审批状态机",en:"PermissionStore·SQLite",role:"六表·幂等·可恢复",
+  desc:"requests/items/steps/submissions/grants/events；submit 幂等、claim_step 带 attempt 预算、recover 重启接管。",
+  files:["permissions/store.py:251-1267"],rel:["s3chan"],value:""},
+ {id:"s3chan",x:810,y:420,w:200,h:84,cn:"三通道确认",en:"CLI 1/2/3 · Web HTTP · 飞书✕",role:"人审决策面",
+  desc:"CLI 逐项确认；Web pending future+HTTP（先 submit 后唤醒）；Feishu fail-closed（异步消息不满足精确授权）。",
+  files:["cli/confirmation.py","web/confirmations.py","gateway/confirmation.py:76-145"],rel:["s3sig"],value:""},
+ {id:"s3sig",x:1060,y:420,w:190,h:84,cn:"签名复查",en:"binding signature",role:"批准后重 prepare 比对",
+  desc:"批准时的参数与执行时的参数必须 byte-level 一致；TOCTOU 双防线——目标漂移直接拒绝。",
+  files:["tools/executor.py:389-517"],rel:["s3grant"],value:""},
+ {id:"s3grant",x:1300,y:420,w:170,h:84,cn:"逐步 grant",en:"linearize+原子 claim",role:"每步第三次复查",
+  desc:"每个执行步在 linearize 内复查 grant 仍有效+原子 claim；物理 step 报 unknown 前先 observe+finish_step。",
+  files:["permissions/store.py","tools/executor.py:712-889"],rel:["s3out"],value:""},
+ {id:"s3out",x:1300,y:560,w:170,h:70,kind:"iochip",cn:"输出",en:"→ 执行+observe",role:"回统一工具门",nav:"tools"},
+ ],
+ edges:[
+ {f:"s3in",t:"s3eval",k:"control",l:"评估",la:true},
+ {f:"s3eval",t:"s3direct",k:"control",l:"普通：allow/deny",route:"ell"},
+ {f:"s3eval",t:"s3store",k:"approval",l:"physical：精确元组",route:"ell"},
+ {f:"s3store",t:"s3chan",k:"approval",l:"提交审批",la:true},
+ {f:"s3chan",t:"s3sig",k:"approval",l:"人审通过",la:true},
+ {f:"s3sig",t:"s3grant",k:"approval",l:"绑定比对",la:true},
+ {f:"s3grant",t:"s3out",k:"control",l:"授权执行",la:true},
+ ],
+ decor:[{t:"txt",x:230,y:300,cls:"secsub",s:"审批=(环境,资源类型,资源ID,动作) 精确元组 · 等待期 TOCTOU 双防线"}],
+},
+memory:{
+ name:"记忆系统",
+ tag:"召回注入 + 受治理的写入 + 读回终态",
+ ioIn:"query / 写请求",ioOut:"<memory-context> / 已验证记忆",
+ intro:"<b>读路径</b>：每 generation 自动召回一次→MindMemOS 检索→冻结注入 prelude（防重复注入+token 控制）。<b>写路径</b>：运行中 memory_add 与收尾 schema episode 都过证据门(dedupe/provenance)，写完必须读回验证 active+内容+图边+float32 容差——<b>receipt≠终态</b>。",
+ nodes:[
+ {id:"s4trig",x:40,y:230,w:140,h:76,kind:"iochip",cn:"触发",en:"新 generation",role:"含压缩后 rearm"},
+ {id:"s4rec",x:220,y:230,w:180,h:76,cn:"自动召回",en:"AutomaticRecallService",role:"每gen一次·失败降级",
+  desc:"query=[压缩摘要]+[任务态]+[用户消息]→top_k=5 vanilla 检索→<memory-context>；失败发事件+空上下文降级。",
+  files:["application/memory_recall.py:32-194","memory/automatic_recall.py"],rel:["s4srch"],value:""},
+ {id:"s4srch",x:440,y:230,w:190,h:76,cn:"结构化检索",en:"MindMemOS search",role:"图+向量+稀疏混合",
+  desc:"EmbeddedMindMemOS：Qdrant(向量)+Neo4j(图)+sparse BM25；rerank 未接线（vanilla）；typed schema 输出不信任自由抽取。",
+  files:["memory/mindmemos_runtime.py","memory/mindmemos_queries.py"],rel:["s4frz"],value:""},
+ {id:"s4frz",x:670,y:230,w:180,h:76,cn:"冻结上下文",en:"FrozenMemoryContext",role:"session 内不刷新",
+  desc:"召回结果冻结成本 session 快照，每轮直接进 prelude；文件层 SOUL/USER/MEMORY.md 同步冻结进 system prompt。",
+  files:["memory/context_service.py:10-37","memory/file_store.py"],rel:["s4asm"],value:""},
+ {id:"s4asm",x:890,y:230,w:190,h:76,cn:"上下文注入",en:"ContextAssembler prelude",role:"唯一注入点",
+  desc:"<memory-context> 块+文件层冻结文本进 prelude/system prompt，经 ContextBudget 控制 token。",
+  files:["agent/context.py"],rel:["s4model"],value:""},
+ {id:"s4model",x:1120,y:230,w:160,h:76,kind:"iochip",cn:"输出",en:"→ 模型输入",role:"system+prelude"},
+ {id:"s4w1",x:220,y:500,w:200,h:80,cn:"运行中写",en:"memory_add→add_flat",role:"证据门+dedupe_key",
+  desc:"agent 主动 memory_add：tenant/session/run/turn 证据门+不可变 dedupe→add_flat 确定性直写（强一致+逐项读回）。",
+  files:["tools/memory_tools.py","memory/mindmemos_writes.py"],rel:["s4val"],value:""},
+ {id:"s4w2",x:460,y:500,w:210,h:80,cn:"收尾固化",en:"SessionFinalizer→episode",role:"UUID5幂等·可重入",
+  desc:"session close→runtime_events→schema episode 抽取→幂等写入→逐域终态验证→implicit feedback。",
+  files:["experience/finalizer.py:84-628","memory/add_queue.py"],rel:["s4val"],value:""},
+ {id:"s4val",x:710,y:500,w:200,h:80,cn:"读回验证",en:"active+内容+图边+float32",role:"receipt≠终态",
+  desc:"每条写入以读回收尾：active raw 存在+内容相等+图边存在+向量逐维 float32 容差。",
+  files:["memory/mindmemos_runtime.py:963-1338"],rel:["s4store"],value:""},
+ {id:"s4store",x:950,y:500,w:230,h:80,cn:"三层存储",en:"Neo4j·Qdrant·文件层",role:"managed_local",
+  desc:"Neo4j(managed_local,loopback-only)存图边/实体；Qdrant 内嵌向量；SOUL/USER/MEMORY.md 文件层零依赖基线。",
+  files:["memory/managed_neo4j.py","memory/mindmemos_runtime.py:489","memory/file_store.py"],rel:["s4dream"],value:""},
+ {id:"s4dream",x:1230,y:500,w:180,h:80,cn:"离线巩固",en:"Dreaming(每8条)",role:"merge/archive 核验",
+  desc:"DreamingStateStore 记水位线；每 8 条有效新记忆触发 dream→逐动作终态核验→推进水位线；崩溃可重入。",
+  files:["experience/dreaming_state.py:19-401"],rel:["s4store"],value:""},
+ ],
+ edges:[
+ {f:"s4trig",t:"s4rec",k:"control",l:"",la:true},
+ {f:"s4rec",t:"s4srch",k:"memory",l:"query",la:true},
+ {f:"s4srch",t:"s4frz",k:"memory",l:"top_k=5",la:true},
+ {f:"s4frz",t:"s4asm",k:"memory",l:"冻结快照",la:true},
+ {f:"s4asm",t:"s4model",k:"memory",l:"prelude",la:true},
+ {f:"s4w1",t:"s4val",k:"memory",l:"直写",route:"bback",la:true},
+ {f:"s4w2",t:"s4val",k:"memory",l:"episode",la:true},
+ {f:"s4val",t:"s4store",k:"memory",l:"验证通过",la:true},
+ {f:"s4store",t:"s4dream",k:"memory",l:"每8条触发",la:true},
+ {f:"s4dream",t:"s4store",k:"memory",l:"merge/archive",route:"bback",la:true},
+ ],
+ decor:[
+  {t:"txt",x:40,y:200,cls:"seclbl",s:"读路径 · RECALL → INJECT"},
+  {t:"txt",x:40,y:470,cls:"seclbl",s:"写路径 · GOVERNED WRITE → VERIFIED"},
+ ],
+},
+state:{
+ name:"状态与持久化",
+ tag:"任务状态如何记录、持久化和恢复",
+ ioIn:"turn/agent_state",ioOut:"revisions（权威） + session.json（观测）",
+ intro:"核心是<b>单一 generation 计数器=全量写屏障</b>：每 turn/cancel 自增，旧代际的写一律抛 SessionGenerationError→honest 终态。快照走不可变 revision+CAS 指针（唯一 resume 源）；session.json 仅观测旁路，不进恢复路径。",
+ nodes:[
+ {id:"s5turn",x:60,y:330,w:190,h:84,cn:"会话推进",en:"turn()·gen+1",role:"新取消源",
+  desc:"SessionRuntime.turn() 持锁代际+1，配新取消源；事件 emit/快照/commit 全部携带该代际。",
+  files:["application/session.py:98-216,529-597"],rel:["s5fence"],value:""},
+ {id:"s5fence",x:290,y:330,w:180,h:84,cn:"代际栅栏",en:"generation fencing",role:"旧代际写→抛错",
+  desc:"单一 gen 计数覆盖 session 写/事件发布/revision commit 三类写屏障；apply() 双次 assert_generation。",
+  files:["application/session.py:132-216,571-607"],rel:["s5copy"],value:""},
+ {id:"s5copy",x:510,y:330,w:190,h:84,cn:"本轮工作副本",en:"agent/task_state 深拷贝",role:"run 内不污染 session",
+  desc:"RunDriver 深拷贝状态作本轮工作副本；run 内任何写不影响 session，直到终局 apply。",
+  files:["application/run_driver.py:157-258"],rel:["s5cas"],value:""},
+ {id:"s5cas",x:740,y:330,w:180,h:84,cn:"原子提交",en:"apply+CAS revision",role:"终局换入",
+  desc:"终局 _commit_and_save：generation-fenced apply+expected_revision CAS→SessionConflictError 撕裂回扫。",
+  files:["application/runtime.py:430-490","application/session.py:639-662"],rel:["s5rev","s5obs"],value:""},
+ {id:"s5rev",x:960,y:330,w:210,h:84,cn:"权威快照",en:"revisions/NNNN+latest.json",role:"唯一 resume 源",
+  desc:"不可变 revisions+latest.json 原子指针；schema-v2 以 engine context 为权威、mirror 投影。",
+  files:["application/session.py:219-276","substrate/snapshot.py:80-167"],rel:["s5resume"],value:""},
+ {id:"s5obs",x:1210,y:330,w:200,h:84,cn:"观测旁路",en:"session.json · jsonl",role:"仅观测·不进恢复",
+  desc:"SessionPersistenceManager 逐事件边界写观测文件（cli session list/show/export）；可丢，不影响账本。",
+  files:["agent/session_persistence.py:165-269"],rel:[],value:""},
+ {id:"s5cancel",x:290,y:560,w:190,h:80,kind:"plane",cn:"取消路径",en:"cancel→gen++",role:"旧写→honest 终态",
+  desc:"cancel() 自增 gen：旧 writer/事件/提交全部抛 SessionGenerationError→user_interrupted/stale_generation 终态。",
+  files:["application/session.py"],rel:["s5fence"],value:""},
+ {id:"s5resume",x:960,y:560,w:210,h:80,kind:"plane",cn:"断点恢复",en:"resume←revisions",role:"恢复到最后提交 turn",
+  desc:"resume 只读 revisions 最后已提交代际；cancel 不 commit revision——中断的 run 不会留下半截状态。",
+  files:["application/session.py"],rel:["s5rev"],value:""},
+ ],
+ edges:[
+ {f:"s5turn",t:"s5fence",k:"control",l:"gen+1",la:true},
+ {f:"s5fence",t:"s5copy",k:"control",l:"栅栏内装配",la:true},
+ {f:"s5copy",t:"s5cas",k:"control",l:"终局 apply",la:true},
+ {f:"s5cas",t:"s5rev",k:"state",l:"CAS 指针",la:true},
+ {f:"s5cas",t:"s5obs",k:"state",l:"观测旁路",la:true},
+ {f:"s5cancel",t:"s5fence",k:"state",l:"gen++ 使旧写失效",la:true},
+ {f:"s5rev",t:"s5resume",k:"state",l:"唯一恢复源",la:true},
+ ],
+ decor:[{t:"txt",x:60,y:300,cls:"seclbl",s:"GEN 栅栏 = 全量写屏障 · CAS = 原子提交"}],
+},
+env:{
+ name:"执行环境",
+ tag:"授权后的动作如何落到真实世界",
+ ioIn:"已授权动作",ioOut:"环境回执 / won·done 终态",
+ intro:"三种环境=三个 profile 注入同一 Runtime：<b>HomeWorld</b> 文件型模拟世界、<b>ALFWorld</b>(Harness grounding/oracle→隔离 venv worker→AI2-THOR)、<b>Browser</b> run 级 Playwright。模型口头声明不算数——<b>环境回执是唯一权威终态</b>。",
+ nodes:[
+ {id:"s6in",x:40,y:360,w:140,h:84,kind:"iochip",cn:"输入",en:"授权后动作",role:"→ 工具门"},
+ {id:"s6home",x:240,y:200,w:200,h:80,cn:"HomeWorld",en:"文件型模拟(simulated)",role:"robot_* 工具后端",
+  desc:"文件型 JSON 世界（robot_room/held_object/object_locations/revision，每次调用重读+原子重写）；local_robot profile 注册 robot_go_to/manipulate/verify/observe。",
+  files:["domain/home_backend.py:26-268","domain/tools.py"],rel:[],value:""},
+ {id:"s6alf",x:240,y:360,w:210,h:80,cn:"ALFWorld",en:"Harness·grounding·oracle",role:"陈旧检查+唯一命中",
+  desc:"execute：observe→capture_scene→陈旧检查(state_seq+scene_gen)→scene.ground 唯一命中→OracleActionGateway→backend.act。",
+  files:["alfworld/harness.py:19-134","alfworld/scene.py:20-97"],rel:["s6ipc"],value:""},
+ {id:"s6brw",x:240,y:520,w:200,h:80,cn:"浏览器会话",en:"run 级 Playwright",role:"27+1 工具·随 run 生灭",
+  desc:"每 run 一个 Playwright owner+整副 registry 替换（27 固定+capability 门控 browser_eval）并 freeze；max_tool_iterations=None。",
+  files:["browser/application.py","tools/browser/registry.py"],rel:[],value:""},
+ {id:"s6ipc",x:520,y:360,w:190,h:80,cn:"NDJSON IPC",en:"AlfworldWorkerClient",role:"版本化协议+回执对账",
+  desc:"homemaster-alfworld-v1：stdin/stdout 单行 NDJSON；request_id 关联；close 迟到回执 reconciliation；第三方 stdout 重定向保纯净。",
+  files:["alfworld/worker_client.py:108-591"],rel:["s6work"],value:""},
+ {id:"s6work",x:760,y:360,w:200,h:80,cn:"隔离 worker",en:"独立 venv 子进程",role:"禁import homemaster",
+  desc:".runtime/alfworld-venv 只装 ALFWorld/AI2-THOR/Torch——依赖地狱用进程边界物理隔离；崩溃不传染主进程。",
+  files:["workers/alfworld_worker/"],rel:["s6thor"],value:""},
+ {id:"s6thor",x:1010,y:360,w:190,h:80,cn:"真实环境",en:"AI2-THOR/Unity",role:"env.step·返回码",
+  desc:"ThorBackend：trial pin+seed+env.reset/act/close；真实场景/物体/相机/动作返回码与 won/done 在此。",
+  files:["workers/alfworld_worker/thor_backend.py"],rel:["s6term"],value:""},
+ {id:"s6term",x:1280,y:360,w:200,h:80,cn:"终态判定",en:"won/done·回执对账",role:"环境=唯一权威",
+  desc:"benchmark 成功只认环境 won=true；done&&!won=benchmark_done_without_won；close 核对退出码+stderr。",
+  files:["alfworld/benchmark/runner.py:544-597"],rel:[],value:""},
+ ],
+ edges:[
+ {f:"s6in",t:"s6home",k:"control",l:"local_robot",route:"fan"},
+ {f:"s6in",t:"s6alf",k:"control",l:"alfworld",la:true},
+ {f:"s6in",t:"s6brw",k:"control",l:"browser",route:"fan"},
+ {f:"s6alf",t:"s6ipc",k:"control",l:"act/observe",la:true},
+ {f:"s6ipc",t:"s6work",k:"extern",l:"stdin/stdout",la:true},
+ {f:"s6work",t:"s6thor",k:"extern",l:"env.reset/act",la:true},
+ {f:"s6thor",t:"s6term",k:"extern",l:"BackendReceipt",la:true},
+ ],
+ decor:[{t:"txt",x:240,y:170,cls:"seclbl",s:"三种环境 = 三个 PROFILE 注入同一 RUNTIME"}],
+},
+events:{
+ name:"事件与观测平面",
+ tag:"全链路结构化事件如何成为可信的可观测面",
+ ioIn:"RuntimeEvent",ioOut:"DTO / envelope / JSONL",
+ intro:"<b>EventBus</b> 是系统唯一事件脊柱（有界、emit_guarded 绑 generation）；<b>三级投影</b>是信任边界：内部富事件→DTO(截断+allowlist)→公开 envelope（类型+metadata 双 allowlist，无公共语义直接丢弃）；<b>JSONL sink</b> 纯旁路——审计失败只 warn 不毁业务。",
+ nodes:[
+ {id:"s7in",x:40,y:330,w:150,h:84,kind:"iochip",cn:"输入",en:"RuntimeEvent",role:"全链路 emit"},
+ {id:"s7bus",x:240,y:330,w:200,h:84,cn:"事件总线",en:"EventBus",role:"有界·gen 绑定·唯一脊柱",
+  desc:"线程安全生产者、有界订阅队列、emit_guarded 绑 generation；stream() 私有消费。",
+  files:["events/bus.py:33-302"],rel:["s7proj"],value:""},
+ {id:"s7proj",x:490,y:330,w:210,h:84,cn:"三级投影",en:"Projection（信任边界）",role:"双 allowlist 投影",
+  desc:"内部富事件→本地 stream DTO（截断+allowlist）→公开 envelope；无公共语义直接丢弃；generation 生产时固化。",
+  files:["events/public_projection.py:19-280"],rel:["s7out"],value:""},
+ {id:"s7out",x:750,y:330,w:200,h:84,cn:"对外出口",en:"Web WS·Feishu·CLI 渲染",role:"allowlist 后零泄漏",
+  desc:"Web WebSocket 推送、Feishu 出站消息、CLI 流式渲染——三者都只消费投影后 envelope。",
+  files:["web/event_hub.py","gateway/","cli/"],rel:[],value:""},
+ {id:"s7sink",x:1000,y:330,w:200,h:84,cn:"JSONL 落盘",en:"Sinks(旁路)",role:"审计失败只 warn",
+  desc:"runtime_events.jsonl 全量轨迹+provider_attempts 分 sink；审计旁路失败不改业务状态。",
+  files:["events/sinks.py","providers/attempts.py"],rel:["s7mem"],value:""},
+ {id:"s7mem",x:1250,y:330,w:200,h:84,cn:"证据回放",en:"Finalizer/benchmark 重算",role:"轨迹=真相源",
+  desc:"记忆收尾与 benchmark 终态从原始 JSONL 事件重算——不信派生文件。",
+  files:["experience/finalizer.py"],rel:[],value:""},
+ ],
+ edges:[
+ {f:"s7in",t:"s7bus",k:"observe",l:"emit(gen)",la:true},
+ {f:"s7bus",t:"s7proj",k:"observe",l:"订阅流",la:true},
+ {f:"s7proj",t:"s7out",k:"observe",l:"公开 envelope",la:true},
+ {f:"s7bus",t:"s7sink",k:"observe",l:"旁路落盘",route:"el"},
+ {f:"s7sink",t:"s7mem",k:"observe",l:"重算终态",la:true},
+ ],
+ decor:[{t:"txt",x:240,y:300,cls:"secsub",s:"投影=信任边界：thinking/usage/工具生命周期不外传 · 旁路 fail-open 主路 fail-closed"}],
+},
+};
+/* ============================ 讲解模式 TOUR ============================ */
+const TOUR=[
+ {view:"l1",nodes:[],edges:[],t:"① 系统定位",
+  s:"HomeMaster 是一个 <b>LLM-first 的通用 Agent 运行时</b>。这张图讲一件事：用户给出任务后，系统经过哪几个环节把它完成。<br>所有渠道——命令行、Web、飞书、ALFWorld 评测、浏览器——都收敛到<b>同一个 ApplicationRuntime</b>；决策循环用 vendored AgentScope ReAct，但生命周期、取消、权限、上下文的权威全部留在 HomeMaster 自己手里。"},
+ {view:"l1",nodes:["entry","apprt","engine","toolgate","env"],edges:[0,1,2,3],t:"② 主执行链路",
+  s:"主干五个环节：<b>入口适配器</b>把外部输入统一成 RunRequest；<b>应用运行时</b>管会话和整个生命周期；<b>决策引擎</b>跑 ReAct 循环决定调什么工具；<b>统一工具门</b>是所有工具执行的唯一通道——参数、权限、租约、超时都在这；最后<b>执行环境</b>把动作落到真实世界。"},
+ {view:"l1",nodes:["entry","apprt","engine","toolgate","env"],edges:[4,5],t:"③ 反馈闭环",
+  s:"关键在回流：<b>观察/回执</b>从环境回到引擎做下一轮决策（ReAct 循环）；任务结束后的<b>最终回答+事件流</b>经投影推回入口。系统不是一条直线，是一个带观测反馈的环。"},
+ {view:"l1",nodes:["state","memory","perm","events","apprt","engine","toolgate","env"],edges:[6,7,8,9,10,11],t:"④ 横向支撑面",
+  s:"主干之下四个支撑面，正好对应最值得讲的设计：<b>状态与持久化</b>管快照与断点恢复；<b>记忆系统</b>负责召回注入和受治理的写入；<b>权限风控</b>给工具执行加了一道人可介入的门；<b>事件平面</b>把全链路结构化事件投影给外部观测。"},
+ {view:"sub:harness",nodes:["s1sess","s1drv","s1asrt","s1react","s1mw","s1pol","s1ctx"],edges:[1,2,3,4,6,7],t:"⑤ Harness：借引擎不借语义",
+  s:"这层是项目核心立场。RunDriver 每次 run 现装配上下文和工具视图；AsAgentRuntime 把 deadline、取消、代际事件注入 vendored ReAct，但 AS 原生的上下文改写、注入和许可模型全部显式关闭——<b>引擎可替换，宿主语义不变</b>。这就是 Harness 存在的理由。"},
+ {view:"sub:tools",nodes:["s2in","s2fence","s2adapt","s2exec","s2perm","s2dev","s2env","s2class"],edges:[0,1,2,3,4,5,6,7],t:"⑥ 决策→工具执行",
+  s:"模型说要调工具，到真正执行之间有完整一道链：<b>协议围栏</b>核对调用名∈本轮供出集（越界整批拒绝）；<b>适配器</b>把 HM 权限语义穿透引擎边界；<b>统一执行器</b>做校验、权限判定、租约、deadline；结果按契约分类——尤其 <b>OUTCOME_UNKNOWN</b>：外部有没有被改动，类型上就分清楚。"},
+ {view:"sub:perm",nodes:["s3eval","s3direct","s3store","s3chan","s3sig","s3grant","s3out"],edges:[1,2,3,4,5,6],t:"⑦ 权限与人工审批",
+  s:"权限分两层：普通工具<b>即时判定</b>；物理工具走<b>精确授权</b>——审批精确到(环境,资源,动作)三元组，人审之后还要<b>重 prepare+绑定签名比对</b>防 TOCTOU，逐步 grant 原子领取。飞书刻意 fail-closed：异步消息满足不了精确授权语义，宁可拒绝。"},
+ {view:"sub:memory",nodes:["s4trig","s4rec","s4srch","s4frz","s4asm","s4w1","s4w2","s4val","s4store","s4dream"],edges:[0,1,2,3,4,5,6,7,8],t:"⑧ 记忆：召回·写入·治理",
+  s:"记忆两条路：<b>读</b>——每个 generation 自动召回一次，冻结后注入 prelude，天然防重复注入；<b>写</b>——运行中 memory_add 与收尾 schema episode 都过证据门，写完<b>必须读回验证</b>（active+内容+图边+float32 容差）：receipt 不等于终态。底下 Neo4j、Qdrant、本地文件三层存储。"},
+ {view:"sub:state",nodes:["s5turn","s5fence","s5copy","s5cas","s5rev","s5cancel","s5resume"],edges:[0,1,2,3,5,6],t:"⑨ 状态与恢复",
+  s:"恢复靠一个 generation 计数器做的<b>全量写屏障</b>：每推进或取消都自增代际，旧代际的写直接抛错；快照走不可变 revision+CAS 指针，是唯一恢复源；session.json 只是观测旁路。取消一个 run 不会污染会话。"},
+ {view:"l1",nodes:["entry","apprt","engine","toolgate","env","state","memory","perm","events"],edges:[0,1,2,3,4,5,6,7,8,9,10,11],t:"⑩ 一次完整任务",
+  s:"最后串起来：请求从入口进来→运行时开新代际→装配时召回记忆、组装上下文→引擎循环决策→工具过权限门落到环境→回执回流直到 stop_condition（ALFWorld 里<b>只认环境 won=true</b>）→终局提交、快照落盘、记忆收尾固化→回答经事件投影推回入口。每个环节都能展开到源码。"},
+];
+/* ============================ L3 完整图数据（源码级） ============================ */
+const LAYERS=[
+ {id:"entry", name:"入口层", sub:"Entry Points · 只组 RunRequest，不建 Runtime", x:20,y:20,w:1260,h:118},
+ {id:"app",   name:"应用编排层", sub:"Application · Session 生命周期与组合根", x:20,y:158,w:1260,h:140},
+ {id:"substrate",name:"引擎外壳层", sub:"Substrate · HM 语义包裹 vendored AgentScope ReAct",x:20,y:318,w:1260,h:150},
+ {id:"cap",   name:"通用能力层", sub:"Capabilities · 工具/权限/任务/工件 与 横切服务", x:20,y:488,w:1260,h:192},
+ {id:"domain",name:"领域与环境层", sub:"Domain & Environments · 世界模型与具身适配", x:20,y:700,w:1680,h:130},
+ {id:"extern",name:"外部环境", sub:"External · 真实终态所在", x:20,y:850,w:1680,h:140},
+ {id:"rail",  name:"横切面", sub:"Memory · Event · Provider", x:1300,y:20,w:400,h:660},
+];
+const NODES=[
+{id:"entry_cli",layer:"entry",x:40,y:50,w:290,h:66,en:"CLI / Interactive Shell",cn:"命令行与交互 Shell",
+ desc:"Typer 命令树：run / shell / serve / gateway / benchmark-* / session / cron / memory / doctor。默认瘦客户端模式经 Web API；--local 直连 compose_application。确认通道 CliConfirmationHandler（逐项 1/2/3）。",
+ io:"in: 用户命令/对话 → out: RunRequest / 渲染事件",files:["src/homemaster/cli/app.py","cli/run_command.py:113-134","cli/interactive_shell.py","cli/confirmation.py:41-100"],
+ rel:["apprt","permstore","ev_proj"],value:"同一 Runtime 的最薄入口；本地与远程两种部署形态共用。"},
+{id:"entry_web",layer:"entry",x:360,y:50,w:290,h:66,en:"Web Console (FastAPI+React)",cn:"本地 Web 控制台",
+ desc:"FastAPI REST + WebSocket + React SPA。POST /api/sessions/{id}/messages 构造 RunRequest；固定 subject web-local-operator；事件流必须先订阅（否则 409）；approvals/questions/grants 端点接 PermissionStore。",
+ io:"in: HTTP/WS → out: RunRequest / WS 事件流",files:["web/app.py:339-503","web/serve.py:96-279","web/run_registry.py","web/event_hub.py","web/src/App.tsx"],
+ rel:["apprt","ev_proj","permstore"],value:"唯一支持完整交互审批的远程入口。"},
+{id:"entry_feishu",layer:"entry",x:680,y:50,w:290,h:66,en:"Feishu Gateway",cn:"飞书消息网关",
+ desc:"隔离 SDK WebSocket 子进程→envelope→认证/去重/chat_type→BoundedPriorityBus→ChannelBridge→RunRequest。session_id=SHA-256 派生；出站经 PublicEventProjection。审批通道 fail-closed。",
+ io:"in: 飞书事件 → out: RunRequest / 出站消息",files:["gateway/runtime.py:74-589","channels/impl/feishu.py","channels/bus.py","channels/bridge.py","gateway/confirmation.py"],
+ rel:["apprt","ev_proj","feishucloud"],value:"公网信任边界：入站顺序固定、出站 allowlist 投影。"},
+{id:"entry_bench",layer:"entry",x:1000,y:50,w:260,h:66,en:"ALFWorld Benchmark",cn:"具身评测编排器",
+ desc:"trial 选择/manifest 校验→worker 子进程→episode→RunRequest(profile=alfworld, stop_condition=env won/done)。终局只认环境 won=true；close 核对退出码+stderr。",
+ io:"in: benchmark 配置 → out: episode score/trajectory",files:["alfworld/benchmark/runner.py:113-172,274-303,544-597","cli/benchmark_alfworld.py"],
+ rel:["apprt","alfworld","workercli"],value:"编排与执行分离：runner 管实验生命周期，领域动作在 Harness。"},
+{id:"comp",layer:"app",x:40,y:196,w:240,h:64,en:"Application Composition",cn:"组合根（两层）",
+ desc:"compose_application（外层：providers/tools/skills/MCP/memory/permissions/devices/extensions/observability）→ create_application（内层运行时组装）。profile∈{local_robot,alfworld,browser} 决定工具矩阵。",
+ io:"in: YAML 配置+profile → out: 装配好的 ApplicationRuntime",files:["application/composition/base.py:182,451-515","application/factory.py:52","adapters/profiles.py:90-136"],
+ rel:["apprt","registry"],value:"所有环境共用同一组合根。"},
+{id:"apprt",layer:"app",x:310,y:190,w:280,h:76,en:"ApplicationRuntime",cn:"应用运行时（唯一 Runtime）",
+ desc:"Session 级生命周期 owner：run() 准入→open_or_resume→turn(generation+1)→RunDriver→commit_and_save。cancel=generation bump；compact=独立 provider scope；aclose 按序清理。",
+ io:"in: RunRequest → out: RunResult",files:["application/runtime.py:167,268-345,430-490","application/contracts.py:60-262"],
+ rel:["sessmgr","driver","ev_bus","mem_queue"],value:"全系统唯一运行时。"},
+{id:"sessmgr",layer:"app",x:620,y:190,w:290,h:76,en:"SessionManager / SessionRuntime",cn:"会话管理 · generation fencing",
+ desc:"内存 SessionRuntime + generation 计数。turn() 持锁 gen+1+新 CancellationSource；apply() 双次 assert_generation；cancel() 自增 gen 使旧 writer 抛 SessionGenerationError。",
+ io:"in: session_id/resume → out: SessionRuntime + generation",files:["application/session.py:98-216,448-732","agent/session.py"],
+ rel:["sessfs","apprt"],value:"单一计数器覆盖 session 写/事件/revision 三类写屏障。"},
+{id:"sessfs",layer:"app",x:940,y:196,w:150,h:64,en:"Session 持久化",cn:"权威快照+观测旁路",
+ desc:"SessionFileBackend 写不可变 revisions/NNNN.json+latest.json（CAS expected_revision）——唯一 resume 源；SessionPersistenceManager 写 session.json——观测旁路。",
+ io:"in: engine_state/agent_state/task_state → out: 磁盘快照",files:["application/session.py:219-276,639-662","substrate/snapshot.py:80-167","agent/session_persistence.py"],
+ rel:["sessmgr","asrt"],value:"schema-v2：engine context 权威、mirror 投影。"},
+{id:"driver",layer:"app",x:1110,y:190,w:160,h:76,en:"RunDriver",cn:"单 run 装配器",
+ desc:"每次 run 装配：run-scoped tool view→provider scope→agent_state/task_state 深拷贝→ApplicationToolExecutor→recall→FencedAgentSession→AsAgentRuntime→commit_fn。",
+ io:"in: RunRequest+SessionRuntime → out: GenericRunResult→commit",files:["application/run_driver.py:119-402,404-480"],
+ rel:["recall","asrt","context"],value:"不可变工作副本+终局原子换入。"},
+{id:"persist",layer:"substrate",x:40,y:356,w:250,h:66,en:"SessionPersistence",cn:"逐事件观测快照（旁路）",
+ desc:"substrate 注入的观测写器：每个 tool-result/stop/cancel/deadline 边界 save_snapshot()→session.json；append_message→messages.jsonl。resume 不读它。",
+ io:"in: engine_state+事件 → out: session.json",files:["agent/session_persistence.py:165-269","substrate/runtime.py:303-314"],
+ rel:["sessfs","asrt"],value:"观测可丢，账本不能乱。"},
+{id:"asrt",layer:"substrate",x:320,y:350,w:280,h:78,en:"AsAgentRuntime",cn:"Agent 引擎外壳",
+ desc:"HM 语义包裹 AS Agent：SIGINT 接管、共享 run deadline、事件投影、_check_guards、stop_condition 求值、快照边界。",
+ io:"in: fenced_session+RunContext+engine_state → out: GenericRunResult",files:["substrate/runtime.py:127-446,452-559,909-945"],
+ rel:["asagent","mw","persist","ev_bus","sessfs"],value:"借引擎不借语义。"},
+{id:"mw",layer:"substrate",x:630,y:350,w:270,h:78,en:"Middleware 链 ×5",cn:"AS 中间件（装配期注册）",
+ desc:"RunScopeMiddleware、ContextAssembly（每次模型调用前 aprepare）、ProtocolFence（批次原子拒绝→protocol_blocked）、ProviderRetry（仅传输错误）、ProviderObservability。",
+ io:"in: AS 事件钩 → out: 拦截/重试/投影",files:["substrate/middleware_runtime.py","substrate/toolkit.py:55-93"],
+ rel:["asagent","context","providers"],value:"模型只能调本轮真供出的工具名。"},
+{id:"asagent",layer:"substrate",x:930,y:350,w:290,h:78,en:"AgentScope Agent · ReAct",cn:"决策循环（vendored 引擎）",badge:"vendored",
+ desc:"src/agentscope vendored 框架的 Agent.reply_stream：reasoning→acting→观察 循环。HM 显式解除其原生语义：ContextConfig/InjectionConfig 全关、AS ASK 不用、max_iters=HM预算+2。",
+ io:"in: input_msg+engine_state → out: AS 事件流+final Msg",files:["src/agentscope/agent/_agent.py:289-331,3591-3641","substrate/runtime.py:368-409"],
+ rel:["mw","tooladapter","providers"],value:"引擎可替换点。"},
+{id:"tooladapter",layer:"substrate",x:1240,y:350,w:0,h:0,hidden:true},
+{id:"context",layer:"cap",x:40,y:508,w:190,h:66,en:"ContextAssembler",cn:"上下文工程（唯一权威）",
+ desc:"多来源 ContextItem→ContextBudget→usage anchor 增量估计→两段压缩：卫生微压缩→LLM 摘要折叠(CompactionArtifact+prefix_hash)。aprepare 为唯一入口。",
+ io:"in: session mirror+services → out: 预算内 messages",files:["agent/context.py","agent/compact.py"],
+ rel:["recall","mem_files","mw"],value:"压缩后 rearm recall 的联动协议。"},
+{id:"registry",layer:"cap",x:244,y:508,w:190,h:66,en:"ToolRegistry",cn:"工具注册表",
+ desc:"按模型可见名索引的全局注册表；profile 决定矩阵；freeze() 后不可变；同名冲突走 _INTENTIONAL_COLLISIONS 白名单。",
+ io:"in: RegisteredTool 集合 → out: to_api_schema()",files:["tools/base.py:21-200","adapters/profiles.py:90-136","tools/browser/registry.py:74-115"],
+ rel:["comp","toolsexec","skillsext"],value:"五类工具源同一 Registry。"},
+{id:"tooladapter2",layer:"cap",x:448,y:508,w:190,h:66,en:"HomeToolAdapter + RunScope",cn:"工具适配（HM→AS）",
+ desc:"BaseTool→AS ToolBase；RunScope 携带 deadline/cancellation/subject/services；check_permissions 只产 ALLOW/DENY；结果→ToolResultBlock，机器字段藏 metadata[\"hm\"]。",
+ io:"in: tool_call → out: ToolChunk/ToolResultBlock",files:["substrate/toolkit.py:55-364","substrate/messages.py:150-416"],
+ rel:["asagent","toolsexec"],value:"HM 权限语义穿透引擎边界。"},
+{id:"toolsexec",layer:"cap",x:652,y:508,w:190,h:66,en:"ToolExecutor 统一执行",cn:"工具执行器（Application+核心）",
+ desc:"ApplicationToolExecutor 建 ToolExecutionContext→ToolExecutor.execute：参数校验→evaluate_tool→physical 分支或 lease→wait_for(remaining)→异常分类。execute_many 按 conflict_key 并发分组。",
+ io:"in: ToolExecutionContext → out: ToolExecutionResult",files:["application/tool_executor.py:26-335","tools/executor.py:223-1171"],
+ rel:["registry","perm","permstore","devices","stateart"],value:"所有工具调用过同一治理链。"},
+{id:"perm",layer:"cap",x:856,y:508,w:190,h:66,en:"PermissionChecker",cn:"权限判定（capability 模型）",
+ desc:"evaluate_tool 固定序：路径敏感→deny/allow 集→denied→capability⊆subject→plan_mode→allowed→mode。evaluate_physical：once-credential/grant/session_allows 逐项覆盖。",
+ io:"in: tool+args+subject → out: PermissionDecision",files:["permissions/policy.py:77-243,387-399","permissions/config.py"],
+ rel:["permstore","toolsexec"],value:"默认允许普通、精确授权物理。"},
+{id:"stateart",layer:"cap",x:1060,y:508,w:200,h:66,en:"TaskState + Artifacts",cn:"任务状态与工件 ACL 存储",
+ desc:"TaskStateStore run 级进度快照；ToolOutputStore：tenant/session/run 分区、opaque hm-artifact: 句柄、quota+TTL、0600、ACL+hash 复查。",
+ io:"in: 工具输出/进度 → out: opaque ref / progress",files:["task_state/store.py","artifacts/tool_output_store.py","artifacts/publisher.py"],
+ rel:["toolsexec","context"],value:"上下文与体存储分离。"},
+{id:"permstore",layer:"cap",x:40,y:600,w:190,h:66,en:"PermissionStore + 确认通道",cn:"审批状态机（SQLite）",
+ desc:"requests/items/steps/submissions/grants/events 六表；submit 幂等；claim_step 带 attempt 预算；recover 重启接管。通道：CLI 逐项、Web future+HTTP、Feishu fail-closed。",
+ io:"in: prepared request+用户决策 → out: grant",files:["permissions/store.py:251-1267","cli/confirmation.py","web/confirmations.py","gateway/confirmation.py"],
+ rel:["perm","toolsexec","entry_web","entry_cli"],value:"TOCTOU 双防线。"},
+{id:"devices",layer:"cap",x:244,y:600,w:190,h:66,en:"Devices",cn:"设备租约 / 连接池 / 审计",
+ desc:"DeviceLeaseManager per-device FIFO+generation fence+tenant 校验；DeviceConnectionPool (tenant,device,backend) 精确连接；DeviceAuditLog append-only。",
+ io:"in: acquire(fence)→out: lease/连接",files:["devices/lease_manager.py","devices/connection_pool.py","devices/audit.py"],
+ rel:["toolsexec","alfworld"],value:"外部设备串行化+代际围栏。"},
+{id:"mcp",layer:"cap",x:448,y:600,w:190,h:66,en:"MCP Client + Adapter + Audit",cn:"MCP 扩展生态",
+ desc:"多 server 连接生命周期；discovery 原子注册进同一 Registry；state_effects=mcp.remote_state→capability mcp.call；调用全落 JSONL 审计。",
+ io:"in: MCP server 工具/资源 → out: 注册工具+audit",files:["mcp/client.py:106-360","mcp/adapter.py:155-346","mcp/audit.py"],
+ rel:["registry","toolsexec","mcps"],value:"第三方能力唯一受控通道。"},
+{id:"skillsext",layer:"cap",x:652,y:600,w:190,h:66,en:"Skills + Extensions",cn:"技能注册表与受信扩展",
+ desc:"SkillRegistry SKILL.md 按名/别名索引；Extensions：manifest digest+capability 校验、逐代 fail-closed 装载、4 个 hook event，工具进同一 Registry+权限链。",
+ io:"in: skill 文件/扩展包 → out: 技能/工具/hook",files:["skills/registry.py,loader.py","extensions/contracts.py","extensions/loader.py"],
+ rel:["registry","toolsexec"],value:"扩展不绕开权限面。"},
+{id:"svctools",layer:"cap",x:856,y:600,w:190,h:66,en:"Service Tools ×23",cn:"服务工具（任务/团队/计划）",
+ desc:"specs JSON 驱动：ask_user_question、lsp、image_*、config、plan_mode、cron_*、task_*、agent(spawn child_worker)、team_*、remote_trigger、mcp_auth。",
+ io:"in: 工具参数 → out: 服务调用结果",files:["tools/service_tools.py","tools/runtime_services.py","cli/child_worker.py"],
+ rel:["toolsexec","childworker","perm"],value:"多 agent 协作是工具而非框架特性。"},
+{id:"recall",layer:"cap",x:1060,y:600,w:200,h:66,en:"AutomaticRecallService",cn:"自动记忆召回（generation 门控）",
+ desc:"每 generation 一次：query=[压缩摘要]+[任务态]+[用户消息]→MindMemOS search(top_k=5,vanilla)→<memory-context>→prelude。失败降级空上下文。",
+ io:"in: session 状态 → out: <memory-context>",files:["application/memory_recall.py:32-194","memory/automatic_recall.py:20-135"],
+ rel:["mem_mm","context","driver"],value:"召回时机绑 generation——压缩/恢复后自动 rearm。"},
+{id:"providers",layer:"rail",x:1320,y:50,w:360,h:66,en:"Providers 模型接入",cn:"ChatModel / AsLLMClient / Embedding / Token",
+ desc:"ProviderProfileConfig→chat_model_from_profile→AS ChatModelBase。AsLLMClient 供记忆抽取/JSON 任务；TokenEstimator 参与上下文预算。",
+ io:"in: profile 配置 → out: chat_model/embed/token",files:["substrate/models.py:71-143","substrate/as_llm_client.py","providers/attempts.py"],
+ rel:["asagent","llm","context"],value:"多 provider 可配置；每次调用可审计。"},
+{id:"mem_files",layer:"rail",x:1320,y:196,w:360,h:56,en:"Files Tier · SOUL/USER/MEMORY.md",cn:"文件记忆层",
+ desc:"FileMemoryStore：Markdown 三层本地记忆；ThreatScanner 读写双侧拦截注入/凭据；FrozenMemoryContextService 每 session 冻结快照进 system prompt。",
+ io:"in: 文件读写 → out: system prompt 注入",files:["memory/file_store.py:20-272","memory/context_service.py:10-37"],
+ rel:["context"],value:"零依赖基线记忆。"},
+{id:"mem_mm",layer:"rail",x:1320,y:262,w:360,h:56,en:"EmbeddedMindMemOS",cn:"结构化记忆引擎（内嵌）",
+ desc:"vendored MindMemOS 内嵌运行时（facade+四职责 mixin）：Qdrant+Neo4j 双存储；add_flat 确定性直写+逐项读回；search/update/feedback/dream。",
+ io:"in: MemoryWrite/query → out: 记忆行+图边+向量",files:["memory/mindmemos_runtime.py","memory/mindmemos_writes.py"],
+ rel:["neo4j","qdrant","recall","mem_queue","mem_dream"],value:"receipt≠终态。"},
+{id:"mem_queue",layer:"rail",x:1320,y:328,w:360,h:56,en:"Memory Workers · Finalizer",cn:"记忆后台队列（写路径）",
+ desc:"MemoryAddQueue 单 FIFO：session_finalization/trajectory/compile 三类 job。SessionFinalizer→schema episode→UUID5 幂等→逐域终态验证；job.json 分 phase 可重入。",
+ io:"in: session close/job → out: 终态验证过的记忆",files:["experience/finalizer.py:84-628","experience/session_finalization.py","memory/add_queue.py"],
+ rel:["apprt","mem_mm","ev_sink"],value:"记忆写入是带证据资格的幂后台管线。"},
+{id:"mem_dream",layer:"rail",x:1320,y:394,w:360,h:56,en:"DreamingCoordinator",cn:"记忆巩固（阈值=8）",
+ desc:"DreamingStateStore 按(project,user)记 pending/inflight/watermark；每 8 条有效新记忆触发 dream→逐动作终态核验→推进水位线；retry_pending 恢复。",
+ io:"in: add_record 批次 → out: 巩固动作",files:["experience/dreaming_state.py:19-401","memory/mindmemos_runtime.py"],
+ rel:["mem_mm"],value:"离线巩固与在线执行解耦。"},
+{id:"ev_bus",layer:"rail",x:1320,y:528,w:170,h:56,en:"EventBus",cn:"有界事件总线",
+ desc:"私有 RuntimeEvent 流：线程安全生产者、有界订阅队列、emit_guarded 绑 generation。",
+ io:"in: RuntimeEvent → out: 订阅流",files:["events/bus.py:33-302","events/runtime_events.py"],
+ rel:["asrt","ev_proj","ev_sink"],value:"全系统唯一事件脊柱。"},
+{id:"ev_proj",layer:"rail",x:1510,y:528,w:170,h:56,en:"Projection ×3",cn:"三级投影（信任边界）",
+ desc:"内部富事件→本地 stream DTO→公开 envelope（类型+metadata 双 allowlist；无公共语义直接丢弃）。generation 生产时固化。",
+ io:"in: RuntimeEvent → out: DTO/envelope",files:["events/public_projection.py:19-280","events/stream_events.py"],
+ rel:["ev_bus","entry_web","entry_feishu"],value:"对外零泄漏。"},
+{id:"ev_sink",layer:"rail",x:1320,y:596,w:360,h:56,en:"JSONL Sinks（可观测旁路）",cn:"结构化事件落盘",
+ desc:"runtime_events.jsonl 全量轨迹+provider_attempts+messages 分 sink；审计旁路失败只 warn；memory 收尾与 benchmark 证据从 JSONL 重算。",
+ io:"in: RuntimeEvent → out: JSONL 文件",files:["events/sinks.py","providers/attempts.py"],
+ rel:["ev_bus","mem_queue"],value:"轨迹即真相源。"},
+{id:"homeworld",layer:"domain",x:40,y:734,w:290,h:66,en:"HomeWorld + robot_* 工具",cn:"模拟家庭世界（local_robot）",badge:"simulated",
+ desc:"HomeWorldBackend：文件型 JSON 世界（robot_room/held_object_id/object_locations/revision，每次调用重读+原子重写）。local_robot profile 注册 robot_*；skill_mode=simulated。",
+ io:"in: go_to/manipulate → out: HomeBackendReceipt",files:["domain/home_backend.py:26-268","domain/tools.py","adapters/profiles.py:109-116"],
+ rel:["toolsexec"],value:"领域语义以工具+backend 注入。"},
+{id:"alfworld",layer:"domain",x:360,y:734,w:340,h:66,en:"ALFWorld Harness",cn:"具身环境适配（Oracle 动作）",
+ desc:"AlfworldHarness.execute：observe→capture_scene→陈旧检查→scene.ground 唯一命中→OracleActionGateway→backend.act→ExecutionFeedback。AlfworldPermissionAdapter 提供物理精确授权。",
+ io:"in: robot_go_to/manipulate(target)→out: Feedback+won/done",files:["alfworld/harness.py:19-134","alfworld/scene.py:20-97","alfworld/actions.py","alfworld/permission_adapter.py"],
+ rel:["toolsexec","workercli","permstore","devices"],value:"grounding 把自然语言绑到唯一可验证对象。"},
+{id:"workercli",layer:"domain",x:730,y:734,w:250,h:66,en:"AlfworldWorkerClient",cn:"Worker IPC 客户端（NDJSON）",
+ desc:"homemaster-alfworld-v1：reset/set_task/observe/act/close；单行 NDJSON≤1MiB；request_id 关联；close 迟到回执 reconciliation；第三方 stdout 重定向 stderr。",
+ io:"in: op 请求 → out: BackendReceipt",files:["alfworld/worker_client.py:108-591","workers/alfworld_worker/protocol.py"],
+ rel:["alfworld","alfworker"],value:"跨解释器边界的版本化协议+回执对账。"},
+{id:"browsersess",layer:"domain",x:1010,y:734,w:300,h:66,en:"Browser Session（run-scoped）",cn:"浏览器环境（Playwright）",
+ desc:"BrowserApplication 包裹 run()：每 run 一个 Playwright owner+整副 registry 替换（27 固定+capability 门控 browser_eval）并 freeze；max_tool_iterations=None。",
+ io:"in: browser_* 调用 → out: DOM/AX/截图结果",files:["browser/application.py:25-38","tools/browser/registry.py:36-115","browser/playwright_session.py"],
+ rel:["toolsexec","chromium"],value:"run 级资源所有权。"},
+{id:"lspnote",layer:"domain",x:1440,y:734,w:230,h:66,en:"领域工具注入方式",cn:"三种环境=三个 profile",
+ desc:"同一 Runtime 通过 RunRequest.profile+environment backend+dependencies 切换世界；工具矩阵由 adapters/profiles.py build_tool_registry 决定。",
+ io:"in: profile → out: 领域工具集",files:["adapters/profiles.py:90-136","application/composition/profiles.py"],
+ rel:["registry","comp"],value:"环境即依赖注入。"},
+{id:"mcps",layer:"extern",x:60,y:884,w:190,h:66,en:"MCP Servers",cn:"外部工具/资源服务",
+ desc:"stdio/streamable HTTP 两类传输；每 server 独立连接；资源 URI 经 sha256 派生 opaque id。",
+ io:"stdio/HTTP",files:["mcp/client.py","mcp/adapter.py"],rel:["mcp"],value:""},
+{id:"feishucloud",layer:"extern",x:280,y:884,w:190,h:66,en:"飞书 Cloud",cn:"开放平台 API/WebSocket",
+ desc:"SDK WebSocket 长连接收事件；REST 发消息；sender/chat/message_id 认证与去重边界。",
+ io:"WS+HTTPS",files:["channels/impl/feishu.py"],rel:["entry_feishu"],value:""},
+{id:"alfworker",layer:"extern",x:500,y:884,w:210,h:66,en:"ALFWorld Worker",cn:"隔离 venv 子进程 → AI2-THOR",
+ desc:"独立 .runtime/alfworld-venv：只装 ALFWorld/AI2-THOR/Torch，不 import homemaster。ThorBackend：trial pin+seed+env.reset/act/close；won/done 终态在此。",
+ io:"stdin/stdout NDJSON",files:["workers/alfworld_worker/main.py,__main__.py,thor_backend.py"],rel:["workercli"],value:"依赖地狱的物理隔离。"},
+{id:"chromium",layer:"extern",x:740,y:884,w:190,h:66,en:"Chromium (Playwright)",cn:"真实浏览器",
+ desc:"run 级 Playwright 会话的浏览器进程；DOM/AX/语义 ref/下载/截图真实执行面。",
+ io:"CDP",files:["browser/playwright_session.py"],rel:["browsersess"],value:""},
+{id:"childworker",layer:"extern",x:960,y:884,w:190,h:66,en:"Child Worker 子进程",cn:"子 agent / 后台任务",
+ desc:"python -m homemaster.cli.child_worker 行协议子进程：agent 工具 spawn；task_* 管后台 shell；cron worker 定时触发。",
+ io:"stdin/stdout 行协议",files:["cli/child_worker.py","tools/task_runtime.py"],rel:["svctools"],value:"多 agent=进程隔离的同一 Runtime。"},
+{id:"llm",layer:"extern",x:1180,y:884,w:200,h:66,en:"LLM Provider API",cn:"模型端点（Anthropic/OpenAI 兼容）",
+ desc:"Chat provider：agent loop/抽取/总结；Embedding provider：记忆向量化。YAML 唯一真理源。",
+ io:"HTTPS",files:["config/homemaster.example.yaml","substrate/models.py"],rel:["providers"],value:""},
+{id:"neo4j",layer:"extern",x:1410,y:884,w:130,h:66,en:"Neo4j",cn:"managed_local 图存储",
+ desc:"ManagedNeo4jRuntime：跨进程 manager lock+owner 元数据+per-process lease+readiness probe；仅 loopback bolt URI。",
+ io:"bolt://loopback",files:["memory/managed_neo4j.py","config/config.py"],rel:["mem_mm"],value:""},
+{id:"qdrant",layer:"extern",x:1560,y:884,w:120,h:66,en:"Qdrant",cn:"embedded 向量存储",
+ desc:"内嵌 AsyncQdrantClient 路径存储；sparse BM25 同步写、dense 向量经 enrichment 队列补写+float32 容差读回。",
+ io:"local path",files:["memory/mindmemos_runtime.py","config/config.py"],rel:["mem_mm"],value:""},
+];
+const EDGES=[
+ {f:"entry_cli",t:"apprt",k:"control",l:"RunRequest"},
+ {f:"entry_web",t:"apprt",k:"control",l:"POST /messages→RunRequest"},
+ {f:"entry_feishu",t:"apprt",k:"control",l:"ChannelBridge→RunRequest"},
+ {f:"entry_bench",t:"apprt",k:"control",l:"RunRequest+stop_condition"},
+ {f:"comp",t:"apprt",k:"control",l:"装配"},
+ {f:"apprt",t:"sessmgr",k:"control",l:"open_or_resume·turn(gen+1)"},
+ {f:"apprt",t:"driver",k:"control",l:"per-run 装配"},
+ {f:"driver",t:"asrt",k:"control",l:"execute()"},
+ {f:"asrt",t:"asagent",k:"control",l:"reply_stream"},
+ {f:"asagent",t:"mw",k:"data",l:"每轮模型调用经 Middleware"},
+ {f:"mw",t:"providers",k:"data",l:"chat call + retry"},
+ {f:"providers",t:"llm",k:"extern",l:"HTTPS"},
+ {f:"asagent",t:"tooladapter2",k:"control",l:"tool_call"},
+ {f:"tooladapter2",t:"toolsexec",k:"control",l:"call→execute_many"},
+ {f:"toolsexec",t:"registry",k:"control",l:"get(name)"},
+ {f:"toolsexec",t:"perm",k:"control",l:"evaluate_tool"},
+ {f:"perm",t:"permstore",k:"approval",l:"grants/session_allows 查询"},
+ {f:"toolsexec",t:"permstore",k:"approval",l:"physical: create/submit/steps"},
+ {f:"toolsexec",t:"devices",k:"control",l:"acquire(资源租约)"},
+ {f:"toolsexec",t:"homeworld",k:"control",l:"invoke robot_*"},
+ {f:"toolsexec",t:"alfworld",k:"control",l:"invoke robot_*"},
+ {f:"toolsexec",t:"browsersess",k:"control",l:"invoke browser_*"},
+ {f:"toolsexec",t:"mcp",k:"control",l:"invoke mcp_*"},
+ {f:"toolsexec",t:"svctools",k:"control",l:"invoke service tools"},
+ {f:"entry_bench",t:"alfworld",k:"control",l:"adapter+harness 创建"},
+ {f:"alfworld",t:"workercli",k:"control",l:"act/observe"},
+ {f:"workercli",t:"alfworker",k:"extern",l:"stdin/stdout NDJSON"},
+ {f:"context",t:"asrt",k:"data",l:"prepared context"},
+ {f:"mw",t:"context",k:"data",l:"on_model_call→aprepare"},
+ {f:"toolsexec",t:"stateart",k:"data",l:"大结果→ACL store"},
+ {f:"sessmgr",t:"sessfs",k:"state",l:"CAS revisions(唯一 resume 源)"},
+ {f:"asrt",t:"persist",k:"state",l:"save_snapshot(事件边界)"},
+ {f:"persist",t:"sessfs",k:"state",l:"session.json(观测旁路)"},
+ {f:"asrt",t:"sessfs",k:"state",l:""},
+ {f:"apprt",t:"sessfs",k:"state",l:"commit_and_save"},
+ {f:"driver",t:"recall",k:"control",l:"run 前召回(gen 门控)"},
+ {f:"recall",t:"mem_mm",k:"memory",l:"search(top_k=5)"},
+ {f:"recall",t:"context",k:"memory",l:"<memory-context>→prelude"},
+ {f:"mem_files",t:"context",k:"memory",l:"frozen→system prompt"},
+ {f:"toolsexec",t:"mem_mm",k:"memory",l:"mindmemos_* 工具(证据门→add_flat)"},
+ {f:"apprt",t:"mem_queue",k:"memory",l:"session close→Finalizer"},
+ {f:"mem_queue",t:"mem_mm",k:"memory",l:"episode/trajectory/compile 写入"},
+ {f:"mem_dream",t:"mem_mm",k:"memory",l:"dream() 巩固+核验"},
+ {f:"mem_mm",t:"neo4j",k:"extern",l:"图边/实体"},
+ {f:"mem_mm",t:"qdrant",k:"extern",l:"向量"},
+ {f:"ev_sink",t:"mem_queue",k:"observe",l:"读 runtime_events.jsonl 重算"},
+ {f:"asrt",t:"ev_bus",k:"observe",l:"emit(GenerationFencedSink)"},
+ {f:"ev_bus",t:"ev_proj",k:"observe",l:""},
+ {f:"ev_bus",t:"ev_sink",k:"observe",l:"JSONL 落盘"},
+ {f:"ev_proj",t:"entry_web",k:"observe",l:"WS 推送"},
+ {f:"ev_proj",t:"entry_feishu",k:"observe",l:"出站 allowlist"},
+ {f:"permstore",t:"entry_web",k:"approval",l:"Web 审批(future+HTTP)"},
+ {f:"permstore",t:"entry_cli",k:"approval",l:"CLI 逐项 1/2/3"},
+ {f:"permstore",t:"entry_feishu",k:"approval",l:"fail-closed ✕"},
+ {f:"mcp",t:"mcps",k:"extern",l:"stdio/HTTP"},
+ {f:"browsersess",t:"chromium",k:"extern",l:"Playwright"},
+ {f:"svctools",t:"childworker",k:"extern",l:"spawn agent/task"},
+ {f:"entry_feishu",t:"feishucloud",k:"extern",l:"SDK WS 子进程"},
+ {f:"skillsext",t:"registry",k:"control",l:"扩展/技能工具注册"},
+ {f:"alfworld",t:"permstore",k:"approval",l:"物理 adapter(prepare/observe)"},
+ {f:"alfworker",t:"workercli",k:"extern",l:"BackendReceipt(won/done)",back:true},
+ {f:"tooladapter2",t:"asagent",k:"data",l:"ToolResultBlock",back:true},
+ {f:"sessfs",t:"sessmgr",k:"state",l:"resume→最后提交 turn",back:true},
+];
+const CHAINS=[
+ {id:"run",name:"① 任务执行主链路",desc:"入口→Runtime→Session(gen)→RunDriver→召回→引擎外壳→ReAct→工具→终局 commit",
+  nodes:["entry_cli","entry_web","entry_feishu","entry_bench","apprt","sessmgr","driver","recall","asrt","mw","asagent","context","providers","llm","tooladapter2","toolsexec","registry","perm","ev_bus","ev_proj","ev_sink","persist","sessfs","mem_mm","mem_files"],
+  edges:[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,27,28,30,31,33,34,35,36,37,38,46,47,48,49]},
+ {id:"tool",name:"② 工具调用与权限门",desc:"模型 tool_call→协议围栏→Adapter→ToolExecutor→PermissionChecker→租约→执行→结果分类→artifact",
+  nodes:["asagent","mw","tooladapter2","toolsexec","registry","perm","permstore","devices","homeworld","alfworld","browsersess","mcp","svctools","stateart","mcps","chromium","childworker"],
+  edges:[9,12,13,14,15,17,18,19,20,21,22,23,29,54,55,56,61]},
+ {id:"approval",name:"③ 物理审批链(HITL)",desc:"physical 工具→prepare→PermissionStore→三通道确认→binding signature 复查→逐步 grant→execute→observe（当前仅 ALFWorld Web 装配）",
+  nodes:["toolsexec","perm","permstore","alfworld","devices","entry_web","entry_cli","entry_feishu"],
+  edges:[16,17,18,59,51,52,53,20]},
+ {id:"memory",name:"④ 记忆召回·写入·巩固",desc:"召回(gen 门控)→prelude 注入 | mindmemos 工具写 | session close→Finalizer→episode→feedback→dreaming",
+  nodes:["driver","recall","context","mem_files","mem_mm","mem_queue","mem_dream","neo4j","qdrant","apprt","toolsexec","ev_sink"],
+  edges:[35,36,37,38,39,40,41,42,43,44,45]},
+ {id:"recovery",name:"⑤ Session 状态与恢复",desc:"turn→generation 栅栏→工作副本→commit CAS→revisions(权威 resume) / session.json(观测) / cancel=gen bump",
+  nodes:["apprt","sessmgr","sessfs","driver","asrt","persist","asagent"],
+  edges:[5,6,7,8,30,31,32,33,34,62]},
+ {id:"alfworld",name:"⑥ ALFWorld 端到端",desc:"benchmark→worker 子进程(NDJSON)→harness(grounding/oracle)→env.step→won/done→终局核对",
+  nodes:["entry_bench","alfworld","workercli","alfworker","apprt","driver","asrt","asagent","mw","tooladapter2","toolsexec","perm","devices","permstore","providers","llm","ev_sink","ev_bus","mem_queue","mem_mm"],
+  edges:[3,24,25,26,62,5,6,7,8,9,10,11,12,13,15,17,18,20,46,45,40,41]},
+];
+const DEMO=[
+ {t:"① 启动 benchmark",nodes:["entry_bench"],edges:[],
+  d:"<code>homemaster benchmark-alfworld</code> → <code>AlfworldBenchmarkRunner</code>：校验 memory tier、建 run 目录、manifest 精确匹配或按 split 枚举选 trial。<br><code>cli/app.py:754</code> · <code>benchmark/runner.py:113-172</code>"},
+ {t:"② 拉起隔离 worker 子进程",nodes:["entry_bench","workercli","alfworker"],edges:[25,26],
+  d:"<code>WorkerAlfworldAdapter.start</code> → <code>AlfworldWorkerClient.start</code> spawn 独立 venv 子进程，NDJSON ready 握手。<br><code>worker_client.py:108-228</code>"},
+ {t:"③ reset：加载真实场景",nodes:["workercli","alfworker"],edges:[26,62],
+  d:"client 发 <code>reset</code> 帧 → worker <code>ThorBackend</code> 加载 YAML、pin trial、seed、<code>env.reset()</code>。<br><code>thor_backend.py:13-86</code>"},
+ {t:"④ 构建 SceneSnapshot + episode prompt",nodes:["entry_bench","alfworld"],edges:[24],
+  d:"<code>AlfworldHarness.reset</code> → backend observe→<code>SceneSnapshot</code>；<code>build_episode_prompt</code> 公开语义动作但不泄漏 objectId/坐标。<br><code>lifecycle.py:11-58</code> · <code>prompt.py:72-149</code>"},
+ {t:"⑤ 组合应用并提交 RunRequest",nodes:["comp","apprt","entry_bench"],edges:[3,4],
+  d:"<code>compose_application(profile='alfworld')</code>：工具矩阵换 ALFWorld 版 robot_*；RunRequest 携 <code>stop_condition</code>（环境 won/done）。<br><code>episode.py:39-55</code> · <code>runner.py:274-303</code>"},
+ {t:"⑥ Session 准入：generation+1",nodes:["apprt","sessmgr","sessfs"],edges:[5,30],
+  d:"<code>open_or_resume</code> → <code>turn()</code> 持锁 generation+1、新 CancellationSource；后续所有写经 generation 栅栏。<br><code>runtime.py:268-310</code>"},
+ {t:"⑦ RunDriver 装配本次 run",nodes:["driver","recall","context"],edges:[6,35,36,37],
+  d:"<code>RunDriver.execute</code>：tool view→provider 绑定→工作副本→<b>自动记忆召回</b>（每 gen 一次）→<code>&lt;memory-context&gt;</code> 进 prelude。<br><code>run_driver.py:157-258</code>"},
+ {t:"⑧ 引擎外壳接管 ReAct 循环",nodes:["asrt","asagent","mw"],edges:[7,8,9],
+  d:"<code>AsAgentRuntime</code> 组装 middleware 链与 Agent（AS 原生 mutator 全关），<code>reply_stream</code> 驱动 reasoning→acting；每轮模型调用前 aprepare。<br><code>substrate/runtime.py:337-433</code>"},
+ {t:"⑨ 模型决策：调用 robot_manipulate",nodes:["asagent","mw","tooladapter2"],edges:[12],
+  d:"模型产出 <code>ToolCallBlock</code> → <code>ProtocolFenceMiddleware</code> 校验∈本轮 offered 集→ <code>RunScopeMiddleware</code> 绑 tool_call_id → <code>HomeToolAdapter.call</code>。<br><code>toolkit.py:323-344</code>"},
+ {t:"⑩ 权限门 + 统一执行",nodes:["tooladapter2","toolsexec","perm","devices"],edges:[13,15,18],
+  d:"<code>ApplicationToolExecutor</code> 建 ToolExecutionContext → <code>ToolExecutor.execute</code>：参数校验→<code>evaluate_tool</code>→(physical 分支另走审批)→资源租约→<code>wait_for(deadline)</code>。<br><code>executor.py:241-366</code>"},
+ {t:"⑪ Harness：grounding + Oracle 动作",nodes:["alfworld"],edges:[25],
+  d:"<code>AlfworldHarness.execute</code>：observe→capture_scene→<b>陈旧快照检查</b>→<code>scene.ground</code> 唯一命中→<code>OracleActionGateway</code> 翻成 TeleportFull/objectId+pose。<br><code>harness.py:19-134</code> · <code>actions.py:11-36</code>"},
+ {t:"⑫ IPC act：真实环境步进",nodes:["workercli","alfworker"],edges:[26,62],
+  d:"<code>WorkerThorBackend.act</code>→NDJSON <code>act</code> 帧→worker <code>env.step</code>→<code>BackendReceipt</code>（external_return_code+backend_attempted+state+evidence）。<br><code>worker_client.py:37-73,543-591</code>"},
+ {t:"⑬ 结果回写模型（typed 反馈）",nodes:["tooladapter2","asagent","alfworld"],edges:[61],
+  d:"回执→<code>AlfworldExecutionFeedback(success,terminal=done,won)</code>→<code>ToolResultBlock</code>；机器字段藏 <code>metadata[\"hm\"]</code> 回流 canonical。<br><code>alfworld/types.py:675-789</code>"},
+ {t:"⑭ 终止判定：只认环境 won",nodes:["asagent","entry_bench","sessfs","apprt"],edges:[34],
+  d:"循环继续直到 <code>stop_condition</code>：<code>won=true</code>→成功；<code>done&amp;&amp;!won</code>→<code>benchmark_done_without_won</code>。终局 generation-fenced apply+CAS 落盘。<br><code>runner.py:544-597</code>"},
+ {t:"⑮ 收尾：对账 + 记忆固化",nodes:["workercli","alfworker","mem_queue","mem_mm","ev_sink"],edges:[45,40,41],
+  d:"<code>close</code> 帧→worker 退出码+stderr 核对；轨迹经 <code>runtime_events.jsonl</code>→SessionFinalizer/trajectory_writer 写记忆（含 source_trace_sha256）。<br><code>worker_client.py:491-531</code>"},
+];
+const HIGHLIGHTS=[
+ {t:"借引擎不借语义（Substrate 外壳模式）",d:"复用 vendored AgentScope ReAct 循环，但 AS 原生上下文 mutator/injection/ASK 全部显式关闭，max_iters 仅 +2 缓冲；deadline/取消/generation/权限权威全在 HM。引擎可替换而语义不变。",f:"substrate/runtime.py:368-397,909-945 · toolkit.py:306-309"},
+ {t:"Generation Fencing = 全量写屏障",d:"单一 generation 计数覆盖 session 写/事件发布/revision commit；cancel() 自增 gen 使旧 writer 抛 SessionGenerationError→honest 终态。",f:"application/session.py:132-216,571-607 · run_driver.py:61-116"},
+ {t:"OUTCOME_UNKNOWN 一等状态",d:"mutating 且 backend_started 后的超时/取消/异常归一化为 outcome_unknown；契约构造时强制 backend_attempted+certainty+禁 retryable。",f:"tools/contracts.py:548-571 · tools/executor.py:325-357,771-845"},
+ {t:"物理精确授权 + TOCTOU 双防线",d:"审批精确到 (环境,资源类型,资源ID,动作) 逐项；批准后重 prepare+绑定签名比对防目标漂移；每步 linearize 内第三次 grant 复查+原子 claim。",f:"tools/executor.py:389-517,712-889 · permissions/store.py"},
+ {t:"记忆写入：receipt≠终态",d:"所有写路径以读回 active raw+内容相等+图边存在+float32 容差逐维收尾；写前有证据门与不可变 dedupe_key；后台管线 UUID5 幂等。",f:"memory/mindmemos_runtime.py:963-1338 · experience/finalizer.py"},
+ {t:"协议围栏 + 三级事件投影",d:"模型只能调本轮供出的工具名（整批原子拒绝）；内部富事件→DTO→公开 envelope 双 allowlist，无公共语义直接丢弃。",f:"substrate/middleware_runtime.py · events/public_projection.py:19-280"},
+];
+const BOUNDARIES=[
+ "独立 AgentRuntime 类不存在——已并入 AsAgentRuntime（substrate/runtime.py）",
+ "非物理工具无交互确认——evaluate_tool 从不返回 requires_confirmation",
+ "无 risk_level 字段——权限只有 PermissionMode(default/plan/full_auto)+规则列表",
+ "Feishu 审批 fail-closed（gateway/confirmation.py:76-145）；物理工具仅 ALFWorld Web console 装配",
+ "记忆无 rerank——召回固定 vanilla top_k=5；Web 只有 WebSocket 无 SSE",
+ "robot skill=simulated——HomeWorld 是文件型 JSON 世界，未接真机/VLA/VLM",
+ "resume 粒度=最后提交 turn——cancel 不 commit revision；session.json 仅观测",
+ "MindMemOS 原生 add/add_record 无调用者——写入口只有 add_schema_episode + add_flat",
+ "context_projection.py 是 no-op；session_persistence 两个 resume helper 无调用者",
+ "QA probe 工具面未摘除 mindmemos_*——隔离仅靠不开 session 跳过 finalization",
+];
+const GLOSS=[
+ ["Harness","Agent 运行与控制框架","HomeMaster 语境两层含义：通用运行框架=ApplicationRuntime+RunDriver+Substrate；领域 harness=ALFWorld Harness（grounding/oracle/终态验证）。"],
+ ["Runtime","运行时","ApplicationRuntime（唯一，session 生命周期 owner）。SessionRuntime/GatewayRuntime/ManagedNeo4jRuntime 是不同对象的同名后缀。"],
+ ["Session","任务会话","用户连续对话的单位；内含 canonical messages+engine_state+task_state；generation 标识代际。"],
+ ["Generation Fencing","代际栅栏","写屏障：每 turn/cancel 使 generation+1，旧代际的写一律抛 SessionGenerationError。"],
+ ["Checkpoint / Revision","状态检查点","revisions/NNNN.json 不可变快照+latest.json 原子指针+CAS；schema-v2 以 engine context 为权威。"],
+ ["RunRequest / RunResult","运行契约","不可变入参与结果（status/final_reply/error_code）。"],
+ ["ToolExecutor","工具执行器","统一执行链：校验→权限→租约→deadline wait_for→分类。"],
+ ["Protocol Fence","协议围栏","Middleware 校验 tool_call ∈ 本轮 offered 集；越界整批 protocol_blocked。"],
+ ["Human-in-the-loop","人工介入","仅物理工具：prepare→store→三通道确认→签名复查→逐步 grant→execute→observe。"],
+ ["OUTCOME_UNKNOWN","结果未知态","副作用可能已发生但结果不可知；契约级禁重试。"],
+ ["Memory Governance","记忆治理","证据门+不可变身份+终态读回+审计旁路+benchmark 隔离。"],
+ ["Context Engineering","上下文工程","ContextAssembler：多源条目→预算→usage anchor→两段压缩→rearm recall。"],
+ ["Dreaming","记忆巩固","离线管线：每 8 条有效新记忆触发 dream()，逐动作终态核验+水位线推进。"],
+ ["Schema Episode","规范化轨迹","session 收尾时从 runtime_events.jsonl 提取的结构化 episode，UUID5 幂等写入。"],
+ ["Bounded Priority Bus","有界优先级总线","飞书通道队列：progress 合并可驱逐、非 progress 背压。"],
+ ["Vendored","内嵌依赖","src/agentscope 与 third_party/MindMemOS 源码内嵌进仓库，可审计可定制。"],
+];
+/* =====================================================================
+   渲染引擎：通用 view = {nodes,edges,decor,vw,vh}
+   ===================================================================== */
+const svg=document.getElementById("svg"),world=document.getElementById("world");
+const NS="http://www.w3.org/2000/svg";
+const g=(el,at)=>{const e=document.createElementNS(NS,el);for(const k in at)e.setAttribute(k,at[k]);return e;};
+const FULL={vw:1720,vh:1140,nodes:NODES,edges:EDGES,bands:LAYERS,decor:[
+ {t:"rect",x:1308,y:170,w:384,h:290,fill:"#eef6f5",stroke:"#b7d8d4",dash:"4 3"},
+ {t:"rect",x:1308,y:498,w:384,h:150,fill:"#eff2f6",stroke:"#c3ccd8",dash:"4 3"},
+ {t:"txt",x:1320,y:160,cls:"bandLbl",s:"MEMORY 记忆子系统"},
+ {t:"txt",x:1320,y:508,cls:"bandLbl",s:"EVENT PLANE 事件面"},
+]};
+const SUBVIEW={};for(const k in SUBS)SUBVIEW[k]={vw:1600,vh:760,nodes:SUBS[k].nodes.map(n=>n.kind?n:Object.assign({kind:"sub"},n)),edges:SUBS[k].edges,decor:SUBS[k].decor||[]};
+const VIEWS={l1:{vw:L1.vw,vh:L1.vh,nodes:L1.nodes,edges:L1.edges,decor:L1.decor},full:FULL};
+for(const k in SUBVIEW)VIEWS["sub:"+k]=SUBVIEW[k];
+let CV=VIEWS.l1,NODE={};
+const state={mode:"l1",sub:null,chain:null,layer:null,fullSub:null,sel:null,step:-1,tstep:-1,timer:null};
+const VB={x:0,y:0,w:1600,h:800};
+function applyVB(){svg.setAttribute("viewBox",`${VB.x} ${VB.y} ${VB.w} ${VB.h}`);}
+function contentBounds(){
+ let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+ CV.nodes.forEach(n=>{if(n.hidden)return;x1=Math.min(x1,n.x);y1=Math.min(y1,n.y);x2=Math.max(x2,n.x+n.w);y2=Math.max(y2,n.y+n.h);});
+ (CV.bands||[]).forEach(d=>{x1=Math.min(x1,d.x);y1=Math.min(y1,d.y);x2=Math.max(x2,d.x+d.w);y2=Math.max(y2,d.y+d.h);});
+ (CV.decor||[]).forEach(d=>{x1=Math.min(x1,d.x-20);x2=Math.max(x2,d.x+(d.w||600));y1=Math.min(y1,d.y-16);y2=Math.max(y2,d.y+8);});
+ return{x:x1,y:y1,w:x2-x1,h:y2-y1};
+}
+function setVB(b,pad){VB.x=b.x-pad;VB.y=b.y-pad;VB.w=b.w+pad*2;VB.h=b.h+pad*2+60;applyVB();}
+function fitAll(){setVB(contentBounds(),state.mode==="l1"?60:52);}
+function zoom(f,cx,cy){const ar=VB.h/VB.w;const r=svg.getBoundingClientRect();const px=(cx??r.width/2)/r.width*VB.w+VB.x,py=(cy??r.height/2)/r.height*VB.h+VB.y;
+ VB.w=Math.min(4600,Math.max(400,VB.w*f));VB.h=VB.w*ar;VB.x=px-(px-VB.x)*f;VB.y=py-(py-VB.y)*f;applyVB();}
+function fitTo(b){setVB(b,56);}
+/* --- 边路径 --- */
+function anchor(n,side,dx){return {x:side==="t"?n.x+n.w/2+(dx||0):side==="b"?n.x+n.w/2+(dx||0):side==="l"?n.x:n.x+n.w,
+ y:side==="t"?n.y:side==="b"?n.y+n.h:n.y+n.h/2};}
+function edgePath(e){
+ const s=NODE[e.f],t=NODE[e.t];if(!s||!t||s.hidden||t.hidden)return"";
+ if(e.arc!=null){ // 顶部弧线（反馈）
+   const a=anchor(s,"t"),b=anchor(t,"t");const py=Math.min(s.y,t.y)-Math.abs(e.arc? 0:0)-( e.arc||140);
+   const y=Math.min(s.y,t.y)-(e.arc===true?140:e.arc);
+   return`M${a.x},${a.y} C${a.x},${y} ${b.x},${y} ${b.x},${b.y}`;}
+ if(e.back){
+   const a=anchor(s,"r"),b=anchor(t,"r");const off=Math.max(26,Math.abs(a.x-b.x)+30);
+   return`M${a.x},${a.y} C${a.x+off},${a.y} ${b.x+off},${b.y} ${b.x},${b.y}`;}
+ if(e.route==="bback"){ // 底部 U 形回程边（s→下→左→t 底）
+   const a=anchor(s,"b"),b=anchor(t,"b");const y=Math.max(s.y+s.h,t.y+t.h)+26;
+   return`M${a.x},${a.y} L${a.x},${y} L${b.x},${y} L${b.x},${b.y}`;}
+ if(e.route==="bwrap"){ // s 底→中间车道→t 顶（跨层向下）
+   const a=anchor(s,"b"),b=anchor(t,"t");const y=(a.y+b.y)/2;
+   return`M${a.x},${a.y} L${a.x},${y} L${b.x},${y} L${b.x},${b.y}`;}
+ if(e.route==="fan"){ // 扇出：s 顶/底→目标行高→t 左边
+   const up=t.y+t.h/2<s.y+s.h/2;const a=anchor(s,up?"t":"b"),b=anchor(t,"l");
+   return`M${a.x},${a.y} L${a.x},${b.y} L${b.x},${b.y}`;}
+ if(e.route==="ell"){ // 折线：s 右→中缝→t 左边高度→t 左
+   const a=anchor(s,"r"),b=anchor(t,"l");const mx=(a.x+b.x)/2;
+   return`M${a.x},${a.y} L${mx},${a.y} L${mx},${b.y} L${b.x},${b.y}`;}
+ if(e.route==="el"){ // 直角折线：先横后竖
+   const a=anchor(s,"r"),b=anchor(t,"b");const my=(a.y+b.y)/2;
+   if(Math.abs(b.y-a.y)<8){const a2=anchor(s,Math.abs(t.x-s.x)>Math.abs(t.y-s.y)?(t.x>s.x?"r":"l"):(t.y>s.y?"b":"t"));
+     const b2=anchor(t,a2.x===t.x+t.w/2?"t":"l");
+     if(a2.x===s.x){const my2=(a2.y+b2.y)/2;return`M${a2.x},${a2.y} L${a2.x},${my2} L${b2.x},${my2} L${b2.x},${b2.y}`;}
+     const mx2=(a2.x+b2.x)/2;return`M${a2.x},${a2.y} L${mx2},${a2.y} L${mx2},${b2.y} L${b2.x},${b2.y}`;}
+   const a2=anchor(s,"b"),b2=anchor(t,"t");
+   if(Math.abs(a2.x-b2.x)<10)return`M${a2.x},${a2.y} L${b2.x},${b2.y}`;
+   const mx=(a.x+b.x)/2;return`M${a.x},${a.y} L${mx},${a.y} L${mx},${b.y} L${b.x},${b.y}`;}
+ const scx=s.x+s.w/2,scy=s.y+s.h/2,tcx=t.x+t.w/2,tcy=t.y+t.h/2;
+ const dy=tcy-scy,dx=tcx-scx;
+ if(Math.abs(dy)>Math.abs(dx)){
+   const a=anchor(s,dy>0?"b":"t",e.dx),b=anchor(t,dy>0?"t":"b",e.dx);const my=(a.y+b.y)/2;
+   if(Math.abs(a.x-b.x)<8)return`M${a.x},${a.y} L${b.x},${b.y}`;
+   return`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;}
+ const a=anchor(s,dx>0?"r":"l"),b=anchor(t,dx>0?"l":"r");
+ if(Math.abs(a.y-b.y)<8)return`M${a.x},${a.y} L${b.x},${b.y}`;
+ const mx=(a.x+b.x)/2;
+ return`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+}
+function labelPos(e){
+ const s=NODE[e.f],t=NODE[e.t];
+ if(e.arc!=null){const y=Math.min(s.y,t.y)-(e.arc===true?140:e.arc);return{x:(s.x+s.w/2+t.x+t.w/2)/2,y:y+16};}
+ if(e.route==="bback"){const y=Math.max(s.y+s.h,t.y+t.h)+26;return{x:(s.x+s.w/2+t.x+t.w/2)/2,y:y+16};}
+ if(e.route==="bwrap"){const a=anchor(s,"b"),b=anchor(t,"t");const y=(a.y+b.y)/2;return{x:a.x+70,y:y-6};}
+ return{x:(s.x+s.w/2+t.x+t.w/2)/2+(e.dx?e.dx*1.7:0),y:(s.y+s.h/2+t.y+t.h/2)/2-7};
+}
+const LAYERCOLOR={entry:"#4f6ef7",app:"#34517e",substrate:"#7c3aed",cap:"#0e7490",domain:"#b45309",extern:"#64748b",rail:"#0f766e"};
+function fitCn(s,w,fs){const max=Math.floor((w-20)/(fs||10));return s.length>max?s.slice(0,max-1)+"…":s;}
+function fitEn(s,w,fs){const max=Math.floor((w-34)/((fs||10)*0.62));return s.length>max?s.slice(0,max-1)+"…":s;}
+function renderView(vid){
+ CV=VIEWS[vid];NODE={};CV.nodes.forEach(n=>NODE[n.id]=n);
+ world.innerHTML="";
+ // bands(仅 full)
+ (CV.bands||[]).forEach(L=>{
+   const cls=L.id==="rail"?"railbox":"band";
+   const r=g("rect",{class:cls+" deco",x:L.x,y:L.y,width:L.w,height:L.h,rx:12});world.appendChild(r);
+   world.appendChild(g("text",{class:"bandLbl deco",x:L.x+16,y:L.y+20})).textContent=L.name;
+   world.appendChild(g("text",{class:"bandSub deco",x:L.x+16,y:L.y+34})).textContent=L.sub;
+ });
+ (CV.decor||[]).forEach(d=>{
+   if(d.t==="rect"){world.appendChild(g("rect",{class:"deco",x:d.x,y:d.y,width:d.w,height:d.h,rx:10,fill:d.fill,stroke:d.stroke,"stroke-dasharray":d.dash||""}));}
+   else if(d.t==="txt"){const tx=g("text",{class:d.cls+" deco",x:d.x,y:d.y});tx.textContent=d.s;world.appendChild(tx);}
+ });
+ CV.edges.forEach((e,i)=>{
+   const p=g("path",{class:"edge "+e.k,d:edgePath(e),"marker-end":"url(#ar)",id:"e-"+i});
+   world.appendChild(p);
+ });
+ CV.nodes.forEach(n=>{if(n.hidden)return;
+   const gr=g("g",{class:"node"+(n.kind?" "+n.kind:""),id:"n-"+n.id,"data-layer":n.layer||""});
+   gr.appendChild(g("rect",{x:n.x,y:n.y,width:n.w,height:n.h,rx:9}));
+   if(n.kind==="big"){
+     gr.appendChild(g("rect",{class:"bar",x:n.x,y:n.y,width:5,height:n.h,rx:2,fill:"#34517e"}));
+     const t0=g("text",{class:"nCn",x:n.x+16,y:n.y+30});t0.textContent=fitCn(n.cn,n.w,15);gr.appendChild(t0);
+     const t1=g("text",{class:"nEn",x:n.x+16,y:n.y+48});t1.textContent=fitEn(n.en,n.w,10);gr.appendChild(t1);
+     const t2=g("text",{class:"nRole",x:n.x+16,y:n.y+72});t2.textContent=fitCn(n.role,n.w,10);gr.appendChild(t2);
+     if(n.sub){const t3=g("text",{class:"nEn",x:n.x+16,y:n.y+94,fill:"#2f5fd0"});t3.textContent="点击展开 ▸";gr.appendChild(t3);}
+   }else if(n.kind==="plane"||n.kind==="sub"){
+     const t0=g("text",{class:"nCnS",x:n.x+14,y:n.y+26});t0.textContent=fitCn(n.cn,n.w,12.5);gr.appendChild(t0);
+     const t1=g("text",{class:"nEn",x:n.x+14,y:n.y+44});t1.textContent=fitEn(n.en,n.w,10);gr.appendChild(t1);
+     const t2=g("text",{class:"nRole",x:n.x+14,y:n.y+64});t2.textContent=fitCn(n.role,n.w,10);gr.appendChild(t2);
+   }else if(n.kind==="iochip"||n.kind==="navchip"){
+     const t0=g("text",{class:"nCnS",x:n.x+n.w/2,y:n.y+26,"text-anchor":"middle"});t0.textContent=fitCn(n.cn,n.w,12.5);gr.appendChild(t0);
+     const t1=g("text",{class:"nEn",x:n.x+n.w/2,y:n.y+46,"text-anchor":"middle"});t1.textContent=fitEn(n.en,n.w,10);gr.appendChild(t1);
+     if(n.role){const t2=g("text",{class:"nRole",x:n.x+n.w/2,y:n.y+64,"text-anchor":"middle"});t2.textContent=fitCn(n.role,n.w,10);gr.appendChild(t2);}
+   }else{
+     // full 图节点
+     gr.appendChild(g("rect",{class:"bar",x:n.x,y:n.y,width:4,height:n.h,rx:2,fill:LAYERCOLOR[n.layer]||"#34517e"}));
+     const t1=g("text",{class:"nFull",x:n.x+12,y:n.y+22});t1.textContent=fitCn(n.en,n.w,11.5);gr.appendChild(t1);
+     const t2=g("text",{class:"nFullCn",x:n.x+12,y:n.y+40});t2.textContent=fitCn(n.cn,n.w,10);gr.appendChild(t2);
+     if(n.badge){const bx=n.x+n.w-62;gr.appendChild(g("rect",{x:bx,y:n.y+n.h-18,width:56,height:13,rx:6,fill:n.badge==="vendored"?"#ede9fe":"#fdf0dd"}));
+       const bt=g("text",{class:"badge",x:bx+28,y:n.y+n.h-9,"text-anchor":"middle",fill:n.badge==="vendored"?"#6d28d9":"#b45309"});bt.textContent=n.badge;gr.appendChild(bt);}
+   }
+   gr.addEventListener("click",ev=>{ev.stopPropagation();onNodeClick(n);});
+   world.appendChild(gr);
+ });
+ // 边标签最后绘制（白描边可读，不被节点遮挡）
+ CV.edges.forEach((e,i)=>{
+   if(e.l){const lp=labelPos(e);const t=g("text",{class:"elabel"+(e.la?" always":""),x:lp.x,y:lp.y,"text-anchor":"middle",id:"el-"+i});t.textContent=e.l;world.appendChild(t);}
+ });
+ fitAll();
+}
+/* ============================ 交互 ============================ */
+const panel=document.getElementById("panelBody");
+const NW=n=>document.getElementById("n-"+n);
+function clearLit(){document.querySelectorAll(".dim").forEach(e=>e.classList.remove("dim"));
+ document.querySelectorAll(".lit,.litn,.on,.pulse,.sel").forEach(e=>e.classList.remove("lit","litn","on","pulse","sel"));
+ document.querySelectorAll(".stepcirc,.stepnum").forEach(e=>e.remove());}
+function dimOthers(keepNodes,keepEdges){
+ document.querySelectorAll(".node").forEach(el=>{const id=el.id.slice(2);
+   if(keepNodes&&!keepNodes.includes(id))el.classList.add("dim");else if(keepNodes)el.classList.add("litn");});
+ document.querySelectorAll(".edge").forEach(el=>{const i=+el.id.slice(2);
+   if(keepEdges&&!keepEdges.includes(i))el.classList.add("dim");else if(keepEdges)el.classList.add("on");});
+ document.querySelectorAll(".elabel").forEach(el=>{const i=+el.id.slice(3);
+   if(keepEdges&&keepEdges.includes(i))el.classList.add("on");});
+}
+function onNodeClick(n){
+ if(state.mode==="l1"){
+   if(n.sub){setMode("sub",n.sub);return;}
+   select(n.id);return;
+ }
+ if(state.mode==="sub"){
+   if(n.nav){setMode("sub",n.nav);return;}
+   select(n.id);return;
+ }
+ select(n.id);
+}
+function select(id){
+ const n=NODE[id];if(!n)return;state.sel=id;
+ document.querySelectorAll(".node.sel").forEach(e=>e.classList.remove("sel"));
+ const el=NW(id);if(el)el.classList.add("sel");
+ showDetail(n);tabTo("detail");
+}
+function showDetail(n){
+ const L=n.layer?LAYERS.find(l=>l.id===n.layer):null;
+ const subLink=n.sub?`<a class="jumplink" href="javascript:void(0)" onclick="setMode('sub','${n.sub}')">进入「${SUBS[n.sub].name}」展开 ▸</a>`:"";
+ panel.innerHTML=`
+ <div><span class="tag layer">${L?L.name:""}</span>${n.badge?`<span class="tag warn">${n.badge}</span>`:""}</div>
+ <h3>${n.cn}</h3><div class="en">${n.en}</div>
+ <h4>核心职责</h4><p>${n.desc||""}</p>
+ ${n.io?`<h4>输入 / 输出</h4><p class="muted">${n.io}</p>`:""}
+ ${n.files?`<h4>关键实现</h4><ul class="files">${n.files.map(f=>`<li>${f}</li>`).join("")}</ul>`:""}
+ ${n.value?`<h4>设计价值</h4><p>${n.value}</p>`:""}
+ ${n.rel&&n.rel.length?`<h4>关联模块</h4><p>${n.rel.map(r=>{const m=NODE[r]||NODES.find(x=>x.id===r);return m?`<a href="javascript:void(0)" onclick="jumpTo('${r}')" style="color:var(--accent)">${m.cn}</a>`:""}).join(" · ")}</p>`:""}
+ ${subLink}`;
+}
+window.jumpTo=function(id){
+ if(state.mode!=="full"){setMode("full");}
+ select(id);
+};
+window.showGloss=function(){panel.innerHTML="<h3>术语表</h3><dl class='gloss'>"+GLOSS.map(g=>`<dt>${g[0]} <span>${g[1]}</span></dt><dd>${g[2]}</dd>`).join("")+"</dl>";};
+window.showCards=function(){
+ panel.innerHTML="<h3>架构亮点</h3>"+HIGHLIGHTS.map((h,i)=>`<div class="card"><h5><span class="num">${i+1}</span>${h.t}</h5><p>${h.d}</p><div class="en" style="margin-top:4px">${h.f}</div></div>`).join("")+
+ "<h3 style='margin-top:16px'>实现边界（代码核实，勿过度声称）</h3><ul class='bd'>"+BOUNDARIES.map(b=>`<li>${b}</li>`).join("")+"</ul>";
+};
+function tabTo(t){document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+ if(t==="gloss")showGloss();else if(t==="cards")showCards();}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>tabTo(b.dataset.tab));
+/* ============================ chips ============================ */
+const chips=document.getElementById("chips");
+function mkChip(label,on,fn){const b=document.createElement("button");b.className="chip"+(on?" on":"");b.textContent=label;b.onclick=fn;return b;}
+function renderChips(){
+ chips.innerHTML="";
+ if(state.mode==="l1"){
+   Object.keys(SUBS).forEach(k=>chips.appendChild(mkChip(SUBS[k].name,false,()=>setMode("sub",k))));
+   const h=document.createElement("span");h.className="chip hint";h.textContent="点击图中模块可直接展开";chips.appendChild(h);
+ }else if(state.mode==="sub"){
+   chips.appendChild(mkChip("← 总览",false,()=>setMode("l1")));
+   Object.keys(SUBS).forEach(k=>chips.appendChild(mkChip(SUBS[k].name,state.sub===k,()=>setMode("sub",k))));
+ }else if(state.mode==="full"){
+   chips.appendChild(mkChip("全景",!state.chain&&!state.layer,()=>{state.chain=null;state.layer=null;applyFull();}));
+   CHAINS.forEach(c=>chips.appendChild(mkChip(c.name,state.chain===c.id,()=>{state.chain=state.chain===c.id?null:c.id;state.layer=null;applyFull();})));
+   chips.appendChild(mkChip("分层",!!state.layer||state.fullSub==="layers",()=>{state.fullSub=state.fullSub==="layers"?null:"layers";renderChips();}));
+   if(state.fullSub==="layers"){
+     LAYERS.filter(l=>l.id!=="rail").forEach(L=>chips.appendChild(mkChip(L.name,state.layer===L.id,()=>{state.layer=state.layer===L.id?null:L.id;state.chain=null;applyFull();})));
+   }
+   chips.appendChild(mkChip("▶ 15步执行演示",state.step>=0,()=>setStep(state.step<0?0:state.step)));
+ }else if(state.mode==="tour"){
+   chips.appendChild(mkChip("↺ 重播讲解",false,()=>setTStep(0)));
+   const tip=document.createElement("span");tip.className="chip hint";tip.textContent="按讲解顺序逐步高亮 · 每一步对应右栏口播稿";chips.appendChild(tip);
+ }
+}
+/* ============================ full 图应用 ============================ */
+function applyFull(){
+ clearLit();
+ if(state.step>=0){setStep(state.step);return;}
+ if(state.chain){const c=CHAINS.find(x=>x.id===state.chain);if(c){dimOthers(c.nodes,c.edges);
+   panel.innerHTML=`<h3>${c.name}</h3><p>${c.desc}</p><h4>覆盖模块</h4><p class="muted">${c.nodes.map(id=>NODE[id]?.cn||id).join(" → ")}</p>`;return;}}
+ if(state.layer){const ids=NODES.filter(n=>n.layer===state.layer&&!n.hidden).map(n=>n.id);
+   const eids=EDGES.map((e,i)=>({e,i})).filter(({e})=>ids.includes(e.f)&&ids.includes(e.t)).map(({i})=>i);
+   dimOthers(ids,eids);const L=LAYERS.find(l=>l.id===state.layer);fitTo({x:L.x,y:L.y,w:L.w,h:L.h+20});
+   panel.innerHTML=`<h3>${L.name}</h3><p>${L.sub}</p><h4>本层模块</h4><ul class="plain">${NODES.filter(n=>n.layer===state.layer&&!n.hidden).map(n=>`<li><a href="javascript:void(0)" onclick="jumpTo('${n.id}')" style="color:var(--accent)">${n.cn}</a> <span class="muted">${n.en}</span></li>`).join("")}</ul>`;return;}
+ fitAll();
+ panel.innerHTML="<h3>完整架构图（L3）</h3><p>46 个源码级模块 · 63 条真实调用关系。这是实现细节视图——类名、中间件、存储后端全部在此。<p class='muted'>点上方链路芯片高亮已验证调用链；点「15步执行演示」看 ALFWorld 端到端逐步高亮；点击任意模块看 file:line 详情。</p>";
+}
+/* ============================ demo（15 步） ============================ */
+function setStep(i){
+ document.querySelectorAll(".stepcirc,.stepnum").forEach(e=>e.remove());
+ state.step=i;
+ if(i<0){clearLit();fitAll();return;}
+ const s=DEMO[i];clearLit();
+ dimOthers(s.nodes,s.edges);
+ const xs=s.nodes.map(id=>NODE[id].x),ys=s.nodes.map(id=>NODE[id].y),
+       xe=s.nodes.map(id=>NODE[id].x+NODE[id].w),ye2=s.nodes.map(id=>NODE[id].y+NODE[id].h);
+ fitTo({x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xe)-Math.min(...xs),h:Math.max(...ye2)-Math.min(...ys)});
+ s.nodes.forEach(id=>{const n=NODE[id];
+   const cEl=g("circle",{class:"stepcirc",cx:n.x+n.w-14,cy:n.y+14,r:9});
+   const tEl=g("text",{class:"stepnum",x:n.x+n.w-14,y:n.y+17.5,"text-anchor":"middle"});tEl.textContent=i+1;
+   world.appendChild(cEl);world.appendChild(tEl);});
+ document.getElementById("tNo").textContent=`STEP ${i+1} / ${DEMO.length}`;
+ document.getElementById("tTitle").textContent=s.t;
+ document.getElementById("tScript").innerHTML=s.d;
+}
+/* ============================ 讲解模式 ============================ */
+function setTStep(i){
+ state.tstep=Math.max(0,Math.min(TOUR.length-1,i));
+ const s=TOUR[state.tstep];
+ if(s.view==="l1"){if(state.mode!=="l1")switchView("l1");}
+ else{const sid=s.view.slice(4);if(state.mode!=="sub"||state.sub!==sid)switchView("sub",sid);}
+ clearLit();
+ if(s.nodes.length){dimOthers(s.nodes,s.edges);
+   if(s.view!=="l1"){
+     const xs=s.nodes.map(id=>NODE[id].x),ys=s.nodes.map(id=>NODE[id].y),
+           xe=s.nodes.map(id=>NODE[id].x+NODE[id].w),ye=s.nodes.map(id=>NODE[id].y+NODE[id].h);
+     fitTo({x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xe)-Math.min(...xs),h:Math.max(...ye)-Math.min(...ys)});
+   }else fitAll();
+ }
+ document.getElementById("tNo").textContent=`${state.tstep+1} / ${TOUR.length}`;
+ document.getElementById("tTitle").textContent=s.t;
+ document.getElementById("tScript").innerHTML=s.s;
+ panel.innerHTML=`<h3>${s.t}</h3><p>${s.s}</p><h4>当前视图</h4><p class="muted">${s.view==="l1"?"总体架构（Level 1）":SUBS[s.view.slice(4)].name+"（Level 2）"}</p>`;
+}
+/* ============================ 视图切换 ============================ */
+function switchView(vid,arg){
+ clearLit();
+ if(vid==="l1"){renderView("l1");state.sub=null;panel.innerHTML=l1Intro();}
+ else if(vid==="sub"){state.sub=arg;renderView("sub:"+arg);panel.innerHTML=subIntro(arg);}
+ else if(vid==="full"){renderView("full");applyFull();}
+}
+function setMode(m,arg){
+ state.mode=m;
+ if(state.timer){clearInterval(state.timer);state.timer=null;document.getElementById("tAuto").textContent="▶ 自动";}
+ if(m!=="full"){state.step=-1;state.chain=null;state.layer=null;state.fullSub=null;}
+ if(m!=="tour")state.tstep=-1;
+ document.querySelectorAll(".modes button").forEach(x=>x.classList.toggle("on",x.dataset.mode===m));
+ document.getElementById("tourBar").classList.toggle("show",m==="tour"||(m==="full"&&state.step>=0));
+ if(m==="l1"){switchView("l1");}
+ else if(m==="sub"){switchView("sub",arg||"harness");}
+ else if(m==="full"){switchView("full");}
+ else if(m==="tour"){if(state.mode==="sub"&&state.sub){}switchView(TOUR[0].view==="l1"?"l1":"sub");setTStep(typeof arg==="number"?arg:0);}
+ else if(m==="cards"){showCards();tabTo("cards");}
+ renderChips();
+}
+function l1Intro(){
+ return `<h3>HomeMaster 总体架构</h3>
+ <p>一次任务的主链路只有五个环节：<b>任务入口 → 应用运行时 → Agent 决策引擎 → 统一工具门 → 执行环境</b>，观察结果回流成 ReAct 循环。</p>
+ <p>主干之下四个横向支撑面，正是本系统的核心技术亮点：<b>状态持久化 · 记忆系统 · 权限风控 · 事件观测</b>。</p>
+ <h4>讲解建议</h4><ul class="plain">
+ <li>点「讲解模式」按 10 步顺序自动高亮+口播稿</li>
+ <li>点击任一模块进入对应子系统（Level 2）</li>
+ <li>「完整架构图」是源码级细节（Level 3）</li></ul>`;
+}
+function subIntro(id){
+ const s=SUBS[id];
+ return `<h3>${s.name}</h3><p class="muted">${s.tag}</p>
+ <div style="margin:8px 0"><span class="tag ok">输入 ${s.ioIn}</span><span class="tag layer">输出 ${s.ioOut}</span></div>
+ <p>${s.intro}</p><h4>图中组件</h4><p class="muted">点击任意组件查看职责与 file:line 源码位置。</p>`;
+}
+/* ============================ 模式按钮 ============================ */
+document.querySelectorAll(".modes button").forEach(b=>b.onclick=()=>{
+ setMode(b.dataset.mode);
+ location.hash=b.dataset.mode==="l1"?"l1":b.dataset.mode;
+});
+/* demo bar 按钮（full 演示 + tour 共用） */
+document.getElementById("tPrev").onclick=()=>{if(state.mode==="tour")setTStep(state.tstep-1);else if(state.step>=0)setStep(Math.max(0,state.step-1));};
+document.getElementById("tNext").onclick=()=>{if(state.mode==="tour")setTStep(state.tstep+1);else if(state.step>=0)setStep(Math.min(DEMO.length-1,state.step+1));};
+document.getElementById("tAuto").onclick=function(){
+ if(state.timer){clearInterval(state.timer);state.timer=null;this.textContent="▶ 自动";return;}
+ this.textContent="⏸ 暂停";
+ const isTour=state.mode==="tour";
+ state.timer=setInterval(()=>{
+   const cur=isTour?state.tstep:state.step,max=isTour?TOUR.length-1:DEMO.length-1;
+   if(cur>=max){clearInterval(state.timer);state.timer=null;document.getElementById("tAuto").textContent="▶ 自动";}
+   else if(isTour)setTStep(cur+1);else setStep(cur+1);
+ },isTour?5200:3400);};
+/* --- legend --- */
+const lg=document.getElementById("legend");
+lg.innerHTML=Object.entries(EDGE_TYPES).map(([k,v])=>
+ `<span class="li"><svg width="30" height="8"><line x1="0" y1="4" x2="30" y2="4" stroke="${v.color}" stroke-width="2" ${v.dash?`stroke-dasharray="${v.dash}"`:""}/></svg>${v.name}</span>`).join("");
+/* --- pan/zoom --- */
+let drag=null;
+svg.addEventListener("mousedown",e=>{drag={x:e.clientX,y:e.clientY,vx:VB.x,vy:VB.y};svg.classList.add("dragging");});
+window.addEventListener("mousemove",e=>{if(!drag)return;const r=svg.getBoundingClientRect();
+ VB.x=drag.vx-(e.clientX-drag.x)*VB.w/r.width;VB.y=drag.vy-(e.clientY-drag.y)*VB.h/r.height;applyVB();});
+window.addEventListener("mouseup",()=>{drag=null;svg.classList.remove("dragging");});
+svg.addEventListener("wheel",e=>{e.preventDefault();zoom(e.deltaY>0?1.12:0.89,e.clientX,e.clientY);},{passive:false});
+document.getElementById("zin").onclick=()=>zoom(0.8);
+document.getElementById("zout").onclick=()=>zoom(1.25);
+document.getElementById("zfit").onclick=()=>fitAll();
+svg.addEventListener("click",()=>{document.querySelectorAll(".node.sel").forEach(e=>e.classList.remove("sel"));});
+window.setMode=setMode;
+/* --- hash 深链 --- */
+function applyHash(){
+ const h=(location.hash||"").replace(/^#\/?/,"");
+ if(!h){setMode("l1");return;}
+ const[m,arg]=h.split("/");
+ if(m==="sub")setMode("sub",arg&&SUBS[arg]?arg:"harness");
+ else if(m==="full"){
+   const[a,b]=(arg||"").split("-");
+   setMode("full");
+   if(a==="c"&&CHAINS.some(c=>c.id===b)){state.chain=b;applyFull();renderChips();}
+   else if(a==="d"){setStep(Math.max(0,Math.min(14,parseInt(b)||0)));document.getElementById("tourBar").classList.add("show");}
+ }
+ else if(m==="tour")setMode("tour",arg?Math.max(0,Math.min(TOUR.length-1,parseInt(arg)||0)):0);
+ else if(m==="cards")setMode("cards");
+ else setMode("l1");
+}
+window.addEventListener("hashchange",applyHash);
+document.getElementById("stat").textContent=`3 级视图 · 46 模块 · 源码级调研`;
+renderView("l1");
+panel.innerHTML=l1Intro();
+renderChips();
+if(location.hash)applyHash();
+</script>
+</body>
+</html>
