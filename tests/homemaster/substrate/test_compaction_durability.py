@@ -9,10 +9,10 @@ history once; subsequent prepares project ``head + canonical[fk:]``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
-
-import asyncio
+from typing import Any
 
 import pytest
 
@@ -788,10 +788,10 @@ async def test_record_usage_promotes_pending_view() -> None:
     assert state.pending_view is not None
     assert state.usage_anchor is None
 
-    emitted: list[str] = []
+    emitted: list[dict[str, Any]] = []
 
     async def _emit(kind: str, **kwargs) -> None:
-        emitted.append(kind)
+        emitted.append({"kind": kind, **kwargs})
 
     await AsAgentRuntime._record_usage(
         state,
@@ -805,6 +805,11 @@ async def test_record_usage_promotes_pending_view() -> None:
     # Promotion consumes the pending coverage — a stray second event must
     # not re-anchor.
     assert state.pending_view is None
+    # usage.update splits the two semantics: cumulative billing counters vs
+    # this request's real prompt size (context-window occupancy).
+    assert emitted[-1]["kind"] == "usage.update"
+    assert emitted[-1]["payload"]["input_tokens"] == 500
+    assert emitted[-1]["payload"]["context_tokens"] == 500
 
     # OpenAI-family: input_tokens already includes the cached share —
     # adding cache_read would double-count every cache hit.
@@ -821,6 +826,11 @@ async def test_record_usage_promotes_pending_view() -> None:
         emit=_emit,
     )
     assert state.usage_anchor.input_tokens == 300
+    # Second call: cumulative counters grow while context_tokens stays
+    # per-request — UIs reading the cumulative field as window occupancy
+    # were the "context explosion" bug.
+    assert emitted[-1]["payload"]["input_tokens"] == 800
+    assert emitted[-1]["payload"]["context_tokens"] == 300
 
     # Zero-usage calls (errored provider) must not clobber the anchor.
     await AsAgentRuntime._record_usage(

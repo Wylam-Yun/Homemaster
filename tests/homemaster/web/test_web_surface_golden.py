@@ -110,6 +110,7 @@ async def test_real_run_projects_the_locked_web_event_sequence(
                 "completion_tokens",
                 "cache_read_input_tokens",
                 "cache_creation_input_tokens",
+                "context_tokens",
             }
 
 

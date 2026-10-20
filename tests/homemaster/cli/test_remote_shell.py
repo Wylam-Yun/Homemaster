@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from homemaster.cli.remote_commands import (
     resolve_resume_session,
 )
 from homemaster.cli.remote_shell import (
+    _context_usage,
     _drain_interactions,
     _flush_dock,
     _pump_events,
@@ -470,6 +472,20 @@ def _usage_marker(session_id: str, tokens: int) -> dict[str, Any]:
         "request_id": "",
         "payload": {"total_tokens": tokens},
     }
+
+
+def test_context_usage_prefers_per_request_over_cumulative() -> None:
+    """The toolbar shows window occupancy: the last request's real prompt
+    size, not the session-cumulative billing total."""
+    ctx = SimpleNamespace(
+        last_usage={"context_tokens": 29_481, "total_tokens": 368_907}
+    )
+    assert _context_usage(ctx) == "29481"
+    # Older servers emit only the cumulative fields — fall back to them.
+    ctx.last_usage = {"total_tokens": 368_907}
+    assert _context_usage(ctx) == "368907"
+    ctx.last_usage = {}
+    assert _context_usage(ctx) is None
 
 
 async def _wait_pump(predicate: Callable[[], bool], timeout: float = 2.0) -> None:

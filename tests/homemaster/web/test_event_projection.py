@@ -323,10 +323,15 @@ def test_projection_maps_structured_events_with_explicit_field_allowlists() -> N
         (
             _event(
                 "usage.update",
-                payload={"input_tokens": 12, "output_tokens": 7, "private": "drop"},
+                payload={
+                    "input_tokens": 12,
+                    "output_tokens": 7,
+                    "context_tokens": 12,
+                    "private": "drop",
+                },
             ),
             "usage.updated",
-            {"input_tokens": 12, "output_tokens": 7},
+            {"input_tokens": 12, "output_tokens": 7, "context_tokens": 12},
         ),
         (
             _event(

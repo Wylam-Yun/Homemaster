@@ -1,5 +1,15 @@
 # Unreleased
 
+- Fixed the context-usage meter conflating billing totals with window
+  occupancy. `usage.update` still emits session-cumulative
+  `input_tokens`/`output_tokens`/`total_tokens` (billing semantics, also
+  shown by `session list`), and now additionally emits `context_tokens` —
+  the request's real prompt size. The Web Console `ContextMeter` and the
+  remote-shell `ctx=` toolbar read `context_tokens` first and fall back to
+  `total_tokens` for older servers; previously both rendered the
+  cumulative total, so a single multi-call turn looked like the context
+  window exploded (e.g. 364k/200k while the real prompt was ~29k).
+
 - Removed the local simulated home world: `HomeWorldBackend` /
   `HomeBackendReceipt` (`domain/home_backend.py`), the home-environment
   `robot_go_to` / `robot_manipulate` / `robot_verify` tools (whose verify

@@ -7,8 +7,15 @@ import styles from './ContextMeter.module.css'
 // future status field) reveals the real window.
 export const FALLBACK_CONTEXT_TOKENS = 200_000
 
-function totalTokens(usage: Usage | null): number {
+function contextTokens(usage: Usage | null): number {
   if (usage === null) return 0
+  // Per-request prompt size is the real window occupancy; the *_tokens fields
+  // are session-cumulative billing counters, kept as fallback for older
+  // servers that predate the context_tokens field.
+  const context = usage.context_tokens
+  if (typeof context === 'number' && Number.isFinite(context)) {
+    return Math.max(0, context)
+  }
   if (typeof usage.total_tokens === 'number' && Number.isFinite(usage.total_tokens)) {
     return Math.max(0, usage.total_tokens)
   }
@@ -40,7 +47,7 @@ export function ContextMeter({
   disabled?: boolean
   onCompact?: () => void
 }) {
-  const tokens = totalTokens(usage)
+  const tokens = contextTokens(usage)
   const limit = contextLimit !== undefined && contextLimit !== null && contextLimit > 0
     ? contextLimit
     : FALLBACK_CONTEXT_TOKENS

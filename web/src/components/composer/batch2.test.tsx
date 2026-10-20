@@ -90,6 +90,20 @@ describe('ContextMeter', () => {
     expect(meter.title).toContain('task active')
   })
 
+  it('prefers per-request context_tokens over cumulative billing totals', () => {
+    // Regression: cumulative total_tokens made the ring look like the
+    // context window exploded; context_tokens is the real occupancy.
+    render(
+      <ContextMeter
+        usage={{ total_tokens: 500_000, context_tokens: 50_000 }}
+        status={null}
+        onCompact={vi.fn()}
+      />,
+    )
+    expect(screen.getByLabelText('上下文用量 25%')).toBeInTheDocument()
+    expect(screen.getByText('50.0k')).toBeVisible()
+  })
+
   it('clamps the ring at 100% and flags the high level', () => {
     render(<ContextMeter usage={{ total_tokens: FALLBACK_CONTEXT_TOKENS * 2 }} status={null} onCompact={vi.fn()} />)
     expect(screen.getByLabelText('上下文用量 100%')).toBeInTheDocument()

@@ -460,6 +460,12 @@ def _build_prompt_reader(ctx: RemoteShellContext) -> Callable[[], Any] | None:
 
 
 def _context_usage(ctx: RemoteShellContext) -> str | None:
+    # context_tokens is the last request's real prompt size (window
+    # occupancy); the *_tokens fields are session-cumulative billing
+    # counters, kept only as fallback for older servers.
+    context = ctx.last_usage.get("context_tokens")
+    if context:
+        return f"{context}"
     total = ctx.last_usage.get("total_tokens")
     if total:
         return f"{total}"

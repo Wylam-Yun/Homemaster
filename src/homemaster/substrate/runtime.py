@@ -1417,9 +1417,14 @@ class AsAgentRuntime:
         await emit(
             "usage.update",
             payload={
+                # Session-cumulative billing counters.
                 "input_tokens": agent_state.provider_usage.input_tokens,
                 "output_tokens": agent_state.provider_usage.output_tokens,
                 "total_tokens": agent_state.provider_usage.total_tokens,
+                # This request's real prompt size — the current context-window
+                # occupancy. Keep it separate: consumers showing window usage
+                # must not read the cumulative totals above.
+                "context_tokens": input_tokens,
             },
         )
 
