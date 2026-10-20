@@ -38,6 +38,21 @@
    during close raises `RuntimeError: async generator ignored
    GeneratorExit`); the unfinished-tool-call cleanup still runs to keep
    `state.context` consistent, discarding its events.
+6. `model/_utils.py`, `model/_base.py`, `_utils/_common.py` — text-channel
+   `<tool_call>` rescue. Models that leak Hermes-style
+   `<tool_call><function=name><parameter=k>v</parameter>…` markup into the
+   reply text while streaming an empty structured `tool_use` input get
+   their structured input backfilled from the markup at
+   `ChatModelBase.__call__` (the seam every provider's final ChatResponse
+   crosses: non-stream return, `is_last` chunk, and `_StreamAccumulator`
+   build). Rescue only backfills — it never synthesizes a tool call the
+   model did not emit, never overwrites a structured input that already
+   carries arguments, pairs leaked calls to blocks by name in document
+   order, and records `metadata["leaked_tool_call_rescue"]`.
+   `_json_loads_with_repair` additionally appends a note to the model-
+   facing decode error when the argument payload was empty, telling the
+   model that text-channel markup is not executed — the bare
+   `your_tool_arguments = ''` did not let such models self-correct.
 6. `agent/_agent.py` `_execute_concurrent_tool_calls` — added a `finally`
    that cancels and joins the worker `gather_task` on generator close.
    Upstream only handled `CancelledError`; on `aclose()` the task kept

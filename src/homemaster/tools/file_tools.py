@@ -413,6 +413,13 @@ def _search_files_definition() -> ToolDefinition:
             "execution environment, records the actual engine, and applies a real timeout. Use "
             "terminal when you need to choose the exact program, command, or command sequence."
         ),
+        # This schema doubles as the dispatch-time validator (see
+        # ``_schema_model``). Nullable unions stay because they buy
+        # tolerance ({"path": null} is accepted and treated as absent);
+        # constraint keywords that only convert tolerable input into an
+        # ``invalid_tool_arguments`` loop are intentionally absent —
+        # defaults, minimum/maximum and additionalProperties. The executor
+        # applies defaults and clamps ranges itself.
         {
             "type": "object",
             "properties": {
@@ -420,26 +427,41 @@ def _search_files_definition() -> ToolDefinition:
                     "type": "string",
                     "description": "Regex for content search or glob for file-name search",
                 },
-                "path": {"type": ["string", "null"], "default": None},
+                "path": {
+                    "type": ["string", "null"],
+                    "description": "Directory or file to search (default: workspace root)",
+                },
                 "target": {
                     "type": "string",
                     "enum": ["content", "files"],
-                    "default": "content",
+                    "description": "Search file contents (default) or match file names",
                 },
-                "file_glob": {"type": ["string", "null"], "default": None},
-                "case_sensitive": {"type": "boolean", "default": True},
-                "include_hidden": {"type": "boolean", "default": True},
-                "respect_gitignore": {"type": "boolean", "default": False},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200},
+                "file_glob": {
+                    "type": ["string", "null"],
+                    "description": "Optional glob restricting which files are searched",
+                },
+                "case_sensitive": {
+                    "type": "boolean",
+                    "description": "Case-sensitive matching (default: true)",
+                },
+                "include_hidden": {
+                    "type": "boolean",
+                    "description": "Include hidden files (default: true)",
+                },
+                "respect_gitignore": {
+                    "type": "boolean",
+                    "description": "Skip gitignored paths; requires rg (default: false)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max matches to return, 1-2000 (default: 200)",
+                },
                 "timeout_seconds": {
                     "type": "integer",
-                    "minimum": 1,
-                    "maximum": 600,
-                    "default": 60,
+                    "description": "Search timeout, 1-600 (default: 60)",
                 },
             },
             "required": ["pattern"],
-            "additionalProperties": False,
         },
         required_capabilities=("filesystem.read", "process.exec"),
     )

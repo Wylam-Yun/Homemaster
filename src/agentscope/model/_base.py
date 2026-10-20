@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from ._model_response import StructuredResponse, ChatResponse, FinishedReason
 from ._model_card import ModelCard
-from ._utils import _StreamAccumulator
+from ._utils import _rescue_leaked_tool_call_inputs, _StreamAccumulator
 from .._logging import logger
 from .._utils._common import _json_loads_with_repair
 from ..credential import CredentialBase
@@ -255,7 +255,10 @@ class ChatModelBase:
         # Consume the model calling result
         # =====================================================================
         if isinstance(res, ChatResponse):
-            return res
+            # HOMEMASTER PATCH (see src/agentscope/VENDORED_SOURCE.md):
+            # backfill tool calls whose structured input stayed empty while
+            # the model wrote the call as <tool_call> markup in the text.
+            return _rescue_leaked_tool_call_inputs(res, tools)
 
         async def _stream() -> AsyncGenerator[ChatResponse, None]:
             """The wrapper around model calling."""
@@ -279,13 +282,24 @@ class ChatModelBase:
                             continue
                     else:
                         yield_acc_res = False
+                        # HOMEMASTER PATCH (see
+                        # src/agentscope/VENDORED_SOURCE.md): an is_last
+                        # chunk carries the complete response — rescue
+                        # leaked text-channel tool-call markup before it
+                        # reaches the toolkit/history.
+                        chunk = _rescue_leaked_tool_call_inputs(chunk, tools)
                     yield chunk
             except asyncio.CancelledError:
                 acc_res.finished_reason = FinishedReason.INTERRUPTED
                 yield_acc_res = True
 
             if yield_acc_res:
-                yield acc_res.build()
+                # HOMEMASTER PATCH: same rescue for the accumulated final
+                # response when no explicit is_last chunk was emitted.
+                yield _rescue_leaked_tool_call_inputs(
+                    acc_res.build(),
+                    tools,
+                )
 
         return _stream()
 

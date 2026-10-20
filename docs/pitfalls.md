@@ -1,3 +1,67 @@
+## 2026-10-16 - 模型把真实 tool_call 写进正文，结构化 `tool_use` 空参三连发
+
+- 症状：`session-d99d7e419d22` 中 `search_files` 连续三次返回
+  `invalid_tool_arguments` / `backend_attempted:false`，
+  `received_argument_keys` 为空；`assistant.reply` 的结构化 `tool_calls` 是
+  `{}`，但同一 reply 的正文里却有完整的
+  `<tool_call><function=search_files><parameter=…>…` XML。模型 thinking 里两次
+  说"我又发了空参数不能再发"然后照发——错误信息 `your_tool_arguments = ''`
+  描述的是它从未发送的空串，它无法把自己的行为对应上去。
+- 根因：MiMo/Hermes 系模型面对复杂 schema（8 参数、union/enum/default）时会把
+  真实调用泄进正文文本通道，同时结构化 `tool_use` 块的 `input_json` 流为空；
+  harness 只认结构化通道，解析层把空/畸形 input 静默压成 `{}`，原始 payload 不
+  留证。同 session 里 1~2 参数的简单工具（terminal、load_skill、read_file）全部
+  正常——只有最复杂的 `search_files` 触发。
+- 修法/教训：在 `ChatModelBase.__call__` 的最终 `ChatResponse` seam 做文本通道
+  回填（`_rescue_leaked_tool_call_inputs`）：只回填、不虚构——空/畸形 input +
+  同名 leaked 调用才回填，纯正文 markup 不合成结构化调用，非空 input 永不覆盖；
+  空参 decode error 直接告诉模型"正文 `<tool_call>` markup 不会被执行"。排查
+  此类问题先看 reply 文本里有没有 XML 标记，再和 structured `tool_calls` 对比。
+- Ref: `src/agentscope/model/_utils.py`、`_base.py`（三处 seam）、
+  `_utils/_common.py`（空参错误提示）、`src/agentscope/VENDORED_SOURCE.md`
+  patch #6、回归 `tests/homemaster/test_tool_call_rescue.py`
+
+## 2026-10-16 - RPent RPC session 被空闲清扫回收，cell 边界 `reset_session` 假死
+
+- 症状：`composite-seen-s1` 16 格中 3 格（5/13/15）报
+  `worker_setup_failed: RpcError: vla.reset_session: session not found: rpc_xxx`，
+  整格 `valid:false` 报废。三格的共同特征：**前一格的最后一次 VLA 调用离 cell
+  结束很远**（cell-4 最后 VLA 在 step 11/69、cell-12 在 4/44、cell-14 在 23/88——
+  后半程全是 navigate/move_to 等纯环境操作）。
+- 根因：`vla_server`（RPent `rpent/utils/rpc/rpc_facade.py`）对每个客户端
+  `rpc_xxx` session 有 3600s 空闲超时（`--session-timeout-s`），后台 sweep 线程
+  到点回收。空闲时钟从**最后一次 session-scoped 调用**起算，不是从 cell 结束起算。
+  失败序列 = 前格尾部 VLA 长时间空闲 + 格间记忆固化队列（~10-50min）+ env 重建，
+  三者相加越过 3600s → session 被回收 → 下格 `reset_session` 撞 `session not found`。
+- 修法/教训：cell 边界对"可能已被回收"的 session 操作必须幂等——
+  `reset_session` 收到 `session not found` 时应重新 `session.register` 拿新
+  session 再 reset（语义等价，反正要清状态），而不是把整个 cell 判 infra 失败；
+  或在 spawn vla_server 时显式传大 `--session-timeout-s`。凡是"服务端按空闲
+  回收的句柄"，客户端持有者必须假定它随时可能失效并带重建路径。
+- Ref: `workers/robocasa_worker/rpent_backend.py`（`reconfigure` 中
+  `self._vla_client.reset_session()`）、`rpent/utils/rpc/rpc_facade.py`
+  （`_touch_session`/`_sweep_sessions`）、`robots/robocasa/vla_server.py`
+
+## 2026-10-16 - SessionFinalizer 的 embedding 调用被 provider 400 拒绝，记忆蒸馏静默残废
+
+- 症状：`composite-seen-s1` run 的 stderr 中 9 条 `session experience
+  finalization failed`，底层 `litellm OpenAIError: 400 - code 20015
+  'The parameter is invalid'`。轨迹记录（`trajectory_memory.json`）16 格全部
+  正常入库，但 LLM/embedding 蒸馏出的经验条目大面积缺失——**记忆写端残了一半，
+  而 run summary 看起来一切正常**。
+- 根因：失败点在 `litellm aembedding`（SiliconFlow
+  `Qwen/Qwen3-Embedding-8B`）——composite 长轨迹（70-97 调用 × 60min）蒸馏出的
+  文本喂给 embedding 模型时参数被拒（高度怀疑 input 超长，待逐条重放确认）。
+  finalizer 失败只落 stderr 警告，不进 `trajectory_memory_error` 字段，黑盒
+  指标完全不可见。
+- 修法/教训：①finalizer 失败应写入 cell 结果/汇总（如
+  `memory_finalization_error` 字段），不能只在 stderr 留 warning——"蒸馏失败"
+  与"蒸馏成功"对实验结论的含义完全不同；②embedding 调用前对输入做长度截断/
+  分片，或对 400 做内容级归因；③验收记忆链路时要分别断言"轨迹入库"和"蒸馏
+  条目入库"，前者不能代表后者。
+- Ref: `composite-seen-s1` stderr log（9× finalization failed）、
+  `src/homemaster/memory/`（SessionFinalizer → litellm aembedding 路径）
+
 ## 2026-10-14 - Fake worker masked a missing `state` field and leaked success across cells
 
 - 症状：robocasa worker `start`/`reconfigure` 响应不含 `state`，客户端缓存的

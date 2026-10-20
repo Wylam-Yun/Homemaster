@@ -1,5 +1,21 @@
 # Unreleased
 
+- Fixed tool-call argument loss for models that write the real call as
+  `<tool_call>` markup in the reply text while streaming an empty
+  structured `tool_use` input (observed as `search_files` failing three
+  times in a row with `invalid_tool_arguments` while complete parameters
+  sat in the text channel). `ChatModelBase.__call__` now backfills an
+  empty/failed structured input from name-matched text markup at the
+  final-`ChatResponse` seam — it never synthesizes calls the model did
+  not emit and never overwrites a non-empty input; rescues are logged and
+  recorded under `response.metadata["leaked_tool_call_rescue"]`
+  (vendored-AS patch #6). Empty-payload decode errors now tell the model
+  that reply-text markup is not executed, and the `search_files` wire
+  schema dropped constraint keywords (`additionalProperties`, `default`,
+  `minimum`/`maximum`) that only converted tolerable input into
+  `invalid_tool_arguments` loops — its executor applies the same
+  defaults and clamps itself.
+
 - Fixed the context-usage meter conflating billing totals with window
   occupancy. `usage.update` still emits session-cumulative
   `input_tokens`/`output_tokens`/`total_tokens` (billing semantics, also

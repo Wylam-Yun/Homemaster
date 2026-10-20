@@ -234,6 +234,21 @@ def _json_loads_with_repair(
         error_json_str = json_str
         ellipsis_hint = ""
 
+    # HOMEMASTER PATCH (see src/agentscope/VENDORED_SOURCE.md): an empty
+    # argument payload usually means the model wrote the call as
+    # <tool_call>/<function>/<parameter> markup in its reply text while the
+    # structured tool_use block carried nothing. Naming that failure mode
+    # is what lets such models self-correct on the next turn — the bare
+    # "your_tool_arguments = ''" read to them like a parser bug.
+    empty_payload_hint = (
+        "\n\n**Note**: the argument payload was empty. If you wrote the "
+        "call as `<tool_call>`/`<parameter>` markup in your reply text, "
+        "that markup is not executed — re-emit the call through the "
+        "structured tool-call interface with a JSON arguments object."
+        if not json_str.strip()
+        else ""
+    )
+
     raise ToolJSONDecodeError(
         f"""<system-reminder>{error_message}
 
@@ -245,7 +260,7 @@ your_tool_arguments = {repr(error_json_str)}
 json.loads(your_tool_arguments)
 ```
 
-**You should recorrect the arguments in JSON format.**</system-reminder>""",
+**You should recorrect the arguments in JSON format.**{empty_payload_hint}</system-reminder>""",
     )
 
 

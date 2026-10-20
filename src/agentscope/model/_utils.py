@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Internal utilities for the model module."""
 import base64
+import json
+import re
+from collections.abc import Mapping
 from typing import Any, Self, TypeAlias
 
 from pydantic import Field
@@ -288,3 +291,236 @@ class _StreamAccumulator:
             finished_reason=self.finished_reason,
             **kwargs,
         )
+
+
+# =====================================================================
+# HOMEMASTER PATCH (see src/agentscope/VENDORED_SOURCE.md):
+# text-channel ``<tool_call>`` rescue. MiMo/Hermes-style models sometimes
+# write the real call as ``<tool_call><function=name><parameter=k>v…``
+# markup in the reply text while the structured ``tool_use`` block streams
+# an empty ``input`` payload. Downstream schema validation then reports
+# "missing required arguments" for a call the model believes it sent —
+# and retries reproduce the identical leak because the error describes an
+# empty string the model never wrote. ``_rescue_leaked_tool_call_inputs``
+# backfills an empty/failed structured input from the text-channel markup
+# at the one seam every provider's final ``ChatResponse`` crosses
+# (``ChatModelBase.__call__``). Rescue only backfills: it never creates a
+# tool call the model did not emit through the structured channel, never
+# overwrites a structured input that already carries arguments, and is
+# keyed by tool name in document order. Unmatched leaked calls are logged
+# and recorded in ``response.metadata`` but not synthesized into calls —
+# fabricating a ``tool_use`` id the provider never issued is a different
+# (larger) semantic change left out deliberately.
+# =====================================================================
+
+_TOOL_CALL_SEGMENT_RE = re.compile(
+    r"<tool_call>(.*?)</tool_call>",
+    re.DOTALL,
+)
+_FUNCTION_OPEN_RE = re.compile(r"<function\s*=\s*([A-Za-z0-9_.\-]+)\s*>")
+_FUNCTION_CLOSE_RE = re.compile(r"</function>\s*$")
+_PARAMETER_RE = re.compile(
+    r"<parameter\s*=\s*([A-Za-z0-9_.\-]+)\s*>(.*?)</parameter>",
+    re.DOTALL,
+)
+
+
+def _extract_leaked_tool_calls(text: str) -> dict[str, list[dict]]:
+    """Extract ``<tool_call>`` calls leaked into reply text, keyed by name.
+
+    Two payload shapes are recognized: Hermes-style
+    ``<tool_call><function=name><parameter=k>v</parameter>…</tool_call>``
+    and the JSON-body form
+    ``<tool_call>{"name": "…", "arguments": {…}}</tool_call>``.
+    Parameters extracted from the markup stay raw strings; downstream
+    argument validation/coercion owns typing.
+    """
+    leaked: dict[str, list[dict]] = {}
+    for segment in _TOOL_CALL_SEGMENT_RE.findall(text):
+        segment = segment.strip()
+        name: Any = None
+        args: dict = {}
+        match = _FUNCTION_OPEN_RE.match(segment)
+        if match is not None:
+            name = match.group(1)
+            body = _FUNCTION_CLOSE_RE.sub("", segment[match.end() :])
+            args = dict(_PARAMETER_RE.findall(body))
+        elif segment.startswith("{"):
+            try:
+                payload = json.loads(segment)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            name = payload.get("name")
+            raw_args = payload.get("arguments")
+            args = dict(raw_args) if isinstance(raw_args, dict) else {}
+        if not isinstance(name, str) or not name:
+            continue
+        leaked.setdefault(name, []).append(args)
+    return leaked
+
+
+def _tool_call_input_is_empty(raw: object) -> bool:
+    """True when a ``ToolCallBlock.input`` carries no usable arguments:
+    missing, blank, unparseable, or decoding to anything but a non-empty
+    dict. A ``"{}"`` input counts as empty here only because the rescue
+    additionally requires a leaked call for the same name carrying
+    non-empty parameters — legitimately argument-free calls are never
+    matched by such markup and stay untouched.
+    """
+    if raw is None:
+        return True
+    if isinstance(raw, dict):
+        return not raw
+    if not isinstance(raw, str) or not raw.strip():
+        return True
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return True
+    return not isinstance(parsed, dict) or not parsed
+
+
+def _schema_properties_by_tool_name(tools: list[dict] | None) -> dict[str, dict]:
+    """Map tool name -> ``{param_name: property schema}`` from either wire
+    shape (OpenAI ``{"function": {"parameters": …}}`` or Anthropic-style
+    ``{"name", "input_schema"|"parameters"}``)."""
+    props_by_tool: dict[str, dict] = {}
+    for tool in tools or []:
+        if not isinstance(tool, Mapping):
+            continue
+        name = tool.get("name")
+        params = tool.get("parameters") or tool.get("input_schema")
+        if name is None and isinstance(tool.get("function"), Mapping):
+            fn = tool["function"]
+            name = fn.get("name")
+            params = fn.get("parameters") or fn.get("input_schema")
+        # Tool schemas arrive as frozen ``Mapping`` (contracts freeze), not
+        # plain dicts — accept both.
+        if isinstance(name, str) and isinstance(params, Mapping):
+            props = params.get("properties")
+            if isinstance(props, Mapping):
+                props_by_tool[name] = props
+    return props_by_tool
+
+
+_INTEGER_RE = re.compile(r"[+-]?\d+")
+_NUMBER_RE = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+
+
+def _coerce_xml_value(value: object, prop_schema: object) -> object:
+    """Coerce one raw ``<parameter>`` string toward the declared JSON
+    Schema type. Values are always extracted as strings; a declared
+    ``string`` (alone or in a union) is never rewritten — text stays text.
+    """
+    if not isinstance(value, str) or not isinstance(prop_schema, Mapping):
+        return value
+    declared = prop_schema.get("type")
+    types = (
+        {declared}
+        if isinstance(declared, str)
+        else set(declared)
+        if isinstance(declared, list)
+        else set()
+    )
+    if "string" in types or not types:
+        return value
+    text = value.strip()
+    low = text.lower()
+    if "boolean" in types and low in ("true", "false"):
+        return low == "true"
+    if "null" in types and low in ("null", "none"):
+        return None
+    if "integer" in types and _INTEGER_RE.fullmatch(text):
+        return int(text)
+    if "number" in types and _NUMBER_RE.fullmatch(text):
+        return float(text)
+    if types & {"object", "array"}:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _rescue_leaked_tool_call_inputs(
+    response: ChatResponse,
+    tools: list[dict] | None = None,
+) -> ChatResponse:
+    """Backfill structured tool-call inputs from leaked ``<tool_call>``
+    markup in the same response's text blocks.
+
+    Only applies to a complete response (``is_last`` chunk or non-stream
+    reply): delta chunks carry fragments, not parseable calls. Returns the
+    response unchanged when nothing was rescued.
+    """
+    blocks = list(response.content or [])
+    if not any(getattr(b, "type", "") == "tool_call" for b in blocks):
+        return response
+    text = "".join(
+        b.text
+        for b in blocks
+        if getattr(b, "type", "") == "text"
+        and isinstance(getattr(b, "text", None), str)
+    )
+    if "<tool_call" not in text:
+        return response
+    leaked = _extract_leaked_tool_calls(text)
+    if not leaked:
+        return response
+
+    # ``<parameter>`` values are always strings; coerce them toward the
+    # declared JSON-schema types so dispatch-time validation does not
+    # reject a rescued "limit"="60" the model meant as an integer.
+    props_by_tool = _schema_properties_by_tool_name(tools)
+
+    rescued: list[str] = []
+    unmatched = {name: len(calls) for name, calls in leaked.items()}
+    for block in blocks:
+        if getattr(block, "type", "") != "tool_call":
+            continue
+        queue = leaked.get(block.name)
+        if not queue:
+            continue
+        # Every structured call consumes the first leaked call of the same
+        # name (document order): a valid structured input keeps its own
+        # arguments and merely pairs off the echoed markup, while an empty
+        # or unparseable input is backfilled from it.
+        args = queue.pop(0)
+        unmatched[block.name] -= 1
+        if not _tool_call_input_is_empty(block.input) or not args:
+            continue
+        props = props_by_tool.get(block.name) or {}
+        coerced = {
+            key: _coerce_xml_value(val, props.get(key))
+            for key, val in args.items()
+        }
+        block.input = json.dumps(coerced, ensure_ascii=False)
+        rescued.append(block.name)
+    if not rescued and not any(unmatched.values()):
+        return response
+    if rescued:
+        logger.warning(
+            "Rescued %d tool call(s) whose structured input was empty while "
+            "the call was written as <tool_call> markup in the reply text "
+            "(model %s): %s",
+            len(rescued),
+            getattr(response, "id", "?"),
+            ", ".join(rescued),
+        )
+    unmatched_names = sorted(n for n, c in unmatched.items() if c)
+    if unmatched_names:
+        logger.warning(
+            "Reply text contained <tool_call> markup without a matching "
+            "structured tool call (not executed): %s",
+            ", ".join(unmatched_names),
+        )
+    if rescued or unmatched_names:
+        if not isinstance(response.metadata, dict):
+            response.metadata = {}
+        response.metadata["leaked_tool_call_rescue"] = {
+            "rescued": rescued,
+            "unmatched": unmatched_names,
+        }
+    return response
