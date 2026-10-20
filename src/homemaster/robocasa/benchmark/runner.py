@@ -94,7 +94,14 @@ class RoboCasaBenchmarkRunner:
         self._worker_factory = worker_factory or self._build_worker
         self._custom_adapter_factory = adapter_factory is not None
         self.run_id = config.run_id or uuid.uuid4().hex[:12]
-        self.run_dir = config.trace_root / "robocasa" / self.run_id
+        # ``robocasa/`` is appended under trace_root — unless the caller already
+        # pointed at it, which would produce a ``robocasa/robocasa/`` nesting.
+        trace_root = config.trace_root
+        self.run_dir = (
+            trace_root / self.run_id
+            if trace_root.name == "robocasa"
+            else trace_root / "robocasa" / self.run_id
+        )
         self._worker: RoboCasaWorkerClient | None = None
 
     # -- orchestration ---------------------------------------------------

@@ -1,5 +1,16 @@
 # Unreleased
 
+- RoboCasa harness hardening from the `composite-seen-s1` findings run:
+  `RoboCasaBenchmarkRunner.run_dir` no longer double-nests when
+  `--trace-root` already ends in `robocasa/` (previously produced
+  `robocasa/robocasa/<run_id>`), and the worker `reconfigure` path
+  survives VLA sessions swept idle past `session_timeout_s` —
+  `_reset_vla_session` re-registers the stale session id and retries
+  instead of failing the cell. Regression: `test_runner.py` /
+  `test_rpent_backend.py`. See
+  `docs/reports/robocasa-composite-seen-s1-findings-2026-10-16.md` (H1,
+  H4); the H2 embedding-400 distillation gap is still open.
+
 - Fixed tool-call argument loss for models that write the real call as
   `<tool_call>` markup in the reply text while streaming an empty
   structured `tool_use` input (observed as `search_files` failing three

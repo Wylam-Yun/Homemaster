@@ -107,7 +107,7 @@ class RPentBackend:
         try:
             self._init_runtime(components={"env"})
             assert self._vla_client is not None
-            self._vla_client.reset_session()
+            self._reset_vla_session()
             self._build_primitives()
         except Exception:
             # The new env daemon (if any) dies with us; the warm vla_server
@@ -319,6 +319,29 @@ class RPentBackend:
             self._env_client = kwargs["env_client"]
         if "vla_client" in kwargs:
             self._vla_client = kwargs["vla_client"]
+
+    def _reset_vla_session(self) -> None:
+        """Reset the VLA episode state, recovering from idle-swept sessions.
+
+        ``vla_server`` sweeps RPC sessions idle longer than
+        ``session_timeout_s`` (3600 s default). The idle clock starts at the
+        last sessioned call — a cell whose tail ran only non-VLA ops plus
+        the inter-cell memory-finalization gap can push the session past the
+        sweep, so ``reset_session`` lands on a reclaimed id. Re-register the
+        client's own session id (``session.register`` re-adds it) and reset
+        again; a freshly registered session has empty policy state, so the
+        semantics match a normal reset.
+        """
+        assert self._vla_client is not None
+        try:
+            self._vla_client.reset_session()
+        except Exception as exc:
+            if "session not found" not in str(exc):
+                raise
+            # ``RoboCasaVLAClient._client`` is the private RpcClient that owns
+            # the session id; ``session.register`` is a builtin facade method.
+            self._vla_client._client.call("session.register")
+            self._vla_client.reset_session()
 
     def _build_primitives(self) -> None:
         from robots.robocasa.primitives import RoboCasaPrimitives

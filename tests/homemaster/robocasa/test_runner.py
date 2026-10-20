@@ -216,6 +216,21 @@ def _config(tmp_path: Path, manifest: Path) -> RoboCasaBenchmarkConfig:
     )
 
 
+def test_runner_run_dir_does_not_double_nest_robocasa(tmp_path: Path) -> None:
+    """A trace_root already named ``robocasa`` must not produce
+    ``robocasa/robocasa/<run_id>`` — launches that point trace_root
+    directly at the robocasa trace dir keep a single level."""
+    manifest = _manifest(tmp_path, ["OpenDrawer"], seeds=[1])
+    nested = RoboCasaBenchmarkRunner(
+        config=dataclasses.replace(
+            _config(tmp_path, manifest), trace_root=tmp_path / "robocasa"
+        )
+    )
+    assert nested.run_dir == tmp_path / "robocasa" / nested.run_id
+    plain = RoboCasaBenchmarkRunner(config=_config(tmp_path, manifest))
+    assert plain.run_dir == tmp_path / "traces" / "robocasa" / plain.run_id
+
+
 def test_runner_two_cells_summary(tmp_path: Path) -> None:
     manifest = _manifest(tmp_path, ["OpenDrawer"], seeds=[1, 2])
     adapter = FakeAdapter(succeed_after=2)
