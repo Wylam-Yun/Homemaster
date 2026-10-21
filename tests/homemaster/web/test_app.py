@@ -195,6 +195,10 @@ async def test_prestart_adapter_failure_is_stable_public_terminal_event() -> Non
         "session_id": "session-01",
         "run_id": "",
         "request_id": "request-01",
+        # The recording stub never stamps: seq/ts keep their pre-publish
+        # defaults, proving stamping is the hub's job, not construction's.
+        "seq": 0,
+        "ts": 0.0,
         "payload": {
             "code": "adapter_failed",
             "message": "The run could not be started.",

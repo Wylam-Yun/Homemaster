@@ -7,6 +7,7 @@ import contextlib
 import copy
 import json
 import os
+import shutil
 import threading
 import uuid
 from collections.abc import Callable, Iterator
@@ -303,6 +304,47 @@ class SessionFileBackend:
                 lines.append(f"\n## {message.get('role', 'unknown')}\n{text}")
         return "\n".join(lines)
 
+    def load_meta(self, session_id: str) -> dict[str, Any]:
+        """Read the per-session metadata sidecar (title overrides, etc.).
+
+        ``meta.json`` lives beside ``latest.json`` inside the session
+        directory so user-facing metadata survives process restarts without
+        touching the revisioned snapshot payloads. A missing or unreadable
+        file reads as empty.
+        """
+
+        _validate_session_id(session_id)
+        try:
+            value = json.loads(self._meta_path(session_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def save_meta(self, session_id: str, meta: dict[str, Any]) -> None:
+        """Atomically replace the per-session metadata sidecar."""
+
+        _validate_session_id(session_id)
+        lock = self._lock_for(session_id)
+        with lock, self._file_lock(session_id):
+            _atomic_write_json(self._meta_path(session_id), dict(meta))
+
+    def delete(self, session_id: str) -> bool:
+        """Remove the whole session directory; True when anything was removed."""
+
+        session_dir = self._session_dir(session_id)
+        lock = self._lock_for(session_id)
+        with lock:
+            # ``_file_lock`` materializes the session directory for the lock
+            # file, so existence must be judged before taking it.
+            if not session_dir.is_dir():
+                return False
+            with self._file_lock(session_id):
+                try:
+                    shutil.rmtree(session_dir)
+                except FileNotFoundError:
+                    return False
+                return True
+
     def _read_latest(self, session_id: str) -> dict[str, Any] | None:
         path = self._latest_path(session_id)
         try:
@@ -388,6 +430,9 @@ class SessionFileBackend:
     def _latest_path(self, session_id: str) -> Path:
         return self._session_dir(session_id) / "latest.json"
 
+    def _meta_path(self, session_id: str) -> Path:
+        return self._session_dir(session_id) / "meta.json"
+
     def _session_dir(self, session_id: str) -> Path:
         _validate_session_id(session_id)
         return self.root / session_id
@@ -467,6 +512,10 @@ class SessionManager:
             else None
         )
         self._manager_lock = asyncio.Lock()
+        # Operator-chosen list titles. Persisted into ``meta.json`` by the
+        # file backend (read path prefers it over ``_summary_title``); for
+        # backends without metadata support the override stays in memory.
+        self._title_overrides: dict[str, str] = {}
 
     @property
     def sessions(self) -> tuple[SessionRuntime, ...]:
@@ -490,7 +539,8 @@ class SessionManager:
             summaries.append(
                 SessionSummary(
                     session_id=session_id,
-                    title=_summary_title(session_id, messages),
+                    title=self._title_override(session_id)
+                    or _summary_title(session_id, messages),
                     message_count=len(messages),
                     updated_at=self._session_updated_at(session_id),
                 )
@@ -504,12 +554,78 @@ class SessionManager:
             summaries.append(
                 SessionSummary(
                     session_id=session_id,
-                    title=_summary_title(session_id, tuple(messages)),
+                    title=self._title_override(session_id)
+                    or _summary_title(session_id, tuple(messages)),
                     message_count=len(messages),
                     updated_at=self._session_updated_at(session_id),
                 )
             )
         return tuple(summaries)
+
+    def rename_session(self, session_id: str, title: str) -> str:
+        """Persist an operator-chosen list title; returns the stored title."""
+
+        _validate_session_id(session_id)
+        normalized = title.strip()
+        if not normalized:
+            raise ValueError("session title must be non-empty")
+        if session_id not in self._known_session_ids():
+            raise KeyError(f"unknown session: {session_id}")
+        self._title_overrides[session_id] = normalized
+        save_meta = getattr(self._backend, "save_meta", None)
+        if callable(save_meta):
+            meta = dict(self._read_meta(session_id))
+            meta["title_override"] = normalized
+            save_meta(session_id, meta)
+        return normalized
+
+    async def delete_session(self, session_id: str) -> None:
+        """Permanently remove one session: persisted files and in-memory state.
+
+        Archival (``session_end_handler``) is a separate memory-ingestion
+        concept; this is the hard delete — the session disappears from
+        ``list_session_ids`` and cannot be resumed afterwards.
+        """
+
+        _validate_session_id(session_id)
+        async with self._manager_lock:
+            runtime = self._sessions.get(session_id)
+            if runtime is not None and runtime.active_task is not None:
+                raise SessionConflictError(
+                    f"session {session_id} has an active run"
+                )
+            if session_id not in self._known_session_ids():
+                raise KeyError(f"unknown session: {session_id}")
+            self._sessions.pop(session_id, None)
+            self._title_overrides.pop(session_id, None)
+            delete = getattr(self._backend, "delete", None)
+            if callable(delete):
+                delete(session_id)
+
+    def _title_override(self, session_id: str) -> str | None:
+        override = self._title_overrides.get(session_id)
+        if override is not None:
+            return override
+        meta = self._read_meta(session_id)
+        title = meta.get("title_override")
+        if isinstance(title, str) and title.strip():
+            self._title_overrides[session_id] = title
+            return title
+        return None
+
+    def _read_meta(self, session_id: str) -> dict[str, Any]:
+        load_meta = getattr(self._backend, "load_meta", None)
+        if not callable(load_meta):
+            return {}
+        try:
+            return load_meta(session_id)
+        except (OSError, ValueError):
+            return {}
+
+    def _known_session_ids(self) -> set[str]:
+        return set(self.list_session_ids()) | {
+            runtime.session.session_id for runtime in self.sessions
+        }
 
     def _session_updated_at(self, session_id: str) -> str | None:
         if self._backend is not None:

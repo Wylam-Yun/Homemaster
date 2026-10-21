@@ -29,6 +29,8 @@ const frame = (text: string): WebEvent => ({
   session_id: 'session-01',
   run_id: 'run-01',
   request_id: 'request-01',
+  seq: 1,
+  ts: 1_700_000_000,
   payload: { text },
 })
 

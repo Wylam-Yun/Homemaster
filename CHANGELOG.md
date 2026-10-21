@@ -1,5 +1,40 @@
 # Unreleased
 
+- Web UI gains a real product surface: a minimal hash router
+  (`web/src/router.tsx`) splits the app into chat / sessions / memory /
+  permissions / skills / settings / onboarding routes. A new three-step
+  Onboarding page (`pages/OnboardingPage.tsx`) walks provider template →
+  key+model → connection test → save; auto-detected values are only
+  pre-filled, nothing persists until the user tests and saves.
+  `pages/SettingsPage.tsx` manages providers (templates, masked key
+  input, test-connection card with `error_kind` advice, live model
+  enumeration with fallback labeling) and `pages/SkillsPage.tsx` lists
+  the SkillRegistry. Session rename/delete now call real
+  `PATCH/DELETE /api/sessions/{id}` endpoints instead of localStorage;
+  the composer slash menu is fed by `GET /api/skills` `user_invocable`
+  entries; the files memory tier shows a graceful degraded card on 503
+  `memory_unavailable` instead of a full-page error; the dead mod+k
+  placeholder shortcut was removed. Fixes two real bugs: background
+  session adoption no longer yanks the user out of onboarding, and
+  concurrent session creation is de-duplicated.
+
+- Sessions are now manageable over HTTP: `PATCH /api/sessions/{id}`
+  persists a title override (new `meta.json` sidecar in
+  `SessionFileBackend`, overrides first-message derived titles, survives
+  restart) and `DELETE /api/sessions/{id}` hard-deletes the session
+  directory (409 while a run is active, 404 unknown). New endpoints:
+  `GET /api/skills` (name/command_name/description/source/
+  user_invocable/enabled), `GET /api/health`, and `GET /api/doctor`
+  (sync-def so the blocking doctor runs in the threadpool).
+  `WebEvent` envelopes now carry a per-session monotonic `seq` assigned
+  inside `WebEventHub.publish` under lock — covering direct publishes
+  that bypass the stream pump — plus a `ts` timestamp; mirrored in
+  `web/src/protocol/events.ts` and `isWebEvent`. The dead `transport`
+  provider field now emits a one-time DeprecationWarning when set;
+  version unified to `3.2.0`; `homemaster.example.yaml` gained a
+  minimal-getting-started block at the top.
+  Coverage: `tests/homemaster/web/test_p03_batch.py` (16 cases).
+
 - Provider configuration is now manageable over HTTP and hot-applies
   without restart. New `homemaster.services.provider_config` hosts the
   provider helpers previously embedded in the auth wizard

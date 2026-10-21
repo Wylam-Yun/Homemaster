@@ -31,6 +31,11 @@ type Envelope<T extends string, P> = {
   session_id: string
   run_id: string
   request_id: string
+  // Stamped by WebEventHub.publish under its fanout lock: per-session
+  // monotonic sequence plus epoch-second timestamp on every wire event,
+  // including direct publishes that bypass the Runtime event pump.
+  seq: number
+  ts: number
   payload: P
 }
 
@@ -116,6 +121,8 @@ export function isWebEvent(value: unknown): value is WebEvent {
     && typeof item.session_id === 'string'
     && typeof item.run_id === 'string'
     && typeof item.request_id === 'string'
+    && typeof item.seq === 'number'
+    && typeof item.ts === 'number'
     && typeof item.payload === 'object'
     && item.payload !== null
 }

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import time
 
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
@@ -34,6 +36,11 @@ class WebEventHub:
         self._capacity = capacity
         self._lock = asyncio.Lock()
         self._subscribers: dict[str, set[asyncio.Queue[object]]] = {}
+        # Per-session monotonic sequence counters. They live on the hub (not
+        # the pump) so direct publishes that bypass the pump — request
+        # accepts, question lifecycle, mode changes, fallback terminals — get
+        # sequenced on the same counter as pumped events.
+        self._seq_counters: dict[str, int] = {}
         self._pump_task: asyncio.Task[None] | None = None
         self._ready = asyncio.Event()
 
@@ -79,13 +86,19 @@ class WebEventHub:
     async def publish(self, event: WebEvent) -> None:
         """Deliver one event to every current subscriber for its session.
 
-        Delivery is non-blocking: a connected client that stopped reading must
-        never stall the shared pump. A subscriber whose bounded queue is full
-        is dropped and queued the sentinel so the WebSocket handler exits and
-        the client can reconnect and resync.
+        ``seq``/``ts`` are assigned here, inside the fanout lock, making this
+        the single sequencing point for the session's wire stream — pumped
+        Runtime events and direct publishes alike. Delivery is non-blocking:
+        a connected client that stopped reading must never stall the shared
+        pump. A subscriber whose bounded queue is full is dropped and queued
+        the sentinel so the WebSocket handler exits and the client can
+        reconnect and resync.
         """
 
         async with self._lock:
+            seq = self._seq_counters.get(event.session_id, 0) + 1
+            self._seq_counters[event.session_id] = seq
+            event = dataclasses.replace(event, seq=seq, ts=time.time())
             subscribers = tuple(self._subscribers.get(event.session_id, ()))
         stalled: list[asyncio.Queue[object]] = []
         for queue in subscribers:

@@ -14,6 +14,8 @@ const event = (
   session_id: sessionId,
   request_id: requestId,
   run_id: 'run-01',
+  seq: 1,
+  ts: 1_700_000_000,
   payload,
 }) as WebEvent
 

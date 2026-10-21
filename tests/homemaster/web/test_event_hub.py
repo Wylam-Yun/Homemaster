@@ -107,7 +107,12 @@ async def test_finish_run_terminalizes_done_task_once_and_frees_session() -> Non
     await hub.finish_run("s1", "req-1", "cancelled")
 
     event = queue.get_nowait()
-    assert event.to_dict() == {
+    wire = event.to_dict()
+    # publish stamps seq/ts under the fanout lock; the rest is the honest
+    # terminal payload unchanged.
+    assert wire.pop("seq") == 1
+    assert wire.pop("ts") > 0
+    assert wire == {
         "type": "run.cancelled",
         "session_id": "s1",
         "run_id": "",

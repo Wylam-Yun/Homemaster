@@ -991,15 +991,20 @@ def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
                 if frame["type"] == "run.cancelled":
                     cancelled_frames.append(frame)
                     break
-            assert cancelled_frames == [
-                {
-                    "type": "run.cancelled",
-                    "session_id": session_id,
-                    "run_id": "run-01",
-                    "request_id": "req-hang",
-                    "payload": {},
-                }
-            ]
+            (terminal,) = cancelled_frames
+            # seq/ts are hub-stamped envelope fields; the payload assertion
+            # only locks the terminal content.
+            assert terminal["seq"] > 0 and terminal["ts"] > 0
+            assert {
+                key: terminal[key]
+                for key in ("type", "session_id", "run_id", "request_id", "payload")
+            } == {
+                "type": "run.cancelled",
+                "session_id": session_id,
+                "run_id": "run-01",
+                "request_id": "req-hang",
+                "payload": {},
+            }
 
             # The session binding was released — no session_busy on retry.
             again = client.post(

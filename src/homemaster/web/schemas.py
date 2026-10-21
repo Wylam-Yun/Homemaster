@@ -37,6 +37,14 @@ class SetSessionModeRequest(BaseModel):
     ui_mode: Literal["plan", "act"]
 
 
+class RenameSessionRequest(BaseModel):
+    """Replace the operator-visible list title of one session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+
+
 class AnswerQuestionRequest(BaseModel):
     """Resolve one pending ask_user question with the operator's answer."""
 
@@ -159,13 +167,23 @@ class MemoryHistoryResponse(BaseModel):
 
 @dataclass(frozen=True)
 class WebEvent:
-    """One browser-facing event after Runtime field projection."""
+    """One browser-facing event after Runtime field projection.
+
+    ``seq``/``ts`` are stamped by ``WebEventHub.publish`` under its fanout
+    lock — the single sequencing point every wire event crosses, including
+    direct publishes that bypass the Runtime event pump (``request.accepted``,
+    ``question.*``, ``session.mode_changed``, fallback terminals). ``seq`` is
+    a per-session monotonically increasing counter; ``ts`` is epoch seconds.
+    An event that never passed through the hub keeps the zero defaults.
+    """
 
     type: str
     session_id: str
     run_id: str
     request_id: str
     payload: Mapping[str, object]
+    seq: int = 0
+    ts: float = 0.0
 
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-compatible copy for a WebSocket frame."""
@@ -175,6 +193,8 @@ class WebEvent:
             "session_id": self.session_id,
             "run_id": self.run_id,
             "request_id": self.request_id,
+            "seq": self.seq,
+            "ts": self.ts,
             "payload": _copy_json(self.payload),
         }
 
@@ -198,6 +218,7 @@ __all__ = [
     "MemoryHistoryResponse",
     "MemorySnapshotResponse",
     "MemoryStatsResponse",
+    "RenameSessionRequest",
     "RevokeGrantRequest",
     "SendMessageRequest",
     "SetSessionModeRequest",

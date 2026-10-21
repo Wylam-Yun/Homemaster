@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { initialConversationState, reduceConversation, reduceWebEvent } from './conversation'
-import type { WebEvent } from '../protocol/events'
+import { isWebEvent, type WebEvent } from '../protocol/events'
 
 const event = (
   type: WebEvent['type'],
@@ -12,8 +12,26 @@ const event = (
   session_id: 'session-01',
   request_id: 'request-01',
   run_id: runId,
+  seq: 1,
+  ts: 1_700_000_000,
   payload,
 }) as WebEvent
+
+describe('isWebEvent', () => {
+  it('requires the hub-stamped seq/ts envelope fields on every wire event', () => {
+    const wire = event('answer.delta', { text: 'x' })
+    expect(isWebEvent(wire)).toBe(true)
+
+    // Server events always carry seq/ts; a frame missing either is not a
+    // WebEvent (e.g. older servers or malformed payloads must be dropped).
+    const { seq: _seq, ...missingSeq } = wire
+    expect(isWebEvent(missingSeq)).toBe(false)
+    const { ts: _ts, ...missingTs } = wire
+    expect(isWebEvent(missingTs)).toBe(false)
+    expect(isWebEvent({ ...wire, seq: '1' })).toBe(false)
+    expect(isWebEvent({ ...wire, ts: 'now' })).toBe(false)
+  })
+})
 
 describe('reduceWebEvent', () => {
   it('appends deltas, calibrates snapshots, and never duplicates terminal answer text', () => {
@@ -209,6 +227,8 @@ describe('questions, ui mode and hydration', () => {
       session_id: 'session-01',
       run_id: '',
       request_id: '',
+      seq: 1,
+      ts: 1_700_000_000,
       payload: { ui_mode: 'plan' },
     })
     expect(state.uiModes['session-01']).toBe('plan')

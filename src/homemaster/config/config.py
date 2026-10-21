@@ -135,7 +135,12 @@ class ProviderProfileConfig(BaseModel):
 
     name: str
     api_format: ApiFormatName
-    transport: TransportName = "raw_http"
+    # Dead field kept only so ``extra="forbid"`` does not reject older
+    # configs: the substrate no longer selects a transport. ``load_config``
+    # warns once per provider when a config source still sets it.
+    transport: TransportName = Field(
+        default="raw_http", json_schema_extra={"deprecated": True}
+    )
     base_url: str
     model: str
     api_keys: tuple[str, ...] = Field(default_factory=tuple)
@@ -938,7 +943,9 @@ def load_config(
         config = HomeMasterConfig()
         config._config_path = path
         config._provenance = {}
-        return _apply_env_overrides(config, cli_overrides=cli_overrides)
+        loaded = _apply_env_overrides(config, cli_overrides=cli_overrides)
+        _warn_on_deprecated_transport(loaded)
+        return loaded
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
@@ -975,7 +982,32 @@ def load_config(
                 sort_keys=True,
             )
         )
-    return _apply_env_overrides(config, cli_overrides=cli_overrides)
+    loaded = _apply_env_overrides(config, cli_overrides=cli_overrides)
+    _warn_on_deprecated_transport(loaded)
+    return loaded
+
+
+# Provider names already warned about; the deprecation fires once per
+# provider per process, matching the ``_WARNED_LEGACY_MEMORY_FIELDS`` style.
+_warned_transport_providers: set[str] = set()
+
+
+def _warn_on_deprecated_transport(config: HomeMasterConfig) -> None:
+    """Warn once when a config source (file/env/cli) still sets transport."""
+
+    for provider in config.providers.items:
+        if provider.name in _warned_transport_providers:
+            continue
+        key = f"providers.{provider.name}.transport"
+        if config.field_source(key) == "default":
+            continue
+        _warned_transport_providers.add(provider.name)
+        warnings.warn(
+            f"{key} is deprecated and ignored: provider transport selection "
+            "was removed. Drop the field from the provider profile.",
+            DeprecationWarning,
+            stacklevel=4,
+        )
 
 
 def _anchor_config_relative_paths(payload: dict[str, Any], *, config_dir: Path) -> dict[str, Any]:

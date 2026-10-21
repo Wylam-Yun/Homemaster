@@ -16,7 +16,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
+from homemaster import __version__
 from homemaster.application import RunPolicy, RunRequest
+from homemaster.application.session import SessionConflictError
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
 from homemaster.memory.management import MemoryManagementService, MemoryNotFoundError
 from homemaster.permissions.models import (
@@ -44,6 +46,7 @@ from homemaster.web.schemas import (
     CreateSessionRequest,
     MemoryHistoryResponse,
     MemorySnapshotResponse,
+    RenameSessionRequest,
     RevokeGrantRequest,
     SendMessageRequest,
     SetSessionModeRequest,
@@ -63,6 +66,17 @@ _WEB_PERMISSION_SUBJECT = PermissionSubject(
         capability for capability in _DEFAULT_SUBJECT.capabilities if capability != "tool.auto"
     ),
 )
+
+# Registry provenance sources mapped onto the browser-facing label set.
+# ``bundled``/``explicit`` collapse onto labels the UI actually distinguishes.
+_SKILL_SOURCE_LABELS = {
+    "bundled": "builtin",
+    "builtin": "builtin",
+    "user": "user",
+    "project": "project",
+    "explicit": "user",
+    "plugin": "plugin",
+}
 
 
 def create_web_app(
@@ -250,6 +264,70 @@ def create_web_app(
             "session_id": session_id,
             "messages": [_history_message(message) for message in runtime.session.messages],
         }
+
+    @app.patch("/api/sessions/{session_id}")
+    async def rename_session(session_id: str, body: RenameSessionRequest) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        try:
+            title = application.session_manager.rename_session(session_id, body.title)
+        except KeyError:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        except ValueError:
+            return _error(
+                422,
+                "invalid_request",
+                "The session title must be a non-empty string.",
+                retryable=False,
+            )
+        return {"session_id": session_id, "title": title}
+
+    @app.delete("/api/sessions/{session_id}")
+    async def delete_session(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        if await run_registry.is_busy(session_id):
+            return _error(
+                409,
+                "session_busy",
+                "This session already has an active run.",
+                retryable=True,
+            )
+        try:
+            # Hard delete — persisted files plus the in-memory runtime. The
+            # archive endpoint remains the memory-ingestion path; nothing is
+            # recoverable after this returns.
+            await application.session_manager.delete_session(session_id)
+        except SessionConflictError:
+            return _error(
+                409,
+                "session_busy",
+                "This session already has an active run.",
+                retryable=True,
+            )
+        except KeyError:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        return Response(status_code=204)
 
     @app.get("/api/memories")
     async def memories() -> object:
@@ -601,6 +679,54 @@ def create_web_app(
             "memory_mode": memory_mode if isinstance(memory_mode, str) else "files",
             "environment": environment_label,
         }
+
+    @app.get("/api/health")
+    async def health() -> object:
+        return {"status": "ok", "version": __version__}
+
+    @app.get("/api/doctor")
+    def doctor(live: bool = False, alfworld: bool = False) -> object:
+        # Sync ``def`` on purpose: run_doctor drives subprocesses and
+        # ``asyncio.run`` internally, so it must stay off the event loop —
+        # FastAPI sends sync endpoints to the threadpool automatically.
+        from homemaster.cli.doctor import run_doctor
+
+        report = run_doctor(
+            live=live,
+            alfworld=alfworld,
+            config_path=getattr(config, "config_path", None),
+        )
+        return report.model_dump(mode="json")
+
+    @app.get("/api/skills")
+    async def list_skills() -> object:
+        registry = _application_services(application).get("skill_registry")
+        if registry is None:
+            return _error(
+                503,
+                "skill_registry_unavailable",
+                "The skill registry is unavailable.",
+                retryable=True,
+            )
+        skills: list[dict[str, object]] = []
+        for skill in registry.list_skills():
+            provenance = registry.provenance_for(skill)
+            raw_source = (
+                provenance[-1].source if provenance else getattr(skill, "source", "")
+            )
+            skills.append(
+                {
+                    "name": skill.name,
+                    "command_name": skill.command_name,
+                    "description": skill.description,
+                    "source": _SKILL_SOURCE_LABELS.get(raw_source, raw_source),
+                    "user_invocable": bool(skill.user_invocable),
+                    # Per-skill enablement is a P1 feature (skills.enabled.json);
+                    # every registered skill is invocable today.
+                    "enabled": True,
+                }
+            )
+        return {"skills": skills}
 
     @app.post("/api/skills/resolve")
     async def resolve_skill(body: SkillResolveRequest) -> object:
