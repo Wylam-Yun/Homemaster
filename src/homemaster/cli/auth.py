@@ -40,14 +40,10 @@ Write semantics
 
 from __future__ import annotations
 
-import os
-import stat
 import sys
-import tempfile
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol, get_args
+from typing import Protocol
 
 import typer
 import yaml
@@ -56,292 +52,23 @@ from typer import confirm as _typer_confirm
 from homemaster.config.config import (
     DEFAULT_CONTEXT_WINDOW_TOKENS,
     DEFAULT_PROVIDER_NAME,
-    ApiFormatName,
     ConfigError,
-    _homemaster_home,
 )
-
-# Suggested defaults per ``ApiFormatName``.  base_url values mirror the
-# vendored AgentScope credential defaults (``src/agentscope/credential/_*.py``);
-# model ids are editable suggestions, not validated against the provider.
-_TEMPLATE_DEFAULTS: dict[str, dict[str, Any]] = {
-    "anthropic": {
-        "title": "Anthropic (Claude)",
-        "base_url": "https://api.anthropic.com",
-        "model": "claude-sonnet-4-5",
-        "transport": "anthropic_sdk",
-        "supports_auth_token": True,
-    },
-    "minimax": {
-        "title": "MiniMax (Anthropic-compatible)",
-        "base_url": "https://api.minimax.io/anthropic",
-        "model": "MiniMax-M2",
-        "transport": "anthropic_sdk",
-        "supports_auth_token": False,
-    },
-    "openai": {
-        "title": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "model": "gpt-5",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-    },
-    "dashscope": {
-        "title": "DashScope (Alibaba Qwen)",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen3-max",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-    },
-    "deepseek": {
-        "title": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-chat",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-    },
-    "moonshot": {
-        "title": "Moonshot (Kimi)",
-        "base_url": "https://api.moonshot.cn/v1",
-        "model": "kimi-k2-0905-preview",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-    },
-    "volcengine": {
-        "title": "Volcengine Ark (Doubao)",
-        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-        "model": "doubao-seed-1-6-250615",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-    },
-    "ollama": {
-        "title": "Ollama (local, keyless)",
-        "base_url": "http://localhost:11434",
-        "model": "llama3.3",
-        "transport": "openai_sdk",
-        "supports_auth_token": False,
-        "keyless": True,
-    },
-}
-
-_OPENAI_COMPATIBLE_KEY = "openai-compatible"
-
-
-@dataclass(frozen=True)
-class ProviderTemplate:
-    """One selectable row in the wizard's provider menu."""
-
-    key: str
-    title: str
-    api_format: str
-    base_url: str  # suggested default; "" means the user must supply one
-    model: str  # suggested default; "" means the user must supply one
-    transport: str
-    supports_auth_token: bool
-    keyless: bool = False
-
-
-@dataclass(frozen=True)
-class ProviderAnswers:
-    """Everything needed to render one ``providers.items`` entry."""
-
-    name: str
-    api_format: str
-    transport: str
-    auth_type: str
-    base_url: str
-    model: str
-    api_key: str  # "" = none stored; keyless providers always ""
-    context_window_tokens: int
-    set_default: bool
-
-
-def provider_templates() -> tuple[ProviderTemplate, ...]:
-    """Menu rows: one per real ``ApiFormatName`` member + openai-compatible.
-
-    Deriving the list from the Literal keeps the menu in lockstep with the
-    schema; an enum member without curated defaults falls back to a generic
-    OpenAI-wire row so the template list never drifts behind the type.
-    """
-
-    templates: list[ProviderTemplate] = []
-    for api_format in get_args(ApiFormatName):
-        defaults = _TEMPLATE_DEFAULTS.get(api_format, {})
-        templates.append(
-            ProviderTemplate(
-                key=api_format,
-                title=defaults.get("title", api_format),
-                api_format=api_format,
-                base_url=defaults.get("base_url", ""),
-                model=defaults.get("model", ""),
-                transport=defaults.get("transport", "openai_sdk"),
-                supports_auth_token=bool(defaults.get("supports_auth_token", False)),
-                keyless=bool(defaults.get("keyless", False)),
-            )
-        )
-    templates.append(
-        ProviderTemplate(
-            key=_OPENAI_COMPATIBLE_KEY,
-            title="openai-compatible (custom base_url)",
-            api_format="openai",
-            base_url="",
-            model="",
-            transport="openai_sdk",
-            supports_auth_token=False,
-        )
-    )
-    return tuple(templates)
-
-
-def mask_api_key(key: str) -> str:
-    """``sk-...wxyz`` style masking for the confirmation page."""
-
-    stripped = key.strip()
-    if not stripped:
-        return "(not stored)"
-    if len(stripped) <= 8:
-        return "***"
-    head = ""
-    first_dash = stripped.find("-")
-    if 0 < first_dash <= 8:
-        head = stripped[: first_dash + 1]
-    return f"{head}***{stripped[-4:]}"
-
-
-def resolve_auth_config_path(
-    config_path: str | Path | None = None,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> Path:
-    """Target file for the wizard: --config > $HOMEMASTER_HOME/config.yaml.
-
-    Unlike ``_default_config_path`` this never falls back to the repo
-    ``config/homemaster.yaml``: auth always provisions the per-user home
-    file, creating ``$HOMEMASTER_HOME`` when needed.
-    """
-
-    if config_path is not None:
-        return Path(config_path).expanduser()
-    values = os.environ if environ is None else environ
-    return _homemaster_home(values) / "config.yaml"
-
-
-def build_provider_item(answers: ProviderAnswers) -> dict[str, Any]:
-    """Render one ``providers.items`` entry in the example.yaml field order."""
-
-    item: dict[str, Any] = {
-        "name": answers.name,
-        "kind": "chat",
-        "api_format": answers.api_format,
-        "transport": answers.transport,
-        "auth_type": answers.auth_type,
-        "base_url": answers.base_url,
-        "model": answers.model,
-        "api_keys": [answers.api_key] if answers.api_key else [],
-        "context_window_tokens": answers.context_window_tokens,
-        "max_output_tokens": None,
-    }
-    return item
-
-
-def merge_providers_section(
-    payload: Mapping[str, Any],
-    answers: ProviderAnswers,
-) -> dict[str, Any]:
-    """Return *payload* with only the providers wiring updated.
-
-    The named item is replaced in place (case-insensitive name match) or
-    appended; ``providers.default`` and ``runtime_defaults.default_provider_name``
-    move only when ``answers.set_default`` is true.  All other keys keep
-    their values.
-    """
-
-    merged = dict(payload)
-    raw_providers = merged.get("providers")
-    providers: dict[str, Any] = dict(raw_providers) if isinstance(raw_providers, Mapping) else {}
-    raw_items = providers.get("items")
-    items: list[Any] = list(raw_items) if isinstance(raw_items, list) else []
-
-    new_item = build_provider_item(answers)
-    replaced = False
-    for index, existing in enumerate(items):
-        if (
-            isinstance(existing, Mapping)
-            and str(existing.get("name", "")).strip().casefold() == answers.name.casefold()
-        ):
-            items[index] = new_item
-            replaced = True
-            break
-    if not replaced:
-        items.append(new_item)
-    providers["items"] = items
-
-    if answers.set_default:
-        providers["default"] = answers.name
-        raw_defaults = merged.get("runtime_defaults")
-        runtime_defaults = dict(raw_defaults) if isinstance(raw_defaults, Mapping) else {}
-        runtime_defaults["default_provider_name"] = answers.name
-        merged["runtime_defaults"] = runtime_defaults
-    # When the user declines, ``providers.default`` and ``runtime_defaults``
-    # stay exactly as they were (present or absent) — only items changed.
-
-    merged["providers"] = providers
-    return merged
-
-
-def minimal_config_payload(answers: ProviderAnswers) -> dict[str, Any]:
-    """Smallest complete config for a fresh ``config.yaml``.
-
-    Every other ``HomeMasterConfig`` section defaults in code; the files
-    memory tier is explicit so the install works without the ``memory``
-    extra.  ``runtime_defaults`` is written unconditionally so the runtime
-    resolves the new provider even when it is not named ``Mimo``.
-    """
-
-    return {
-        "providers": {
-            "default": answers.name,
-            "items": [build_provider_item(answers)],
-        },
-        "runtime_defaults": {
-            "default_provider_name": answers.name,
-        },
-        "memory": {
-            "mode": "files",
-        },
-    }
-
-
-def write_auth_config(path: Path, payload: Mapping[str, Any]) -> None:
-    """Atomically write *payload* as YAML with owner-only permissions."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = yaml.safe_dump(
-        dict(payload),
-        sort_keys=False,
-        allow_unicode=True,
-        default_flow_style=False,
-    )
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=path.name + ".", dir=str(path.parent), suffix=".tmp"
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        tmp_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        os.replace(tmp_path, path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
-    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-
-
-def env_override_hint(provider_name: str) -> str:
-    """Name of the env var that can supply this provider's API key."""
-
-    normalized = "".join(ch if ch.isalnum() else "_" for ch in provider_name.upper())
-    return f"HOMEMASTER_{normalized}_API_KEY"
+from homemaster.services.provider_config import (
+    _TEMPLATE_DEFAULTS,
+    ProviderAnswers,
+    ProviderTemplate,
+    _existing_provider_names,
+    _load_existing_payload,
+    build_provider_item,
+    env_override_hint,
+    mask_api_key,
+    merge_providers_section,
+    minimal_config_payload,
+    provider_templates,
+    resolve_auth_config_path,
+    write_auth_config,
+)
 
 
 def render_print_only_output(target: Path, *, target_exists: bool) -> str:
@@ -628,38 +355,6 @@ def _collect_answers(
     if not prompter.ask_yes_no("Write this provider to the config?", default=True):
         return None
     return answers
-
-
-def _load_existing_payload(target: Path) -> dict[str, Any] | None:
-    """Return the existing YAML mapping, or None when the file is absent."""
-
-    if not target.is_file():
-        return None
-    try:
-        payload = yaml.safe_load(target.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"invalid HomeMaster YAML config: {target}") from exc
-    if payload is None:
-        return {}
-    if not isinstance(payload, dict):
-        raise ConfigError(f"HomeMaster config must be a YAML mapping: {target}")
-    return payload
-
-
-def _existing_provider_names(payload: Mapping[str, Any] | None) -> set[str]:
-    if not isinstance(payload, Mapping):
-        return set()
-    providers = payload.get("providers")
-    if not isinstance(providers, Mapping):
-        return set()
-    items = providers.get("items")
-    if not isinstance(items, list):
-        return set()
-    return {
-        str(item.get("name")).strip()
-        for item in items
-        if isinstance(item, Mapping) and str(item.get("name", "")).strip()
-    }
 
 
 def run_auth_wizard(

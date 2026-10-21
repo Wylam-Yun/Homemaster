@@ -297,13 +297,21 @@ def test_providers_lists_profiles_without_leaking_keys() -> None:
                 "name": "main",
                 "kind": "chat",
                 "model": "claude-main",
+                "base_url": "https://api.anthropic.com",
+                "api_format": "anthropic",
+                "auth_type": "api_key",
                 "api_key_configured": True,
+                "api_key_count": 1,
             },
             {
                 "name": "backup",
                 "kind": "chat",
                 "model": "gpt-backup",
+                "base_url": "https://api.openai.com/v1",
+                "api_format": "openai",
+                "auth_type": "api_key",
                 "api_key_configured": False,
+                "api_key_count": 0,
             },
         ]
     }

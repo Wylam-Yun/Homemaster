@@ -1,5 +1,26 @@
 # Unreleased
 
+- Provider configuration is now manageable over HTTP and hot-applies
+  without restart. New `homemaster.services.provider_config` hosts the
+  provider helpers previously embedded in the auth wizard
+  (`provider_templates`, `build_provider_item`, `merge_providers_section`,
+  `write_auth_config`, …) plus `ProviderConfigService`: masked
+  list/upsert/patch/delete, an async connectivity probe (`test`), and
+  live model enumeration. Every write re-reads the YAML, merges,
+  whole-config validates (before touching the file), atomically writes
+  mode-0600, and then swaps `runtime_config.providers` in place so the
+  next run resolves the new provider immediately — external hand-edits
+  are absorbed the same way. `web/app.py` gains
+  `GET /api/provider-templates`, an extended `GET /api/providers`,
+  `POST/PATCH/DELETE /api/providers`, `POST /api/providers/test`
+  (categorized `error_kind`: auth/network/model/schema), and
+  `GET /api/providers/{name}/models` (live `/v1/models` with template
+  fallback). API keys remain write-only and are never echoed; deleting
+  the default provider without a surviving chat provider returns 409.
+  `cli/auth.py` now imports the moved helpers — wizard behavior
+  unchanged. Coverage: `tests/homemaster/services/test_provider_config.py`,
+  `tests/homemaster/web/test_providers_api.py`.
+
 - HomeMaster runtime setup now supports macOS arm64 (Apple Silicon):
   the `full` memory tier (MindMemOS + managed Neo4j + embedded Qdrant)
   previously required Linux x86_64 — `scripts/setup.sh` hard-rejected

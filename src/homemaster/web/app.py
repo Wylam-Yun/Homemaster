@@ -26,6 +26,10 @@ from homemaster.permissions.models import (
     ItemDecision,
     PermissionStorageUnavailable,
 )
+from homemaster.services.provider_config import (
+    ProviderConfigError,
+    ProviderConfigService,
+)
 from homemaster.skills.commands import resolve_skill_command
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.web.confirmations import WebConfirmationHandler
@@ -70,6 +74,7 @@ def create_web_app(
     permission_store: Any | None = None,
     config: Any | None = None,
     environment: str | None = None,
+    provider_config_service: ProviderConfigService | None = None,
 ) -> FastAPI:
     """Build a Web adapter around one long-lived ApplicationRuntime."""
 
@@ -175,6 +180,9 @@ def create_web_app(
     app.state.alfworld_compile_jobs = alfworld_compile_jobs
     app.state.config = config
     app.state.environment = environment_label
+    app.state.provider_config_service = provider_config_service or ProviderConfigService(
+        runtime_config=config
+    )
     app.state.aclose = close_resources
 
     def _web_store() -> Any | None:
@@ -533,20 +541,53 @@ def create_web_app(
             "session_id": session_id,
         }
 
+    @app.get("/api/provider-templates")
+    async def list_provider_templates() -> object:
+        service = app.state.provider_config_service
+        return {"templates": [asdict(template) for template in service.templates()]}
+
     @app.get("/api/providers")
     async def list_providers() -> object:
-        items = getattr(getattr(config, "providers", None), "items", None) or ()
-        return {
-            "providers": [
-                {
-                    "name": provider.name,
-                    "kind": str(getattr(provider, "kind", "chat")),
-                    "model": provider.model,
-                    "api_key_configured": bool(getattr(provider, "api_keys", ())),
-                }
-                for provider in items
-            ]
-        }
+        service = app.state.provider_config_service
+        return {"providers": service.list_profiles()}
+
+    @app.post("/api/providers")
+    async def upsert_provider(body: dict[str, Any], overwrite: bool = False) -> object:
+        service = app.state.provider_config_service
+        try:
+            return service.upsert(body, overwrite=overwrite)
+        except ProviderConfigError as exc:
+            return _provider_config_error(exc)
+
+    @app.patch("/api/providers/{name}")
+    async def patch_provider(name: str, body: dict[str, Any]) -> object:
+        service = app.state.provider_config_service
+        try:
+            return service.patch(name, body)
+        except ProviderConfigError as exc:
+            return _provider_config_error(exc)
+
+    @app.delete("/api/providers/{name}")
+    async def delete_provider(name: str) -> object:
+        service = app.state.provider_config_service
+        try:
+            return service.delete(name)
+        except ProviderConfigError as exc:
+            return _provider_config_error(exc)
+
+    @app.post("/api/providers/test")
+    async def test_provider(body: dict[str, Any] | None = None) -> object:
+        service = app.state.provider_config_service
+        # Always 200: probe outcomes (auth/network/model/schema) ride the body.
+        return await service.test(body or {})
+
+    @app.get("/api/providers/{name}/models")
+    async def list_provider_models(name: str) -> object:
+        service = app.state.provider_config_service
+        try:
+            return await service.list_models(name)
+        except ProviderConfigError as exc:
+            return _provider_config_error(exc)
 
     @app.get("/api/meta")
     async def meta() -> object:
@@ -1415,6 +1456,17 @@ def _error(status_code: int, code: str, message: str, *, retryable: bool) -> JSO
     return JSONResponse(
         status_code=status_code,
         content={"code": code, "message": message, "retryable": retryable},
+    )
+
+
+def _provider_config_error(exc: ProviderConfigError) -> JSONResponse:
+    """Map a service-layer provider error onto the shared error envelope."""
+
+    return _error(
+        exc.status_code,
+        exc.code,
+        str(exc),
+        retryable=exc.retryable,
     )
 
 
