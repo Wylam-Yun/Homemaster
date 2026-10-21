@@ -1,6 +1,5 @@
 {
-  "schema_version": 1,
-  "platform": "linux-x86_64",
+  "schema_version": 2,
   "python": {
     "version_range": ">=3.11,<3.12",
     "provider": "uv-managed"
@@ -8,17 +7,29 @@
   "uv": {
     "version_range": ">=0.11,<0.13"
   },
-  "java": {
-    "version": "21.0.12.1+1",
-    "provider": "adoptium",
-    "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
-    "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94"
-  },
   "neo4j": {
     "version": "2026.05.0",
     "edition": "community",
     "package": "tar",
     "url": "https://github.com/Wylam-Yun/Homemaster/releases/download/v3.2-runtime-assets-20260903/neo4j-community-2026.05.0-unix.tar.gz",
     "sha256": "f89c85951c5d59f4db029f0ef8a5574bcc30a4d56adf55f671a7ae56fe3eea2b"
+  },
+  "platforms": {
+    "linux-x86_64": {
+      "java": {
+        "version": "21.0.12.1+1",
+        "provider": "adoptium",
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
+        "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94"
+      }
+    },
+    "darwin-arm64": {
+      "java": {
+        "version": "21.0.12.1+1",
+        "provider": "adoptium",
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz",
+        "sha256": "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998"
+      }
+    }
   }
 }

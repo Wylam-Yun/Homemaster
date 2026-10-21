@@ -1,5 +1,28 @@
 # Unreleased
 
+- HomeMaster runtime setup now supports macOS arm64 (Apple Silicon):
+  the `full` memory tier (MindMemOS + managed Neo4j + embedded Qdrant)
+  previously required Linux x86_64 — `scripts/setup.sh` hard-rejected
+  every other platform, `runtime-assets.lock.json` locked a single
+  linux-x86_64 asset set, and `download_runtime_assets.py` could not
+  read the macOS JDK layout (`Contents/Home`). The lock is now schema
+  v2 — a shared platform-independent `neo4j` entry plus a
+  `platforms.<platform>.java` matrix (darwin-arm64 pins the same
+  Temurin 21.0.12.1+1 build); the downloader resolves the host
+  platform and flattens `Contents/Home` so `java_home/bin/java` holds
+  on both layouts; setup.sh accepts `Darwin:arm64` (Intel mac is still
+  rejected explicitly) and falls back to `shasum -a 256` / `stat -f`
+  where GNU tools are absent; `build_runtime_bundle.sh` reads the
+  per-platform lock and uses the same sha256 fallback. Verified
+  end-to-end on darwin-arm64: setup.sh exits 0, doctor reports 14/14
+  PASS, `homemaster serve` spawns managed Neo4j, a real run's memory
+  token was found physically persisted in both the Neo4j transaction
+  store and embedded Qdrant storage, and SIGINT cleanup leaves no
+  orphan processes. New coverage:
+  `tests/homemaster/test_download_runtime_assets.py`. Linux behavior
+  is unchanged; qdrant on macOS stays `embedded` mode (no managed
+  binary shipped).
+
 - RoboCasa harness hardening from the `composite-seen-s1` findings run:
   `RoboCasaBenchmarkRunner.run_dir` no longer double-nests when
   `--trace-root` already ends in `robocasa/` (previously produced

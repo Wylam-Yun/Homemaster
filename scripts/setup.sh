@@ -17,9 +17,18 @@ while (($#)); do
 done
 
 case "$(uname -s):$(uname -m)" in
-  Linux:x86_64) ;;
-  *) echo "HomeMaster setup requires Linux x86_64" >&2; exit 2 ;;
+  Linux:x86_64|Darwin:arm64) ;;
+  Darwin:*) echo "HomeMaster setup on macOS requires Apple Silicon (arm64)" >&2; exit 2 ;;
+  *) echo "HomeMaster setup requires Linux x86_64 or macOS arm64" >&2; exit 2 ;;
 esac
+
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_check() { sha256sum --check "$1" --quiet; }
+else
+  sha256_check() { shasum -a 256 --check "$1" --quiet; }
+fi
+
+file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 
 state_file="$repo_root/.runtime/setup-state.json"
 runtime_root="$repo_root/.runtime"
@@ -43,7 +52,7 @@ fi
 if [[ -n "$offline_bundle" ]]; then
   [[ -d "$offline_bundle" ]] || { echo "offline bundle is missing: $offline_bundle" >&2; exit 2; }
   [[ -f "$offline_bundle/SHA256SUMS" ]] || { echo "offline bundle manifest is missing: $offline_bundle/SHA256SUMS" >&2; exit 2; }
-  (cd "$offline_bundle" && sha256sum --check SHA256SUMS --quiet)
+  (cd "$offline_bundle" && sha256_check SHA256SUMS)
   export UV_NO_INDEX=1 UV_FIND_LINKS="$offline_bundle/wheelhouse"
 fi
 
@@ -86,7 +95,7 @@ if not str(neo4j.get("password") or "").strip():
 path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
 PY
 else
-  [[ "$(stat -c '%a' "$config")" == 600 ]] || { echo "private config must be mode 0600: $config" >&2; exit 2; }
+  [[ "$(file_mode "$config")" == 600 ]] || { echo "private config must be mode 0600: $config" >&2; exit 2; }
 fi
 
 python_path="$runtime_python"

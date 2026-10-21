@@ -20,6 +20,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _current_platform() -> str:
+    sysname = os.uname().sysname
+    machine = os.uname().machine.lower()
+    if sysname == "Linux" and machine in ("x86_64", "amd64"):
+        return "linux-x86_64"
+    if sysname == "Darwin" and machine in ("arm64", "aarch64"):
+        return "darwin-arm64"
+    raise RuntimeError(f"unsupported platform: {sysname}:{machine}")
+
+
 def ensure_neo4j(repo_root: Path, destination: Path, *, offline_bundle: Path | None = None) -> Path:
     if (destination / "bin" / "neo4j").is_file() and (destination / "bin" / "neo4j-admin").is_file():
         return destination
@@ -67,7 +77,7 @@ def ensure_java(repo_root: Path, destination: Path, *, offline_bundle: Path | No
     if (destination / "bin" / "java").is_file():
         return destination
     lock = json.loads((repo_root / "config" / "runtime-assets.lock.json").read_text(encoding="utf-8"))
-    asset = lock["java"]
+    asset = lock["platforms"][_current_platform()]["java"]
     archive = (offline_bundle / "assets" / Path(asset["url"]).name) if offline_bundle else None
     if archive is None or not archive.is_file():
         if offline_bundle:
@@ -93,6 +103,12 @@ def ensure_java(repo_root: Path, destination: Path, *, offline_bundle: Path | No
                         raise RuntimeError(f"unsafe Java archive member: {member.name}")
                 package.extractall(root)
             candidates = [p for p in root.iterdir() if p.is_dir() and (p / "bin" / "java").is_file()]
+            if not candidates:
+                candidates = [
+                    p / "Contents" / "Home"
+                    for p in root.iterdir()
+                    if p.is_dir() and (p / "Contents" / "Home" / "bin" / "java").is_file()
+                ]
             if len(candidates) != 1:
                 raise RuntimeError("Java archive has unexpected layout")
             if destination.exists():

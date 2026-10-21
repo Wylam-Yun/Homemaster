@@ -113,6 +113,10 @@ flowchart LR
 
 ## 快速开始
 
+支持平台：`Linux x86_64` 与 `macOS arm64`（Apple Silicon）。`files` 记忆档两个平台均可；
+`full` 记忆档（MindMemOS + managed Neo4j + embedded Qdrant）同样两个平台均可——macOS
+走 embedded Qdrant（零额外二进制），Neo4j 仅支持 `managed_local`，连接地址必须是 loopback。
+
 V3.2 的可复现安装入口会创建项目虚拟环境、绑定本地 memory/Neo4j 运行时并输出 doctor JSON：
 
 ```bash

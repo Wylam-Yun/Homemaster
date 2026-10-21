@@ -26,13 +26,25 @@ python - "$repo_root/config/runtime-assets.lock.json" "$output/assets" <<'PY'
 import hashlib
 import json
 import pathlib
+import platform
 import subprocess
 import sys
 
+
+def current_platform() -> str:
+    sysname = platform.system()
+    machine = platform.machine().lower()
+    if sysname == "Linux" and machine in ("x86_64", "amd64"):
+        return "linux-x86_64"
+    if sysname == "Darwin" and machine in ("arm64", "aarch64"):
+        return "darwin-arm64"
+    raise SystemExit(f"unsupported platform: {sysname}:{machine}")
+
+
 lock = json.loads(pathlib.Path(sys.argv[1]).read_text())
 out = pathlib.Path(sys.argv[2])
-for name in ("java", "neo4j"):
-    asset = lock[name]
+assets = {"neo4j": lock["neo4j"], "java": lock["platforms"][current_platform()]["java"]}
+for name, asset in assets.items():
     target = out / pathlib.PurePosixPath(asset["url"].split("?")[0]).name
     if not target.exists():
         subprocess.run(["curl", "--fail", "--location", "--retry", "3", "--output", str(target), asset["url"]], check=True)
@@ -42,4 +54,9 @@ for name in ("java", "neo4j"):
 PY
 cp "$repo_root/config/runtime-assets.lock.json" "$output/runtime-assets.lock.json"
 printf 'browser=%s\n' "$with_browser" > "$output/bundle-metadata.txt"
-(cd "$output" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_bin=(sha256sum)
+else
+  sha256_bin=(shasum -a 256)
+fi
+(cd "$output" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 "${sha256_bin[@]}" > SHA256SUMS)
