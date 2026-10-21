@@ -102,7 +102,10 @@ async def _disconnect_aware_stream(
             yield frame
     finally:
         try:
-            await hub.unsubscribe(session_id, queue)
+            # Shield: a cancellation landing while unsubscribe awaits the hub
+            # lock would otherwise abandon the removal mid-flight, leaving a
+            # dead subscriber that keeps has_subscriber true until queue-full.
+            await asyncio.shield(hub.unsubscribe(session_id, queue))
         except asyncio.CancelledError:
             # Hosting-scope teardown (test-client shutdown, ASGI close) can
             # cancel the handler right as the generator finalizes; the

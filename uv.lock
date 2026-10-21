@@ -956,7 +956,7 @@ wheels = [
 
 [[package]]
 name = "homemaster"
-version = "0.1.0"
+version = "3.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
@@ -1003,7 +1003,6 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "tzdata" },
     { name = "uvicorn" },
-    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1098,7 +1097,6 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.10" },
     { name = "tzdata" },
     { name = "uvicorn", specifier = ">=0.47.0" },
-    { name = "websockets", specifier = ">=12" },
 ]
 provides-extras = ["memory", "dev", "browser", "mcp", "gateway"]
 

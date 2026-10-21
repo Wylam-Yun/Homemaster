@@ -263,7 +263,7 @@ mutating call 仍按 denied/path 规则放行，家庭物品动作与目的地�
 仍可渲染/解决 opaque approval ID，以兼容显式 confirmation handler 或未来策略切换。
 
 ALFWorld worker、Unity 和可选 Xvfb 均绑定 application resource scope。Web app 暴露一个幂等 close owner，
-FastAPI lifespan 与 Uvicorn 启动失败兜底共用它。事件 WebSocket 同时等待 outbound queue 和客户端
+FastAPI lifespan 与 Uvicorn 启动失败兜底共用它。事件 SSE 流同时等待 outbound queue 和客户端
 disconnect，避免安静断开的浏览器永久卡住 shutdown；关闭先封住新的 ALFWorld session claim，再清 pending
 approval/run/event hub，最后逆序关闭 worker 和 display。固定 episode 仍只允许首个 Web session owner。
 

@@ -234,11 +234,13 @@ def resolve_auth_config_path(
 def build_provider_item(answers: ProviderAnswers) -> dict[str, Any]:
     """Render one ``providers.items`` entry in the example.yaml field order."""
 
+    # ``transport`` is intentionally not written: the field is deprecated
+    # (substrate no longer selects a transport) and persisting it would
+    # trigger the load-time DeprecationWarning on every product-written file.
     item: dict[str, Any] = {
         "name": answers.name,
         "kind": "chat",
         "api_format": answers.api_format,
-        "transport": answers.transport,
         "auth_type": answers.auth_type,
         "base_url": answers.base_url,
         "model": answers.model,
@@ -595,6 +597,11 @@ class ProviderConfigService:
         candidate = dict(existing)
         candidate["providers"] = providers
         if payload.get("set_default"):
+            if profile.kind != "chat":
+                raise ProviderValidationError(
+                    f"only chat providers can be the default; {name!r} is "
+                    f"kind={profile.kind!r}"
+                )
             providers["default"] = profile.name
             runtime_defaults = _mutable_section(existing, "runtime_defaults")
             runtime_defaults["default_provider_name"] = profile.name
@@ -789,6 +796,12 @@ class ProviderConfigService:
         name = str(payload.get("name") or "").strip()
         if not name:
             raise ProviderValidationError("provider name is required")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+            raise ProviderValidationError(
+                "provider name must start alphanumeric and contain only "
+                "letters, digits, '.', '_' or '-' (URL-unsafe names would be "
+                "unreachable via /api/providers/{name})"
+            )
         api_format = str(
             payload.get("api_format") or (template.api_format if template else "")
         ).strip()
@@ -821,8 +834,17 @@ class ProviderConfigService:
             raise ProviderValidationError("context_window_tokens must be an integer") from exc
         raw_default = payload.get("set_default")
         # Mirror the wizard: the first configured provider becomes the default
-        # unless the caller explicitly declines.
-        set_default = bool(raw_default) if raw_default is not None else not existing_names
+        # unless the caller explicitly declines. Only chat providers may be
+        # the default — an embedding profile as chat default breaks every run.
+        kind = str(payload.get("kind") or "chat").strip() or "chat"
+        if raw_default is not None:
+            set_default = bool(raw_default)
+        else:
+            set_default = not existing_names and kind == "chat"
+        if set_default and kind != "chat":
+            raise ProviderValidationError(
+                f"only chat providers can be the default; {name!r} is kind={kind!r}"
+            )
         answers = ProviderAnswers(
             name=name,
             api_format=api_format,
@@ -877,10 +899,12 @@ class ProviderConfigService:
                 raise ProviderNotFoundError(f"provider {name!r} is not configured")
             return profile
         base_item: dict[str, Any] | None = None
+        stored_item: dict[str, Any] | None = None
         if name:
             raw = _find_item(self._current_items(), name)
             if raw is not None:
-                base_item = _item_to_dict(raw)
+                stored_item = _item_to_dict(raw)
+                base_item = dict(stored_item)
         if base_item is None:
             answers, extras = self._payload_to_answers(
                 {**target, "name": name or "preview", "set_default": False},
@@ -894,6 +918,19 @@ class ProviderConfigService:
                 base_item["api_keys"] = [key]
         for field, value in overrides.items():
             base_item[field] = value
+        # Stored credentials must never be re-targeted at a caller-chosen
+        # endpoint: if the probe reroutes the request (base_url) or reshapes
+        # auth (api_format/auth_type) away from the stored profile, drop the
+        # stored keys unless the caller supplied an explicit api_key.
+        if stored_item is not None and "api_key" not in target:
+            rerouted = any(
+                field in overrides
+                and str(overrides[field] or "")
+                != str(stored_item.get(field) or "")
+                for field in ("base_url", "api_format", "auth_type")
+            )
+            if rerouted:
+                base_item["api_keys"] = []
         return self._validate_item(base_item)
 
     def _find_profile(self, name: str) -> ProviderProfileConfig | None:
@@ -942,6 +979,11 @@ class ProviderConfigService:
         effective = _apply_env_overrides(validated)
         try:
             runtime.providers = effective.providers
+            # Provider writes can also move the default pointer
+            # (set_default / delete-reassign); keep the live value in sync
+            # or default-provider runs resolve a stale name until restart.
+            if getattr(runtime, "runtime_defaults", None) is not None:
+                runtime.runtime_defaults = effective.runtime_defaults
         except Exception:
             logger.warning("provider runtime hot-apply failed", exc_info=True)
 
@@ -1098,6 +1140,13 @@ def _exception_status_code(exc: BaseException) -> int | None:
     return value if isinstance(value, int) else None
 
 
+# api_format values whose template is keyless (e.g. local Ollama): such a
+# provider is usable with zero stored keys, so onboarding must count it.
+_KEYLESS_API_FORMATS = frozenset(
+    key for key, defaults in _TEMPLATE_DEFAULTS.items() if defaults.get("keyless")
+)
+
+
 def _profile_summary(item: Any) -> dict[str, Any]:
     """Masked view of one provider — key material never leaves the write path."""
 
@@ -1112,19 +1161,22 @@ def _profile_summary(item: Any) -> dict[str, Any]:
             "auth_type": item.auth_type,
             "api_key_configured": bool(api_keys),
             "api_key_count": len(api_keys),
+            "keyless": item.api_format in _KEYLESS_API_FORMATS,
         }
     if isinstance(item, Mapping):
         raw_keys = item.get("api_keys")
         keys = list(raw_keys) if isinstance(raw_keys, (list, tuple)) else []
+        api_format = str(item.get("api_format") or "")
         return {
             "name": str(item.get("name") or ""),
             "kind": str(item.get("kind") or "chat"),
             "model": str(item.get("model") or ""),
             "base_url": str(item.get("base_url") or ""),
-            "api_format": str(item.get("api_format") or ""),
+            "api_format": api_format,
             "auth_type": str(item.get("auth_type") or "api_key"),
             "api_key_configured": bool(keys),
             "api_key_count": len(keys),
+            "keyless": api_format in _KEYLESS_API_FORMATS,
         }
     return {
         "name": str(item),
@@ -1135,6 +1187,7 @@ def _profile_summary(item: Any) -> dict[str, Any]:
         "auth_type": "api_key",
         "api_key_configured": False,
         "api_key_count": 0,
+        "keyless": False,
     }
 
 
@@ -1250,12 +1303,21 @@ def _validation_details(exc: ValidationError) -> str:
 
 
 def _redact_keys(message: str, profile: ProviderProfileConfig | None) -> str:
-    """Never echo key material inside a probe failure message."""
+    """Never echo key material inside a probe failure message.
 
+    Probes may authenticate with an env-sourced key (``HOMEMASTER_<NAME>_*``)
+    that is not part of the stored profile — scrub that too.
+    """
+
+    candidates: list[str] = []
     if profile is not None:
-        for key in profile.api_keys:
-            if len(key) >= 4 and key in message:
-                message = message.replace(key, "***")
+        candidates.extend(profile.api_keys)
+        env_key = os.getenv(env_override_hint(profile.name), "")
+        if env_key:
+            candidates.append(env_key)
+    for key in candidates:
+        if len(key) >= 4 and key in message:
+            message = message.replace(key, "***")
     return message[:500]
 
 

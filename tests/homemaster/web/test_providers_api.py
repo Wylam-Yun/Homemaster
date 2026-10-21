@@ -104,6 +104,7 @@ def test_provider_crud_lifecycle_over_http(tmp_path: Path) -> None:
             "auth_type": "api_key",
             "api_key_configured": True,
             "api_key_count": 1,
+            "keyless": False,
         }
         assert API_KEY not in listed.text
 

@@ -155,7 +155,7 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
       base_url: form.baseUrl.trim(),
       model: form.model.trim(),
       auth_type: form.authType,
-      set_default: form.setDefault,
+      set_default: form.kind !== 'embedding' && form.setDefault,
     }
     if (form.kind === 'embedding' && form.embeddingUrl.trim().length > 0) {
       payload.embedding_url = form.embeddingUrl.trim()
@@ -461,14 +461,16 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
                 />
               </label>
             )}
-            <label className={styles.check}>
-              <input
-                type="checkbox"
-                checked={form.setDefault}
-                onChange={event => { update({ setDefault: event.target.checked }) }}
-              />
-              设为默认 provider
-            </label>
+            {form.kind !== 'embedding' && (
+              <label className={styles.check}>
+                <input
+                  type="checkbox"
+                  checked={form.setDefault}
+                  onChange={event => { update({ setDefault: event.target.checked }) }}
+                />
+                设为默认 provider
+              </label>
+            )}
           </div>
 
           {!isNew && editingName !== null && modelsPanel !== null && modelsPanel.name === editingName && (

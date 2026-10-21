@@ -164,6 +164,7 @@ export type ProviderProfile = {
   auth_type: string
   api_key_configured: boolean
   api_key_count: number
+  keyless: boolean
 }
 
 /** One selectable row from GET /api/provider-templates. */

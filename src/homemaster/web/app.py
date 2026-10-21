@@ -228,10 +228,18 @@ def create_web_app(
                     "The requested session does not exist.",
                     retryable=False,
                 )
-            runtime = await application.session_manager.open_or_resume(
-                requested_id,
-                resume=True,
-            )
+            try:
+                runtime = await application.session_manager.open_or_resume(
+                    requested_id,
+                    resume=True,
+                )
+            except (KeyError, FileNotFoundError):
+                return _error(
+                    404,
+                    "session_not_found",
+                    "The requested session does not exist.",
+                    retryable=False,
+                )
         return {"session_id": runtime.session.session_id}
 
     @app.get("/api/sessions")
@@ -260,7 +268,17 @@ def create_web_app(
         try:
             runtime = application.session_manager.get(session_id)
         except KeyError:
-            runtime = await application.session_manager.resume(session_id)
+            try:
+                runtime = await application.session_manager.resume(session_id)
+            except (KeyError, FileNotFoundError):
+                # The session can disappear between the ids probe and the
+                # resume load (concurrent DELETE) — report it as gone.
+                return _error(
+                    404,
+                    "session_not_found",
+                    "The requested session does not exist.",
+                    retryable=False,
+                )
         return {
             "session_id": session_id,
             "messages": [_history_message(message) for message in runtime.session.messages],
@@ -312,8 +330,12 @@ def create_web_app(
         try:
             # Hard delete — persisted files plus the in-memory runtime. The
             # archive endpoint remains the memory-ingestion path; nothing is
-            # recoverable after this returns.
-            await application.session_manager.delete_session(session_id)
+            # recoverable after this returns. The busy check is re-run under
+            # the manager lock to close the check-then-act window against a
+            # concurrent POST /messages landing run_registry.accept in between.
+            await application.session_manager.delete_session(
+                session_id, busy_check=run_registry.is_busy_nowait
+            )
         except SessionConflictError:
             return _error(
                 409,

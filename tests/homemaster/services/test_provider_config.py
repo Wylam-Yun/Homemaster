@@ -139,7 +139,8 @@ def test_upsert_template_maps_template_fields(tmp_path: Path) -> None:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     (item,) = raw["providers"]["items"]
     assert item["api_format"] == "deepseek"
-    assert item["transport"] == "openai_sdk"
+    # ``transport`` is deprecated and no longer written into items.
+    assert "transport" not in item
     assert item["base_url"] == "https://api.deepseek.com"
     assert item["model"] == "deepseek-chat"
 
@@ -490,3 +491,153 @@ def test_list_profiles_returns_masked_views(tmp_path: Path) -> None:
     assert profiles[0]["api_key_configured"] is True
     assert profiles[0]["api_key_count"] == 1
     assert "sk-a" not in str(profiles)
+
+
+# ---------------------------------------------------------------------------
+# review-fix regressions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_drops_stored_keys_on_rerouted_probe(
+    tmp_path: Path,
+) -> None:
+    """A stored profile probed at a caller-chosen base_url must not carry
+    stored key material — that would be a credential exfiltration primitive."""
+
+    captured: dict = {}
+
+    def _probe(profile) -> dict:
+        captured["api_keys"] = list(profile.api_keys)
+        captured["base_url"] = profile.base_url
+        return {"ok": True}
+
+    service, _runtime, _ = _service(
+        tmp_path, payload=_two_provider_seed(), probe=_probe
+    )
+    result = await service.test(
+        {"name": "Alpha", "base_url": "https://attacker.example"}
+    )
+    assert result["ok"] is True
+    assert captured["base_url"] == "https://attacker.example"
+    assert captured["api_keys"] == []
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_keeps_stored_keys_when_probe_unchanged(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    def _probe(profile) -> dict:
+        captured["api_keys"] = list(profile.api_keys)
+        return {"ok": True}
+
+    service, _runtime, _ = _service(
+        tmp_path, payload=_two_provider_seed(), probe=_probe
+    )
+    # model-only override: same endpoint/auth shape — stored keys retained.
+    await service.test({"name": "Alpha", "model": "other-model"})
+    assert captured["api_keys"] != []
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_explicit_api_key_still_works_on_reroute(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    def _probe(profile) -> dict:
+        captured["api_keys"] = list(profile.api_keys)
+        return {"ok": True}
+
+    service, _runtime, _ = _service(
+        tmp_path, payload=_two_provider_seed(), probe=_probe
+    )
+    await service.test(
+        {
+            "name": "Alpha",
+            "base_url": "https://other.example",
+            "api_key": "sk-caller-supplied",
+        }
+    )
+    assert captured["api_keys"] == ["sk-caller-supplied"]
+
+
+def test_set_default_rejected_for_embedding_provider(tmp_path: Path) -> None:
+    service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed())
+    service.upsert(
+        _provider_payload(
+            name="Emb", kind="embedding", embedding_url="https://emb.example"
+        )
+    )
+    with pytest.raises(ProviderValidationError):
+        service.patch("Emb", {"set_default": True})
+
+
+def test_upsert_rejects_set_default_for_embedding(tmp_path: Path) -> None:
+    service, _runtime, _ = _service(tmp_path)
+    with pytest.raises(ProviderValidationError):
+        service.upsert(
+            _provider_payload(
+                name="Emb",
+                kind="embedding",
+                set_default=True,
+                embedding_url="https://emb.example",
+            )
+        )
+
+
+def test_first_embedding_provider_does_not_auto_default(tmp_path: Path) -> None:
+    service, _runtime, path = _service(tmp_path)
+    service.upsert(
+        _provider_payload(
+            name="Emb", kind="embedding", embedding_url="https://emb.example"
+        )
+    )
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert raw["providers"].get("default") != "Emb"
+
+
+def test_set_default_hot_applies_runtime_defaults(tmp_path: Path) -> None:
+    service, runtime, _ = _service(tmp_path, payload=_two_provider_seed())
+    assert runtime.runtime_defaults.default_provider_name == "Alpha"
+    service.patch("Beta", {"set_default": True})
+    assert runtime.runtime_defaults.default_provider_name == "Beta"
+
+
+def test_delete_default_hot_applies_runtime_defaults(tmp_path: Path) -> None:
+    service, runtime, _ = _service(tmp_path, payload=_two_provider_seed())
+    service.delete("Alpha")
+    assert runtime.runtime_defaults.default_provider_name == "Beta"
+
+
+def test_provider_name_charset_rejected(tmp_path: Path) -> None:
+    service, _runtime, _ = _service(tmp_path)
+    with pytest.raises(ProviderValidationError):
+        service.upsert(_provider_payload(name="bad/name?x"))
+
+
+def test_list_profiles_exposes_keyless_flag(tmp_path: Path) -> None:
+    seed = _two_provider_seed()
+    seed["providers"]["items"].append(
+        {
+            "name": "Local",
+            "kind": "chat",
+            "api_format": "ollama",
+            "base_url": "http://localhost:11434",
+            "model": "llama3.3",
+            "api_keys": [],
+        }
+    )
+    service, _runtime, _ = _service(tmp_path, payload=seed)
+    profiles = {p["name"]: p for p in service.list_profiles()}
+    assert profiles["Local"]["keyless"] is True
+    assert profiles["Alpha"]["keyless"] is False
+
+
+def test_written_item_omits_deprecated_transport(tmp_path: Path) -> None:
+    service, _runtime, path = _service(tmp_path)
+    service.upsert(_provider_payload())
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert "transport" not in raw["providers"]["items"][0]

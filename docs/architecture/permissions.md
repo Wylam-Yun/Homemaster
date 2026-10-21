@@ -25,7 +25,7 @@
  -> 审批等待后只读重验 binding 未变
  -> store 重新匹配长授快照 -> claim -> device-lease 下按内部步骤执行
  -> adapter.observe 读回 -> store.finish_step（成功／有限失败重试／未知终止）
- -> adapter.release；事件投影到 WebSocket（requested/resolved/grants_changed）
+ -> adapter.release；事件投影到 SSE 事件流（requested/resolved/grants_changed）
 ```
 
 ## 最终接口
@@ -67,4 +67,4 @@
 
 - ALFWorld 后端无权威区域模型：独立导航沿用旧路径，区域用例不声称通过；
   仅 `robot_manipulate` 经适配器设门（内部导航纳入同一闭包）。
-- WebSocket 需要传输库；断线／重连后以服务端 `GET` 为准，旧卡不恢复成待批准。
+- 事件通道为 SSE（`GET /api/sessions/{id}/stream`）；断线／重连后以服务端 `GET` 为准，旧卡不恢复成待批准。

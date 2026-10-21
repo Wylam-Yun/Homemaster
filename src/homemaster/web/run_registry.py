@@ -71,6 +71,16 @@ class WebRunRegistry:
         async with self._lock:
             return session_id in self._active_by_session
 
+    def is_busy_nowait(self, session_id: str) -> bool:
+        """Lock-free busy peek for callers already serialized elsewhere.
+
+        Used by session deletion, which runs under the SessionManager lock:
+        re-checking here closes the check-then-act window between the
+        endpoint's ``is_busy`` probe and the actual delete.
+        """
+
+        return session_id in self._active_by_session
+
     async def active_run_id(self, session_id: str) -> str | None:
         """Return the run id bound to the session's active request, if any."""
 

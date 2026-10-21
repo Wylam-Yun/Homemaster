@@ -169,7 +169,9 @@ function AppShell() {
     void api.providers().then(listed => {
       setProviders(listed.providers)
       // 首启无已配置 chat provider → 引导页（detection≠consent：只此一次自动跳转）。
-      const hasChatProvider = listed.providers.some(item => item.kind !== 'embedding' && item.api_key_configured)
+      const hasChatProvider = listed.providers.some(
+        item => item.kind !== 'embedding' && (item.api_key_configured || item.keyless),
+      )
       if (!hasChatProvider && routeRef.current.kind !== 'onboarding') navigate('#/onboarding')
     }).catch(() => {})
     void api.meta().then(setMeta).catch(() => {})

@@ -14,13 +14,8 @@ from homemaster import setup_runtime as setup
 
 
 def _fake_uname(monkeypatch: pytest.MonkeyPatch, sysname: str, machine: str) -> None:
-    import types
-
-    monkeypatch.setattr(
-        setup.os,
-        "uname",
-        lambda: types.SimpleNamespace(sysname=sysname, machine=machine),
-    )
+    monkeypatch.setattr(setup.platform, "system", lambda: sysname)
+    monkeypatch.setattr(setup.platform, "machine", lambda: machine)
 
 
 def _env(tmp_path: Path, **extra: str) -> dict[str, str]:
@@ -379,3 +374,42 @@ def test_generated_config_clears_demo_browser_gateway(tmp_path: Path) -> None:
         (tmp_path / ".homemaster" / "config.yaml").read_text(encoding="utf-8")
     )
     assert payload["browser_gateway"]["start_url"] is None
+
+
+def test_package_spec_derives_origin_from_direct_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Dist:
+        def read_text(self, name: str) -> str:
+            assert name == "direct_url.json"
+            return '{"url": "file:///tmp/homemaster-3.2.0-py3-none-any.whl"}'
+
+    monkeypatch.setattr(
+        setup.importlib.metadata, "distribution", lambda name: _Dist()
+    )
+    spec = setup._package_spec({}, full=True, with_browser=False)
+    assert spec == (
+        "homemaster[memory] @ file:///tmp/homemaster-3.2.0-py3-none-any.whl"
+    )
+
+
+def test_package_spec_falls_back_to_bare_name_when_origin_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Dist:
+        def read_text(self, name: str) -> None:
+            return None
+
+    monkeypatch.setattr(
+        setup.importlib.metadata, "distribution", lambda name: _Dist()
+    )
+    assert setup._package_spec({}, full=False, with_browser=False) == "homemaster"
+
+
+def test_package_spec_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = setup._package_spec(
+        {"HOMEMASTER_SETUP_PACKAGE": "/src/HomeMaster[memory]"},
+        full=True,
+        with_browser=True,
+    )
+    assert spec == "/src/HomeMaster[memory]"

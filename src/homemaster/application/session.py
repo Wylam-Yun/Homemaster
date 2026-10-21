@@ -579,18 +579,32 @@ class SessionManager:
             save_meta(session_id, meta)
         return normalized
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(
+        self,
+        session_id: str,
+        *,
+        busy_check: Callable[[str], bool] | None = None,
+    ) -> None:
         """Permanently remove one session: persisted files and in-memory state.
 
         Archival (``session_end_handler``) is a separate memory-ingestion
         concept; this is the hard delete — the session disappears from
         ``list_session_ids`` and cannot be resumed afterwards.
+
+        ``busy_check`` is an optional synchronous re-check invoked under the
+        manager lock, for callers that own a second activity registry (the
+        web layer's run registry) and need to close the check-then-act
+        window between their own busy probe and this delete.
         """
 
         _validate_session_id(session_id)
         async with self._manager_lock:
             runtime = self._sessions.get(session_id)
             if runtime is not None and runtime.active_task is not None:
+                raise SessionConflictError(
+                    f"session {session_id} has an active run"
+                )
+            if busy_check is not None and busy_check(session_id):
                 raise SessionConflictError(
                     f"session {session_id} has an active run"
                 )

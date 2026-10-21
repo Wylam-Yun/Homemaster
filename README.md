@@ -151,6 +151,10 @@ homemaster          # 起 server 并打开浏览器
 `homemaster setup --offline-bundle <bundle>`（bundle 由 `scripts/build_runtime_bundle.sh` 生成）。
 已有 `config.yaml` 时 setup 只补齐托管运行时键，不覆盖 provider 配置。
 
+运行时 venv 的包装来源按 PEP 610 `direct_url.json` 自动继承当前安装方式
+（wheel 文件或 URL）；需要覆盖时用 `HOMEMASTER_SETUP_PACKAGE` 指定完整 spec，
+例如 `HOMEMASTER_SETUP_PACKAGE="/path/to/checkout[memory]" homemaster setup --full`。
+
 **源码安装（开发 / 完整 `full` 记忆档）：**
 
 ```bash

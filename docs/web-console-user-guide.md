@@ -55,7 +55,7 @@ ssh -N -L 8765:127.0.0.1:8765 hkust4
   图片加载失败和非图片 artifact 继续显示授权链接；所有读取仍校验 tenant/session/run 分区和 opaque handle。
 - Stop 请求 Runtime 取消当前 session run。
 - Web Console 使用 `full_auto` 自动执行允许的普通变更操作；denied tools、敏感路径和命令规则仍会拒绝执行。家庭资源权限不受 mode 影响：物品动作与目的地区域永远先批后动，见“家庭资源权限”。
-- WebSocket 最后一个订阅者断开、run 取消、超时或服务关闭时，pending approval fail closed。
+- 事件流最后一个订阅者断开、run 取消、超时或服务关闭时，pending approval fail closed。
 
 ### 家庭资源权限
 
@@ -90,7 +90,7 @@ Thinking 和工具 Arguments，方便领导查看实时模型输出：
 http://127.0.0.1:8890/?record=1&session_id=<session-id>
 ```
 
-两个窗口必须使用同一个 `session_id`；主窗口提交任务后，录制窗口通过 `/api/events` 实时收到同一 run 的
+两个窗口必须使用同一个 `session_id`；主窗口提交任务后，录制窗口通过 `GET /api/sessions/{session_id}/stream`（SSE）实时收到同一 run 的
 thinking、回答、工具参数、审批和终态事件。录制窗口不会自动挑选其他历史会话，ID 不存在时会明确提示。
 
 MVP 重连采用“重新获取 history，再继续 live events”；断线窗口里的动画 delta 不回放，最终 thinking/answer
@@ -125,7 +125,7 @@ npm run build
 ```
 
 生产 build 写入 `src/homemaster/web/static_dist/`，由 Python wheel 的 package-data 携带。开发服务需要把
-`/api` 和 `/api/events` 代理到本地 HomeMaster 服务；发布前必须使用 `npm run build` 并运行 Python Web
+`/api` 代理到本地 HomeMaster 服务（事件走 SSE 子路径）；发布前必须使用 `npm run build` 并运行 Python Web
 测试。
 
 ## 故障排查

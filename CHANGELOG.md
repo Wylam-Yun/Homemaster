@@ -1,5 +1,33 @@
 # Unreleased
 
+- Review hardening round on the productization branch: the provider
+  `test` probe no longer ships stored credentials to a caller-chosen
+  `base_url`/`api_format`/`auth_type` (keys are dropped unless the
+  caller supplies an explicit `api_key` — closes a credential
+  exfiltration primitive); probe failure messages also scrub
+  env-sourced (`HOMEMASTER_<NAME>_API_KEY`) keys. `set_default` is now
+  rejected for non-`chat` providers server-side and hidden in the UI,
+  and the auto-default inference only applies to chat kind. Provider
+  hot-apply now also updates `runtime_defaults.default_provider_name`,
+  so `set_default`/delete-reassign take effect without restart (deleting
+  the default previously left every subsequent run resolving a dead
+  name). Provider names are restricted to URL-safe characters. Session
+  DELETE re-checks run-activity inside the SessionManager lock
+  (`busy_check`) and resume callers map `FileNotFoundError` to 404,
+  closing the delete-vs-accept window. SSE unsubscribe is shielded so a
+  mid-flight cancellation can't leak a dead subscriber. `homemaster
+  setup` writes fresh configs atomically at mode 0600 via
+  `_write_yaml_0600`, detects the platform portably (`platform.*` —
+  `os.uname` absent on Windows), reports asset failures as `SetupError`
+  (`[FAIL]` + exit 2 instead of tracebacks), extracts tarballs with
+  `filter="data"` on supported Pythons, and derives the runtime-venv
+  package spec from the installed dist's PEP 610 `direct_url.json`
+  (documented `HOMEMASTER_SETUP_PACKAGE` override). Written provider
+  items no longer carry the deprecated `transport` field; provider
+  summaries expose `keyless` so keyless (e.g. Ollama) providers count
+  as configured for onboarding. `uv.lock` regenerated (websockets
+  removed, version 3.2.0); user docs updated for the SSE endpoint.
+
 - The browser event channel migrated from WebSocket to SSE:
   `GET /api/sessions/{id}/stream` (`web/sse.py`, bare StreamingResponse)
   replaces `/api/events`; frames carry `id: {seq}` + `data:` with a 15s

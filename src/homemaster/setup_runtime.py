@@ -34,9 +34,11 @@ one truth source.
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import importlib.resources
 import json
 import os
+import platform
 import secrets
 import shutil
 import subprocess
@@ -69,13 +71,14 @@ def _sha256(path: Path) -> str:
 
 
 def _current_platform() -> str:
-    sysname = os.uname().sysname
-    machine = os.uname().machine.lower()
+    # platform.* is portable; os.uname() does not exist on Windows.
+    sysname = platform.system()
+    machine = platform.machine().lower()
     if sysname == "Linux" and machine in ("x86_64", "amd64"):
         return "linux-x86_64"
     if sysname == "Darwin" and machine in ("arm64", "aarch64"):
         return "darwin-arm64"
-    raise RuntimeError(f"unsupported platform: {sysname}:{machine}")
+    raise SetupError(f"unsupported platform: {sysname}:{machine}")
 
 
 def _packaged_lock_resource() -> Any:
@@ -94,7 +97,7 @@ def _load_lock(repo_root: Path | None) -> dict[str, Any]:
     resource = _packaged_lock_resource()
     if resource.is_file():
         return json.loads(resource.read_text(encoding="utf-8"))
-    raise RuntimeError(
+    raise SetupError(
         "runtime assets lock is missing: neither "
         f"{repo_root / 'config' / 'runtime-assets.lock.json' if repo_root else '<repo>'} "
         "nor the packaged homemaster/resources copy is readable"
@@ -106,15 +109,18 @@ def _safe_extract_tar(package: tarfile.TarFile, root: Path, label: str) -> None:
     for member in members:
         target = (root / member.name).resolve()
         if root.resolve() not in target.parents:
-            raise RuntimeError(f"unsafe {label} archive member: {member.name}")
-    package.extractall(root)
+            raise SetupError(f"unsafe {label} archive member: {member.name}")
+    try:
+        package.extractall(root, filter="data")
+    except TypeError:  # Python < 3.11.4 lacks the filter kwarg
+        package.extractall(root)
 
 
 def _fetch_archive(asset: Mapping[str, Any], *, offline_bundle: Path | None, prefix: str) -> Path:
     archive = (offline_bundle / "assets" / Path(asset["url"]).name) if offline_bundle else None
     if archive is None or not archive.is_file():
         if offline_bundle:
-            raise RuntimeError(f"offline asset is missing: {archive}")
+            raise SetupError(f"offline asset is missing: {archive}")
         archive = Path(tempfile.mkstemp(prefix=prefix, suffix=".tar.gz")[1])
         try:
             subprocess.run(
@@ -143,7 +149,7 @@ def ensure_neo4j(
     try:
         actual = _sha256(archive)
         if actual != asset["sha256"]:
-            raise RuntimeError(f"Neo4j SHA256 mismatch: expected {asset['sha256']}, got {actual}")
+            raise SetupError(f"Neo4j SHA256 mismatch: expected {asset['sha256']}, got {actual}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
             root = Path(temp)
@@ -151,11 +157,11 @@ def ensure_neo4j(
                 _safe_extract_tar(package, root, "Neo4j")
             extracted = root / f"neo4j-community-{asset['version']}"
             if not (extracted / "bin" / "neo4j").is_file():
-                raise RuntimeError("Neo4j archive has unexpected layout")
+                raise SetupError("Neo4j archive has unexpected layout")
             for name in ("data", "logs", "run"):
                 shutil.rmtree(extracted / name, ignore_errors=True)
             if destination.exists():
-                raise RuntimeError(
+                raise SetupError(
                     f"runtime destination already exists but is incomplete: {destination}"
                 )
             os.replace(extracted, destination)
@@ -176,7 +182,7 @@ def ensure_java(
     try:
         actual = _sha256(archive)
         if actual != asset["sha256"]:
-            raise RuntimeError(f"Java SHA256 mismatch: expected {asset['sha256']}, got {actual}")
+            raise SetupError(f"Java SHA256 mismatch: expected {asset['sha256']}, got {actual}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
             root = Path(temp)
@@ -193,9 +199,9 @@ def ensure_java(
                     if p.is_dir() and (p / "Contents" / "Home" / "bin" / "java").is_file()
                 ]
             if len(candidates) != 1:
-                raise RuntimeError("Java archive has unexpected layout")
+                raise SetupError("Java archive has unexpected layout")
             if destination.exists():
-                raise RuntimeError(
+                raise SetupError(
                     f"runtime destination already exists but is incomplete: {destination}"
                 )
             os.replace(candidates[0], destination)
@@ -313,7 +319,27 @@ def _package_spec(environ: Mapping[str, str], *, full: bool, with_browser: bool)
     if override:
         return override
     extras = [name for name, on in (("memory", full), ("browser", with_browser)) if on]
-    return "homemaster" + (f"[{','.join(extras)}]" if extras else "")
+    suffix = f"[{','.join(extras)}]" if extras else ""
+    origin = _installed_dist_origin()
+    if origin is not None:
+        return f"homemaster{suffix} @ {origin}"
+    return "homemaster" + suffix
+
+
+def _installed_dist_origin() -> str | None:
+    """PEP 610 origin of the running homemaster dist (file:// or https://)."""
+
+    try:
+        raw = importlib.metadata.distribution("homemaster").read_text("direct_url.json")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        url = str(json.loads(raw).get("url") or "")
+    except ValueError:
+        return None
+    return url if url.startswith(("file://", "http://", "https://")) else None
 
 
 def _child_env(
@@ -493,10 +519,7 @@ def _ensure_config(
     payload = _inject_config_keys(
         payload, full=full, repo_root=repo_root, runtime_root=runtime_root, hm_home=hm_home
     )
-    config_path.write_text(
-        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
-    os.chmod(config_path, 0o600)
+    _write_yaml_0600(config_path, payload)
     echo(f"[OK] config: {config_path} (0600)")
 
 
