@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderInfo, type SessionStatusInfo, type SessionSummary, type UiMode } from './api/http'
+import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderProfile, type SessionStatusInfo, type SessionSummary, type SkillInfo, type UiMode } from './api/http'
 import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type ModelSelection } from './components/composer/ComposerPanel'
@@ -17,6 +17,11 @@ import { ToolGroup } from './components/ToolGroup'
 import { TranscriptSearch, type TranscriptSearchEntry } from './components/TranscriptSearch'
 import { WelcomePanel } from './components/WelcomePanel'
 import { useScrollFollow } from './hooks/useScrollFollow'
+import { OnboardingPage } from './pages/OnboardingPage'
+import { SessionsPage } from './pages/SessionsPage'
+import { SettingsPage } from './pages/SettingsPage'
+import { SkillsPage } from './pages/SkillsPage'
+import { chatHash, navigate, parseHash, useRoute } from './router'
 import type { WebEvent } from './protocol/events'
 import { initialConversationState, reduceConversation } from './state/conversation'
 import { projectSessionTurns, type Turn } from './state/projection'
@@ -53,9 +58,6 @@ function formatRelativeTime(value: string | null): string {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(time))
 }
 
-const TITLE_OVERRIDES_KEY = 'hm.sessionTitleOverrides'
-const HIDDEN_SESSIONS_KEY = 'hm.hiddenSessions'
-
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -86,7 +88,9 @@ export function App() {
 function AppShell() {
   const toast = useToast()
   const displayOptions = useMemo(readDisplayOptions, [])
-  const [view, setView] = useState<'conversation' | 'memories' | 'permissions'>('conversation')
+  const route = useRoute()
+  const routeRef = useRef(route)
+  routeRef.current = route
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionQuery, setSessionQuery] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -109,13 +113,14 @@ function AppShell() {
   const [memorySnapshot, setMemorySnapshot] = useState<MemorySnapshot | null>(null)
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
+  // files 档下 /api/memories 503 → 降级说明卡而非整页错误。
+  const [memoryUnavailable, setMemoryUnavailable] = useState(false)
   const [sessionSignals, setSessionSignals] = useState<Record<string, SessionSignal>>({})
-  const [titleOverrides, setTitleOverrides] = useState<Record<string, string>>(() => readJson(TITLE_OVERRIDES_KEY, {}))
-  const [hiddenSessions, setHiddenSessions] = useState<string[]>(() => readJson(HIDDEN_SESSIONS_KEY, []))
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [providers, setProviders] = useState<ProviderProfile[]>([])
+  const [skills, setSkills] = useState<SkillInfo[]>([])
   const [meta, setMeta] = useState<MetaInfo | null>(null)
   const [sessionStatus, setSessionStatus] = useState<SessionStatusInfo | null>(null)
   const [modelSelection, setModelSelection] = useState<ModelSelection>({})
@@ -125,11 +130,7 @@ function AppShell() {
   const connectionRef = useRef<EventConnection | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const newSessionRef = useRef<() => void>(() => {})
-
-  const displayTitle = useCallback(
-    (session: SessionSummary): string => titleOverrides[session.session_id] ?? sessionTitle(session),
-    [titleOverrides],
-  )
+  const ensuringChatRef = useRef(false)
 
   const dismissNotice = useCallback(() => {
     if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current)
@@ -163,10 +164,23 @@ function AppShell() {
     setModelSelection(sessionId === null ? {} : readJson<ModelSelection>(`hm.model.${sessionId}`, {}))
   }, [sessionId])
 
-  // Provider list + meta are session-independent; one fetch at mount is enough.
+  // Provider list + meta + skills are session-independent; one fetch at mount.
   useEffect(() => {
-    void api.providers().then(listed => { setProviders(listed.providers) }).catch(() => {})
+    void api.providers().then(listed => {
+      setProviders(listed.providers)
+      // 首启无已配置 chat provider → 引导页（detection≠consent：只此一次自动跳转）。
+      const hasChatProvider = listed.providers.some(item => item.kind !== 'embedding' && item.api_key_configured)
+      if (!hasChatProvider && routeRef.current.kind !== 'onboarding') navigate('#/onboarding')
+    }).catch(() => {})
     void api.meta().then(setMeta).catch(() => {})
+    void api.listSkills().then(listed => { setSkills(listed.skills) }).catch(() => {})
+  }, [])
+
+  /** Composer pickers refresh after Settings/Onboarding writes land. */
+  const refreshProviders = useCallback(async () => {
+    try {
+      setProviders((await api.providers()).providers)
+    } catch { /* picker keeps the stale list */ }
   }, [])
 
   /**
@@ -201,8 +215,16 @@ function AppShell() {
     try {
       setMemorySnapshot(await api.memories())
       setMemoryError(null)
-    } catch {
-      setMemoryError('记忆服务暂不可用，请稍后重试。')
+      setMemoryUnavailable(false)
+    } catch (error) {
+      // files 档的 503/memory_unavailable 走降级说明卡；其余错误仍是错误横幅。
+      if (error instanceof HttpError && (error.status === 503 || error.code === 'memory_unavailable')) {
+        setMemoryUnavailable(true)
+        setMemoryError(null)
+      } else {
+        setMemoryUnavailable(false)
+        setMemoryError('记忆服务暂不可用，请稍后重试。')
+      }
     } finally {
       setMemoryLoading(false)
     }
@@ -266,10 +288,15 @@ function AppShell() {
   }, [])
 
   const selectSession = useCallback(async (nextId: string) => {
-    setView('conversation')
     connectionRef.current?.stop()
+    sessionIdRef.current = nextId
     setSessionId(nextId)
     setConnectionState('connecting')
+    // URL is the source of truth: keep the hash on the opened session — but
+    // only inside the chat route. Background adoption (e.g. '#/chat' resolving
+    // after a first-launch '#/onboarding' redirect) must never yank the user
+    // off a non-chat page.
+    if (parseHash(window.location.hash).kind === 'chat') navigate(chatHash(nextId))
     setSessionSignals(signals => {
       if (!(nextId in signals)) return signals
       const updated = { ...signals }
@@ -298,23 +325,36 @@ function AppShell() {
     connection.start()
   }, [handleWebEvent, hydratePending, showNotice])
 
+  // Dedupe concurrent creators: '#/chat' with an empty list triggers
+  // ensureChatSession → newSession at the same moment a sidebar '新建会话'
+  // click does — without a shared in-flight promise that posts two
+  // createSession calls and leaves an orphan empty session.
+  const newSessionInflightRef = useRef<Promise<void> | null>(null)
   const newSession = useCallback(async () => {
-    setView('conversation')
-    connectionRef.current?.stop()
-    connectionRef.current = null
-    setConnectionState('connecting')
-    setSessionId(null)
-    try {
-      const created = await api.createSession()
-      await refreshSessions()
-      await selectSession(created.session_id)
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Could not create a session.')
-    }
+    const inflight = newSessionInflightRef.current
+    if (inflight) return inflight
+    const task = (async () => {
+      connectionRef.current?.stop()
+      connectionRef.current = null
+      setConnectionState('connecting')
+      setSessionId(null)
+      try {
+        const created = await api.createSession()
+        await refreshSessions()
+        await selectSession(created.session_id)
+      } catch (error) {
+        showNotice(error instanceof Error ? error.message : 'Could not create a session.')
+      }
+    })().finally(() => { newSessionInflightRef.current = null })
+    newSessionInflightRef.current = task
+    return task
   }, [refreshSessions, selectSession, showNotice])
 
   useEffect(() => { newSessionRef.current = () => { void newSession() } }, [newSession])
 
+  // Boot once: populate the sidebar list and honor the legacy ?session_id=
+  // deep-link. Session selection itself belongs solely to the route-sync
+  // effect below — a single owner avoids double-connect races.
   useEffect(() => {
     void refreshSessions().then(existing => {
       if (displayOptions.requestedSessionId !== null) {
@@ -325,23 +365,61 @@ function AppShell() {
         }
         return
       }
-      if (existing[0] !== undefined) void selectSession(existing[0].session_id)
-      else void newSession()
+      const landing = routeRef.current
+      if (landing.kind === 'chat' && landing.sessionId !== null &&
+        !existing.some(session => session.session_id === landing.sessionId)) {
+        showNotice(`指定会话不存在：${landing.sessionId}`)
+      }
     }).catch(error => { showNotice(error instanceof Error ? error.message : 'Service unavailable.') })
     return () => { connectionRef.current?.stop() }
-  }, [displayOptions.requestedSessionId, newSession, refreshSessions, selectSession, showNotice])
+  }, [displayOptions.requestedSessionId, refreshSessions, selectSession, showNotice])
+
+  // Route → session: '#/chat/{id}' selects it; a bare '#/chat' keeps the
+  // current one or adopts the first/new session (e.g. after landing on a
+  // non-chat route or deleting the selected session).
+  const ensureChatSession = useCallback(async () => {
+    if (ensuringChatRef.current) return
+    ensuringChatRef.current = true
+    try {
+      const listed = await refreshSessions()
+      const first = listed[0]
+      if (first !== undefined) await selectSession(first.session_id)
+      else await newSession()
+    } finally {
+      ensuringChatRef.current = false
+    }
+  }, [newSession, refreshSessions, selectSession])
+
+  useEffect(() => {
+    if (route.kind !== 'chat') return
+    if (route.sessionId !== null) {
+      if (route.sessionId !== sessionIdRef.current) void selectSession(route.sessionId)
+      return
+    }
+    if (sessionIdRef.current === null) void ensureChatSession()
+  }, [route, ensureChatSession, selectSession])
 
   useEffect(() => { void refreshMemories() }, [refreshMemories])
 
-  const hiddenSet = useMemo(() => new Set(hiddenSessions), [hiddenSessions])
   const normalizedSessionQuery = sessionQuery.trim().toLocaleLowerCase()
   const visibleSessions = useMemo(() => {
-    const listed = sessions.filter(session => !hiddenSet.has(session.session_id))
-    if (normalizedSessionQuery.length === 0) return listed
-    return listed.filter(session =>
-      displayTitle(session).toLocaleLowerCase().includes(normalizedSessionQuery),
+    if (normalizedSessionQuery.length === 0) return sessions
+    return sessions.filter(session =>
+      sessionTitle(session).toLocaleLowerCase().includes(normalizedSessionQuery),
     )
-  }, [displayTitle, hiddenSet, normalizedSessionQuery, sessions])
+  }, [normalizedSessionQuery, sessions])
+
+  // Composer slash menu: only enabled, user-invocable skills complete as /cmd.
+  const slashCommands = useMemo(
+    () => skills
+      .filter(skill => skill.enabled && skill.user_invocable)
+      .map(skill => ({
+        name: skill.command_name ?? skill.name,
+        description: skill.description,
+        group: 'skills',
+      })),
+    [skills],
+  )
 
   const turns = useMemo(
     () => projectSessionTurns(state, sessionId, { ...userTextsRef.current, ...submitted }),
@@ -446,6 +524,8 @@ function AppShell() {
       session_id: sessionId,
       run_id: '',
       request_id: '',
+      seq: 0, // client-synthesized echo — not a server-stamped wire event
+      ts: Date.now() / 1000,
       payload: { question_id: questionId },
     })
     return true
@@ -465,6 +545,8 @@ function AppShell() {
       session_id: sessionId,
       run_id: '',
       request_id: '',
+      seq: 0, // client-synthesized echo — not a server-stamped wire event
+      ts: Date.now() / 1000,
       payload: { ui_mode: next },
     })
     setSessionStatus(current => current?.session_id === sessionId ? { ...current, ui_mode: next } : current)
@@ -489,7 +571,7 @@ function AppShell() {
     try {
       await api.archiveSession(session.session_id)
       toast.show({
-        title: `已归档会话 ${displayTitle(session)}`,
+        title: `已归档会话 ${sessionTitle(session)}`,
         description: '记忆总结与整理在后台执行',
       })
     } catch (error) {
@@ -501,7 +583,7 @@ function AppShell() {
         return next
       })
     }
-  }, [api, displayTitle, showNotice, toast])
+  }, [showNotice, toast])
 
   const persistModelSelection = useCallback((selection: ModelSelection) => {
     setModelSelection(selection)
@@ -563,44 +645,51 @@ function AppShell() {
     })
   }
 
-  const updateHiddenSessions = useCallback((update: (ids: string[]) => string[]) => {
-    setHiddenSessions(ids => {
-      const next = update(ids)
-      writeJson(HIDDEN_SESSIONS_KEY, next)
-      return next
-    })
-  }, [])
-
-  // Server-side session delete/rename endpoints do not exist yet; both actions are
-  // local-only until the protocol grows them (see plan W4 batch 2).
-  const hideSession = useCallback((session: SessionSummary) => {
-    const title = displayTitle(session)
-    updateHiddenSessions(ids => (ids.includes(session.session_id) ? ids : [...ids, session.session_id]))
-    toast.show({
-      title: `已删除「${title}」`,
-      description: '仅从本地列表移除；服务端删除待协议支持。',
-      action: {
-        label: '撤销',
-        onClick: () => { updateHiddenSessions(ids => ids.filter(id => id !== session.session_id)) },
-      },
-    })
-  }, [displayTitle, toast, updateHiddenSessions])
+  // Session delete is server-side now (DELETE /api/sessions/{id} → 204); an
+  // active run makes the backend answer 409, surfaced as a notice.
+  const removeSession = useCallback(async (session: SessionSummary) => {
+    const title = sessionTitle(session)
+    if (!window.confirm(`删除会话「${title}」？此操作不可撤销。`)) return
+    try {
+      await api.deleteSession(session.session_id)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '删除会话失败。')
+      return
+    }
+    setSessions(list => list.filter(item => item.session_id !== session.session_id))
+    toast.show({ title: `已删除会话「${title}」` })
+    if (session.session_id === sessionIdRef.current) {
+      connectionRef.current?.stop()
+      connectionRef.current = null
+      sessionIdRef.current = null
+      setSessionId(null)
+      setHistory([])
+      navigate('#/sessions')
+    }
+  }, [showNotice, toast])
 
   const startRename = useCallback((session: SessionSummary) => {
     setRenamingId(session.session_id)
-    setRenameDraft(displayTitle(session))
-  }, [displayTitle])
+    setRenameDraft(sessionTitle(session))
+  }, [])
 
+  // Rename persists via PATCH /api/sessions/{id} {title}; the list entry is
+  // updated optimistically and rolled back on failure.
   const commitRename = useCallback((session: SessionSummary) => {
     const value = renameDraft.trim()
     setRenamingId(null)
-    if (value.length === 0 || value === displayTitle(session)) return
-    setTitleOverrides(overrides => {
-      const next = { ...overrides, [session.session_id]: value }
-      writeJson(TITLE_OVERRIDES_KEY, next)
-      return next
+    if (value.length === 0 || value === sessionTitle(session)) return
+    const previous = session.title
+    setSessions(list => list.map(item =>
+      item.session_id === session.session_id ? { ...item, title: value } : item,
+    ))
+    void api.patchSession(session.session_id, { title: value }).catch(error => {
+      setSessions(list => list.map(item =>
+        item.session_id === session.session_id ? { ...item, title: previous } : item,
+      ))
+      showNotice(error instanceof Error ? error.message : '重命名会话失败。')
     })
-  }, [displayTitle, renameDraft])
+  }, [renameDraft, showNotice])
 
   const searchEntries = useMemo(() => {
     const entries: TranscriptSearchEntry[] = []
@@ -625,21 +714,24 @@ function AppShell() {
 
   // Mod+F dispatches through the global shortcuts registry (B, state/shortcuts.ts).
   const openTranscriptSearch = useCallback(() => {
-    if (view !== 'conversation') return
+    if (route.kind !== 'chat') return
     setSearchOpen(true)
     releaseFollow()
-  }, [releaseFollow, view])
+  }, [releaseFollow, route.kind])
 
   return (
     <div className="shell" data-recording={displayOptions.recording || undefined}>
       <aside className="sidebar" data-open={sidebarOpen || undefined}>
         <div className="brand"><span className="brand-mark">HM</span><div><strong>Console</strong><small>Local agent console</small></div></div>
         <div className="sidebar-views" aria-label="主导航">
-          <button type="button" aria-label="对话" data-active={view === 'conversation' || undefined} onClick={() => { setView('conversation'); setSidebarOpen(false) }}><span>◉</span>对话</button>
-          <button type="button" aria-label="记忆管理" data-active={view === 'memories' || undefined} onClick={() => { setView('memories'); setSidebarOpen(false) }}><span>◇</span>记忆管理</button>
-          <button type="button" aria-label="权限" data-active={view === 'permissions' || undefined} onClick={() => { setView('permissions'); setSidebarOpen(false) }}><span>▣</span>权限</button>
+          <button type="button" aria-label="对话" data-active={route.kind === 'chat' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/chat') }}><span>◉</span>对话</button>
+          <button type="button" aria-label="会话列表" data-active={route.kind === 'sessions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/sessions') }}><span>☰</span>会话</button>
+          <button type="button" aria-label="记忆管理" data-active={route.kind === 'memory' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/memory') }}><span>◇</span>记忆管理</button>
+          <button type="button" aria-label="权限" data-active={route.kind === 'permissions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/permissions') }}><span>▣</span>权限</button>
+          <button type="button" aria-label="技能" data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}><span>✦</span>技能</button>
+          <button type="button" aria-label="设置" data-active={route.kind === 'settings' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/settings') }}><span>⚙</span>设置</button>
         </div>
-        <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); void newSession() }}>＋ 新建会话</button>
+        <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); navigate('#/chat'); void newSession() }}>＋ 新建会话</button>
         <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
         {!historyCollapsed && <>
           <label className="session-search">
@@ -654,7 +746,7 @@ function AppShell() {
           </label>
           <nav aria-label="历史会话">
             {visibleSessions.map(session => {
-              const title = displayTitle(session)
+              const title = sessionTitle(session)
               const itemMeta = [formatRelativeTime(session.updated_at), `${session.message_count} 条`]
                 .filter(part => part.length > 0)
                 .join(' · ')
@@ -689,7 +781,7 @@ function AppShell() {
                       type="button"
                       className="session-open"
                       aria-label={`打开会话 ${title}`}
-                      onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}
+                      onClick={() => { setSidebarOpen(false); navigate(chatHash(session.session_id)) }}
                     >
                       <span>{title}</span>
                       <small>{itemMeta.length > 0 ? itemMeta : session.session_id.slice(0, 12)}</small>
@@ -709,42 +801,47 @@ function AppShell() {
                     <button
                       type="button"
                       aria-label={`删除会话 ${title}`}
-                      disabled={session.session_id === sessionId}
-                      title={session.session_id === sessionId ? '当前会话无法删除' : undefined}
-                      onClick={() => { hideSession(session) }}
+                      title="彻底删除该会话（不可撤销）"
+                      onClick={() => { void removeSession(session) }}
                     >✕</button>
                   </span>
                 </div>
               )
             })}
             {visibleSessions.length === 0 && <div className="session-empty">没有匹配的会话</div>}
-            {hiddenSessions.length > 0 && (
-              <button
-                type="button"
-                className="session-restore"
-                onClick={() => { updateHiddenSessions(() => []) }}
-              >
-                已隐藏 {hiddenSessions.length} 个会话 · 恢复全部
-              </button>
-            )}
           </nav>
         </>}
         {historyCollapsed && <div className="history-spacer" />}
         <div className="local-note"><span>●</span> Loopback only{meta !== null ? ` · v${meta.version}` : ''}</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{view === 'memories' ? '记忆管理' : view === 'permissions' ? '权限管理' : '对话'}</strong><small>{view === 'memories' ? '只读查看' : view === 'permissions' ? '长期授权可撤销' : (sessionId ?? '正在启动…')}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
-        {view === 'permissions' ? (
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? '设置' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '全部会话' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        {route.kind === 'permissions' ? (
           <PermissionsPage api={api} refreshSignal={grantsSignal} />
-        ) : view === 'memories' ? (
+        ) : route.kind === 'memory' ? (
           <MemoryPage
             snapshot={memorySnapshot}
             loading={memoryLoading}
             error={memoryError}
+            unavailable={memoryUnavailable}
             onRefresh={refreshMemories}
             loadHistory={memoryId => api.memoryHistory(memoryId)}
             compileMemory={memoryId => api.compileMemory(memoryId)}
             compileStatus={jobId => api.compileStatus(jobId)}
+          />
+        ) : route.kind === 'skills' ? (
+          <SkillsPage api={api} />
+        ) : route.kind === 'settings' ? (
+          <SettingsPage api={api} onProvidersChanged={() => { void refreshProviders() }} />
+        ) : route.kind === 'onboarding' ? (
+          <OnboardingPage api={api} onDone={() => { void refreshProviders() }} />
+        ) : route.kind === 'sessions' ? (
+          <SessionsPage
+            sessions={sessions}
+            sessionId={sessionId}
+            signals={sessionSignals}
+            sessionTitle={sessionTitle}
+            formatTime={formatRelativeTime}
           />
         ) : <>
           <section className="conversation" aria-live="polite" ref={follow.containerRef}>
@@ -770,10 +867,10 @@ function AppShell() {
             ))}
             {history.length === 0 && turns.length === 0 && (
               <WelcomePanel
-                recentSessions={sessions.filter(session => session.session_id !== sessionId && !hiddenSet.has(session.session_id)).slice(0, 3)}
-                sessionTitle={displayTitle}
+                recentSessions={sessions.filter(session => session.session_id !== sessionId).slice(0, 3)}
+                sessionTitle={sessionTitle}
                 onSuggestion={text => { void sendText(text) }}
-                onContinue={id => { void selectSession(id) }}
+                onContinue={id => { navigate(chatHash(id)) }}
               />
             )}
             </div>
@@ -800,7 +897,7 @@ function AppShell() {
             disabled={connectionState !== 'connected' || sessionId === null}
             onSubmit={text => sendText(text)}
             onCancel={() => { if (sessionId) void api.cancel(sessionId) }}
-            slashCommands={[]}
+            slashCommands={slashCommands}
             resolveMentions={() => Promise.resolve([])}
             onEnqueue={enqueue}
             injectDraft={draftSignal}

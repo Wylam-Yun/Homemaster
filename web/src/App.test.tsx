@@ -2,18 +2,34 @@ import { act, render, screen } from '@testing-library/react'
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
-  rejectMemories: false,
-  stop: vi.fn(),
-  emitters: [] as Array<{ onEvent: (event: unknown) => void }>,
-  apis: [] as Array<{
-    submitApproval: (...args: Array<unknown>) => Promise<unknown>
-    cancelApproval: (...args: Array<unknown>) => Promise<unknown>
-  }>,
-}))
+const mocks = vi.hoisted(() => {
+  class MockHttpError extends Error {
+    constructor(
+      readonly status: number,
+      readonly code: string,
+      message: string,
+      readonly retryable = false,
+    ) {
+      super(message)
+      this.name = 'HttpError'
+    }
+  }
+  return {
+    rejectMemories: false,
+    memoryUnavailable: false,
+    noProviders: false,
+    HttpError: MockHttpError,
+    stop: vi.fn(),
+    emitters: [] as Array<{ onEvent: (event: unknown) => void }>,
+    apis: [] as Array<{
+      submitApproval: (...args: Array<unknown>) => Promise<unknown>
+      cancelApproval: (...args: Array<unknown>) => Promise<unknown>
+    }>,
+  }
+})
 
 vi.mock('./api/http', () => ({
-  HttpError: class HttpError extends Error {},
+  HttpError: mocks.HttpError,
   HomeMasterApi: class HomeMasterApi {
     constructor() {
       mocks.apis.push(this as unknown as {
@@ -25,11 +41,29 @@ vi.mock('./api/http', () => ({
     listSessions = vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-01', title: 'first request title', message_count: 2, updated_at: '2026-09-10T03:00:00+00:00' }] })
     history = vi.fn().mockResolvedValue({ session_id: 'session-01', messages: [] })
     createSession = vi.fn().mockResolvedValue({ session_id: 'session-new' })
+    patchSession = vi.fn().mockResolvedValue({ session_id: 'session-01', title: 'renamed', message_count: 2, updated_at: '2026-09-10T03:00:00+00:00' })
+    deleteSession = vi.fn().mockResolvedValue(undefined)
     sendMessage = vi.fn().mockResolvedValue({ accepted: true })
     cancel = vi.fn().mockResolvedValue({ cancelled: true })
-    providers = vi.fn().mockResolvedValue({ providers: [
-      { name: 'primary', kind: 'anthropic', model: 'claude-sonnet-4', api_key_configured: true },
-      { name: 'backup', kind: 'openai', model: 'gpt-5', api_key_configured: false },
+    providers = vi.fn().mockImplementation(() => {
+      if (mocks.noProviders) return Promise.resolve({ providers: [] })
+      return Promise.resolve({ providers: [
+        { name: 'primary', kind: 'chat', model: 'claude-sonnet-4', base_url: 'https://api.anthropic.com', api_format: 'anthropic', auth_type: 'api_key', api_key_configured: true, api_key_count: 1 },
+        { name: 'backup', kind: 'chat', model: 'gpt-5', base_url: 'https://api.openai.com/v1', api_format: 'openai', auth_type: 'api_key', api_key_configured: false, api_key_count: 0 },
+      ] })
+    })
+    providerTemplates = vi.fn().mockResolvedValue({ templates: [
+      { key: 'anthropic', title: 'Anthropic (Claude)', api_format: 'anthropic', base_url: 'https://api.anthropic.com', model: 'claude-sonnet-4-5', transport: 'anthropic_sdk', supports_auth_token: true, keyless: false },
+      { key: 'ollama', title: 'Ollama (local, keyless)', api_format: 'ollama', base_url: 'http://localhost:11434', model: 'llama3.3', transport: 'openai_sdk', supports_auth_token: false, keyless: true },
+    ] })
+    upsertProvider = vi.fn().mockResolvedValue({ provider: { name: 'primary', kind: 'chat', model: 'claude-sonnet-4-5', base_url: 'https://api.anthropic.com', api_format: 'anthropic', auth_type: 'api_key', api_key_configured: true, api_key_count: 1 }, status: 'created', default: 'primary' })
+    patchProvider = vi.fn().mockResolvedValue({ provider: { name: 'primary', kind: 'chat', model: 'claude-sonnet-4-5', base_url: 'https://api.anthropic.com', api_format: 'anthropic', auth_type: 'api_key', api_key_configured: true, api_key_count: 1 }, status: 'updated', default: 'primary' })
+    deleteProvider = vi.fn().mockResolvedValue({ deleted: true, name: 'backup', default: 'primary' })
+    testProvider = vi.fn().mockResolvedValue({ ok: true, error_kind: null, message: 'provider returned parseable JSON', latency_ms: 123, name: 'primary', model: 'claude-sonnet-4' })
+    providerModels = vi.fn().mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4', 'claude-haiku-4'], source: 'live' })
+    listSkills = vi.fn().mockResolvedValue({ skills: [
+      { name: 'cleanup', command_name: 'cleanup', description: '整理会话上下文', source: 'bundled', user_invocable: true, enabled: true },
+      { name: 'hidden-skill', command_name: null, description: '内部技能', source: 'bundled', user_invocable: false, enabled: true },
     ] })
     meta = vi.fn().mockResolvedValue({ version: '35.0.0', memory_mode: 'files', environment: null })
     sessionStatus = vi.fn().mockResolvedValue({
@@ -58,6 +92,9 @@ vi.mock('./api/http', () => ({
     revokeGrant = vi.fn().mockResolvedValue(null)
     memoryHistory = vi.fn().mockResolvedValue({ memory_id: 'memory-01', versions: [] })
     memories = vi.fn().mockImplementation(() => {
+      if (mocks.memoryUnavailable) {
+        return Promise.reject(new mocks.HttpError(503, 'memory_unavailable', 'files memory tier has no memory manager'))
+      }
       if (mocks.rejectMemories) return Promise.reject(new Error('memory unavailable'))
       return Promise.resolve({
         stats: { active_count: 1, archived_count: 0, total_count: 1, session_group_count: 1 },
@@ -92,6 +129,8 @@ import { App } from './App'
 describe('App memory navigation', () => {
   beforeEach(() => {
     mocks.rejectMemories = false
+    mocks.memoryUnavailable = false
+    mocks.noProviders = false
     mocks.stop.mockClear()
     mocks.emitters.length = 0
     localStorage.clear()
@@ -266,6 +305,8 @@ describe('App memory navigation', () => {
 describe('App batch-2 integration', () => {
   beforeEach(() => {
     mocks.rejectMemories = false
+    mocks.memoryUnavailable = false
+    mocks.noProviders = false
     mocks.stop.mockClear()
     mocks.emitters.length = 0
     localStorage.clear()
@@ -427,5 +468,100 @@ describe('App batch-2 integration', () => {
     await waitFor(() => { expect(api().compactSession).toHaveBeenCalledWith('session-01') })
     expect(await screen.findByText('已触发上下文压缩')).toBeVisible()
     expect(screen.getByText(/kind: manual/)).toBeVisible()
+  })
+})
+
+describe('App P0 routing and wiring', () => {
+  beforeEach(() => {
+    mocks.rejectMemories = false
+    mocks.memoryUnavailable = false
+    mocks.noProviders = false
+    mocks.stop.mockClear()
+    mocks.emitters.length = 0
+    localStorage.clear()
+    window.HTMLElement.prototype.scrollIntoView = vi.fn()
+  })
+
+  afterEach(() => {
+    window.history.replaceState({}, '', '/')
+    vi.clearAllMocks()
+    vi.restoreAllMocks()
+  })
+
+  const api = () => mocks.apis[mocks.apis.length - 1]! as unknown as Record<string, ReturnType<typeof vi.fn>>
+
+  it('routes between pages through the hash', async () => {
+    render(<App />)
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '技能' }))
+    expect(await screen.findByRole('heading', { name: '技能' })).toBeVisible()
+    expect(window.location.hash).toBe('#/skills')
+    expect(await screen.findByText('cleanup')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(await screen.findByRole('heading', { name: 'Provider 设置' })).toBeVisible()
+    expect(window.location.hash).toBe('#/settings')
+
+    fireEvent.click(screen.getByRole('button', { name: '会话列表' }))
+    expect(await screen.findByRole('heading', { name: '全部会话' })).toBeVisible()
+    fireEvent.click(screen.getByRole('link', { name: '打开会话 first request title' }))
+    await waitFor(() => { expect(window.location.hash).toBe('#/chat/session-01') })
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+  })
+
+  it('redirects first launch to onboarding when no chat provider is configured', async () => {
+    mocks.noProviders = true
+    render(<App />)
+
+    await waitFor(() => { expect(window.location.hash).toBe('#/onboarding') })
+    expect(await screen.findByRole('heading', { name: '接入一个模型服务，开始使用' })).toBeVisible()
+    expect(screen.getByRole('link', { name: /跳过/ })).toBeInTheDocument()
+  })
+
+  it('renames a session through PATCH and updates the sidebar', async () => {
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: '重命名会话 first request title' }))
+
+    const input = screen.getByRole('textbox', { name: '重命名会话 first request title' })
+    fireEvent.change(input, { target: { value: '新标题' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => { expect(api().patchSession).toHaveBeenCalledWith('session-01', { title: '新标题' }) })
+    expect(await screen.findByRole('button', { name: '打开会话 新标题' })).toBeInTheDocument()
+  })
+
+  it('deletes the selected session via DELETE and lands on #/sessions', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<App />)
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '删除会话 first request title' }))
+
+    await waitFor(() => { expect(api().deleteSession).toHaveBeenCalledWith('session-01') })
+    await waitFor(() => { expect(window.location.hash).toBe('#/sessions') })
+    expect(await screen.findByRole('heading', { name: '全部会话' })).toBeVisible()
+    expect(await screen.findByText('还没有会话')).toBeInTheDocument()
+  })
+
+  it('injects only user-invocable skills into the composer slash menu', async () => {
+    render(<App />)
+    const input = await screen.findByPlaceholderText('Message…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+
+    fireEvent.change(input, { target: { value: '/' } })
+    expect(await screen.findByRole('option', { name: /cleanup/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /hidden-skill/ })).not.toBeInTheDocument()
+  })
+
+  it('shows the files-tier degraded card instead of an error on memory 503', async () => {
+    mocks.memoryUnavailable = true
+    render(<App />)
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '记忆管理' }))
+    expect(await screen.findByRole('heading', { name: '记忆管理' })).toBeVisible()
+    expect(await screen.findByText('当前为 files 轻量记忆档')).toBeVisible()
+    expect(screen.queryByText('记忆数据加载失败')).not.toBeInTheDocument()
   })
 })

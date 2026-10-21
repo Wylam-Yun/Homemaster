@@ -26,7 +26,6 @@ export const SHORTCUTS = {
   escape: 'escape',
   transcriptSearch: 'mod+f',
   shortcutHelp: 'mod+/',
-  commandPalette: 'mod+k',
 } as const
 
 /** Built-in contract: listed in the help page even before a handler is wired. */
@@ -38,7 +37,6 @@ const BUILTIN_SHORTCUTS: ShortcutRegistration[] = [
   { id: 'global.escape', keys: SHORTCUTS.escape, description: '逐级退出：菜单 → 中断运行 → 关闭对话框', displayOnly: true },
   { id: 'transcript.search', keys: SHORTCUTS.transcriptSearch, description: '转录内搜索' },
   { id: 'dialog.shortcut-help', keys: SHORTCUTS.shortcutHelp, description: '快捷键帮助（本页）' },
-  { id: 'palette.command', keys: SHORTCUTS.commandPalette, description: '命令面板' },
 ]
 
 const registrations = new Map<string, ShortcutRegistration>()

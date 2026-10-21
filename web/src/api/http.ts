@@ -150,6 +150,99 @@ export type ProviderInfo = {
   api_key_configured: boolean
 }
 
+/**
+ * Masked provider profile as returned by GET /api/providers (backend contract:
+ * key material is never echoed — only counts/flags). Assignable to
+ * ProviderInfo wherever the composer needs the picker view.
+ */
+export type ProviderProfile = {
+  name: string
+  kind: string
+  model: string
+  base_url: string
+  api_format: string
+  auth_type: string
+  api_key_configured: boolean
+  api_key_count: number
+}
+
+/** One selectable row from GET /api/provider-templates. */
+export type ProviderTemplate = {
+  key: string
+  title: string
+  api_format: string
+  base_url: string
+  model: string
+  transport: string
+  supports_auth_token: boolean
+  keyless: boolean
+}
+
+/**
+ * Write body for POST /api/providers (+ ?overwrite=) and PATCH
+ * /api/providers/{name} — a subset of the backend's _PROVIDER_PAYLOAD_FIELDS;
+ * `api_key` is write-only and `api_key: ""` keeps stored keys on PATCH.
+ */
+export type ProviderPayload = {
+  name?: string
+  template?: string
+  api_format?: string
+  transport?: string
+  auth_type?: string
+  base_url?: string
+  model?: string
+  api_key?: string
+  api_keys?: string[]
+  context_window_tokens?: number
+  max_output_tokens?: number
+  thinking_enable?: boolean
+  thinking_budget?: number
+  embedding_url?: string | null
+  kind?: string
+  set_default?: boolean
+}
+
+export type ProviderWriteResult = {
+  provider: ProviderProfile
+  status: string
+  default?: string
+}
+
+export type ProviderDeleteResult = {
+  deleted: boolean
+  name: string
+  default?: string
+}
+
+export type ProviderErrorKind = 'auth' | 'network' | 'model' | 'schema' | 'unknown'
+
+/** POST /api/providers/test always answers 200 — probe outcomes ride the body. */
+export type ProviderTestResult = {
+  ok: boolean
+  error_kind: ProviderErrorKind | null
+  message: string
+  latency_ms?: number
+  name?: string | null
+  model?: string | null
+}
+
+export type ProviderModels = {
+  name: string
+  models: string[]
+  /** 'live' = enumerated from the provider; 'fallback' = offline static list. */
+  source: string
+}
+
+/** GET /api/skills — read-only skill list (backend batch contract). */
+export type SkillInfo = {
+  name: string
+  command_name: string | null
+  description: string
+  source: string
+  user_invocable: boolean
+  enabled: boolean
+}
+
 export type MetaInfo = {
   version: string
   memory_mode: string
@@ -249,8 +342,47 @@ export class HomeMasterApi {
     return this.request(`/api/memory-compilations/${encodeURIComponent(jobId)}`)
   }
 
-  providers(): Promise<{ providers: ProviderInfo[] }> {
+  providers(): Promise<{ providers: ProviderProfile[] }> {
     return this.request('/api/providers')
+  }
+
+  providerTemplates(): Promise<{ templates: ProviderTemplate[] }> {
+    return this.request('/api/provider-templates')
+  }
+
+  upsertProvider(payload: ProviderPayload, options: { overwrite?: boolean } = {}): Promise<ProviderWriteResult> {
+    const suffix = options.overwrite === true ? '?overwrite=true' : ''
+    return this.request(`/api/providers${suffix}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  patchProvider(name: string, payload: ProviderPayload): Promise<ProviderWriteResult> {
+    return this.request(`/api/providers/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  deleteProvider(name: string): Promise<ProviderDeleteResult> {
+    return this.request(`/api/providers/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  /** `{name}` probes a stored profile; a full ProviderPayload probes unsaved fields. */
+  testProvider(payload: { name: string } | ProviderPayload): Promise<ProviderTestResult> {
+    return this.request('/api/providers/test', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  providerModels(name: string): Promise<ProviderModels> {
+    return this.request(`/api/providers/${encodeURIComponent(name)}/models`)
+  }
+
+  listSkills(): Promise<{ skills: SkillInfo[] }> {
+    return this.request('/api/skills')
   }
 
   meta(): Promise<MetaInfo> {
@@ -267,6 +399,22 @@ export class HomeMasterApi {
 
   archiveSession(sessionId: string): Promise<{ session_id: string; job_id: string; status: string }> {
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' })
+  }
+
+  /**
+   * PATCH /api/sessions/{id} — persists a title override (backend batch).
+   * Response mirrors the session summary; callers refresh the list anyway.
+   */
+  patchSession(sessionId: string, patch: { title: string }): Promise<SessionSummary> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    })
+  }
+
+  /** DELETE /api/sessions/{id} → 204; 409 while the session has an active run. */
+  deleteSession(sessionId: string): Promise<void> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
   }
 
   setUiMode(sessionId: string, uiMode: UiMode): Promise<{ session_id: string; ui_mode: UiMode }> {
@@ -354,7 +502,9 @@ export class HomeMasterApi {
       ...init,
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...init.headers },
     })
-    const payload = await response.json() as Record<string, unknown>
+    // 204 (session delete) and other bodyless responses parse as `{}`.
+    const text = await response.text()
+    const payload = (text.length > 0 ? JSON.parse(text) : {}) as Record<string, unknown>
     if (!response.ok) {
       throw new HttpError(
         response.status,

@@ -1,0 +1,38 @@
+.page { min-height: 100%; padding: 40px 38px 56px; overflow: auto; background: transparent; color: var(--text); }
+.head { max-width: 46rem; margin-bottom: 28px; }
+.eyebrow { margin: 0; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.head h1 { margin: 4px 0 8px; font-size: 28px; letter-spacing: -.035em; }
+.sub { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.steps { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 8px; padding: 0; list-style: none; }
+.steps li { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.steps li span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--surface-2); color: var(--muted); font-size: 11px; }
+.steps li[data-active] { border-color: var(--accent-soft); color: var(--text); }
+.steps li[data-active] span { background: var(--accent); color: #062118; }
+.steps li[data-done] { color: var(--muted-2); }
+.steps li[data-done] span { background: var(--accent-soft); color: var(--text); }
+.skip { display: inline-block; margin-top: 10px; color: var(--muted-2); font-size: 13px; }
+.skip:hover { color: var(--text); }
+.stepBody { display: grid; gap: 18px; max-width: 46rem; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.templateCard { display: grid; gap: 7px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: inherit; text-align: left; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.templateCard:hover { border-color: var(--accent-soft); transform: translateY(-1px); }
+.templateCard strong { font-size: 14px; }
+.cardMeta { color: var(--muted-2); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keylessBadge { justify-self: start; padding: 3px 7px; border-radius: 6px; background: rgb(99 230 190 / .12); color: var(--accent); font-size: 11px; font-weight: 800; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.field { display: grid; gap: 6px; }
+.field > span { color: var(--muted); font-size: 12px; font-weight: 700; }
+.field input, .field select { height: 38px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-2); color: var(--text); padding: 0 12px; font: inherit; }
+.hint { margin: 0; color: var(--muted-2); font-size: 12px; }
+.muted { color: var(--muted-2); font-size: 13px; }
+.linkish { margin-left: 8px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions button { border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); padding: 10px 18px; font: inherit; font-weight: 700; cursor: pointer; }
+.actions button:hover { background: var(--surface-hover); }
+.actions button:disabled { opacity: .55; cursor: wait; }
+.actions .primary { border-color: var(--accent-soft); color: var(--accent); }
+.summary { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.summary strong { font-size: 15px; }
+.summary code { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.errorText { color: var(--danger); font-size: 13px; }
+@media (max-width: 800px) { .page { padding: 26px 16px 40px; } .cards, .grid { grid-template-columns: 1fr; } }

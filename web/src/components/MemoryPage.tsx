@@ -16,6 +16,8 @@ type Props = {
   snapshot: MemorySnapshot | null
   loading: boolean
   error: string | null
+  /** files 档下 /api/memories 503：展示降级说明卡而非整页错误。 */
+  unavailable?: boolean
   onRefresh: () => void | Promise<void>
   loadHistory: (memoryId: string) => Promise<MemoryHistory>
   compileMemory?: (memoryId: string) => Promise<{ job_id: string; status: string }>
@@ -26,7 +28,7 @@ type StatusTab = 'active' | 'archived'
 
 type VisibleMemory = { memory: ManagedMemory; summary: MemorySummary }
 
-export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, compileMemory, compileStatus }: Props) {
+export function MemoryPage({ snapshot, loading, error, unavailable = false, onRefresh, loadHistory, compileMemory, compileStatus }: Props) {
   const [tab, setTab] = useState<StatusTab>('active')
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -89,13 +91,27 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, c
         </button>
       </div>
 
-      {error !== null && (
+      {unavailable && (
+        <div className={styles.unavailable} role="status">
+          <div>
+            <strong>当前为 files 轻量记忆档</strong>
+            <span>文件式记忆随会话读写，本页的长期记忆管理在 files 档下不可用。</span>
+            <span>切换到 full 档：将 memory.mode 设为 full 并接入记忆后端后重启服务。</span>
+          </div>
+          <button type="button" onClick={() => { void onRefresh() }} disabled={loading}>
+            {loading ? '加载中…' : '重新检测'}
+          </button>
+        </div>
+      )}
+
+      {error !== null && !unavailable && (
         <div className={styles.error} role="alert">
           <div><strong>记忆数据加载失败</strong><span>{error}</span></div>
           <button type="button" onClick={() => { void onRefresh() }}>重新加载</button>
         </div>
       )}
 
+      {!unavailable && <>
       <div className={styles.stats} aria-label="记忆统计">
         <Stat label="任务成功" value={insight.success} tone="green" />
         <Stat label="失败·异常" value={insight.failure} tone="amber" />
@@ -171,6 +187,7 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, c
           )
         })}
       </div>
+      </>}
 
       {selected !== null && (
         <MemoryDetailDialog memory={selected} loadHistory={loadHistory} compileMemory={compileMemory} compileStatus={compileStatus} onClose={() => { setSelected(null) }} />

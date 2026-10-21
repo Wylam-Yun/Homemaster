@@ -27,8 +27,9 @@ describe('shortcuts registry', () => {
       'global.escape',
       'transcript.search',
       'dialog.shortcut-help',
-      'palette.command',
     ]))
+    // The command-palette entry was removed (P1 feature); mod+k is unbound.
+    expect(ids).not.toContain('palette.command')
     const search = listShortcuts().find(entry => entry.id === 'transcript.search')!
     expect(search.keys).toBe('mod+f')
   })

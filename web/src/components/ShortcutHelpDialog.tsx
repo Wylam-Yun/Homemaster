@@ -8,7 +8,6 @@ import {
   listShortcuts,
   registerShortcut,
 } from '../state/shortcuts'
-import { useToastOptional } from './toast'
 import styles from './ShortcutHelpDialog.module.css'
 
 export function ShortcutHelpDialog({ onClose }: { onClose: () => void }) {
@@ -65,14 +64,13 @@ export function ShortcutHelpDialog({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * Self-contained global-shortcut wiring: installs the document-level dispatch,
- * registers the built-in handlers (Mod+/ toggles this help page, Mod+F forwards
- * to the transcript search owner, Mod+K is a command-palette placeholder).
- * Mount once inside <ToastProvider>; without a provider Mod+K is a no-op.
+ * Self-contained global-shortcut wiring: installs the document-level dispatch
+ * and registers the built-in handlers (Mod+/ toggles this help page, Mod+F
+ * forwards to the transcript search owner). A real command palette lands in
+ * P1 — until then Mod+K is deliberately not registered or advertised.
  */
 export function GlobalShortcuts({ onTranscriptSearch }: { onTranscriptSearch?: () => void }) {
   const [helpOpen, setHelpOpen] = useState(false)
-  const toast = useToastOptional()
 
   useEffect(() => {
     const unregister = [
@@ -89,22 +87,13 @@ export function GlobalShortcuts({ onTranscriptSearch }: { onTranscriptSearch?: (
         description: '快捷键帮助（本页）',
         handler: () => { setHelpOpen(open => !open) },
       }),
-      registerShortcut({
-        id: 'palette.command',
-        keys: SHORTCUTS.commandPalette,
-        description: '命令面板',
-        handler: () => {
-          toast?.show({ title: '命令面板即将上线', description: 'Command palette — coming soon' })
-        },
-        when: () => toast !== null,
-      }),
     ]
     const detach = installGlobalShortcuts()
     return () => {
       detach()
       for (const off of unregister) off()
     }
-  }, [onTranscriptSearch, toast])
+  }, [onTranscriptSearch])
 
   return helpOpen ? <ShortcutHelpDialog onClose={() => { setHelpOpen(false) }} /> : null
 }
