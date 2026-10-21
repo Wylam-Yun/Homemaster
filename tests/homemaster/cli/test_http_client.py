@@ -1,10 +1,10 @@
-"""Tests for the thin-client HomeServerClient (REST + WS)."""
+"""Tests for the thin-client HomeServerClient (REST + SSE event stream)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
@@ -18,6 +18,8 @@ from homemaster.cli.client import (
     SessionBusyError,
     SessionNotFoundError,
     StreamClosedError,
+    _sse_events,
+    _StreamRejected,
 )
 
 
@@ -46,15 +48,23 @@ def _client(
     return HomeServerClient("http://server.test", http_client=http, **kwargs)
 
 
-class FakeSocket:
-    """Async-iterable fake websocket honouring the client connect contract."""
+class FakeSseStream:
+    """Async-CM fake stream honouring the client ``sse_connect`` contract:
 
-    def __init__(self, frames: list[Any] | None = None, error: BaseException | None = None) -> None:
-        self._frames = list(frames or [])
+    enter → async iterator of raw SSE *lines* (the shared ``_sse_events``
+    parser still does the framing, exactly like the real ``_SseStream``).
+    """
+
+    def __init__(
+        self,
+        lines: list[Any] | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        self._lines = list(lines or [])
         self._error = error
         self.entered = False
 
-    async def __aenter__(self) -> FakeSocket:
+    async def __aenter__(self) -> FakeSseStream:
         if self._error is not None:
             raise self._error
         self.entered = True
@@ -63,20 +73,31 @@ class FakeSocket:
     async def __aexit__(self, *exc_info: object) -> None:
         return None
 
-    def __aiter__(self) -> FakeSocket:
+    def __aiter__(self) -> FakeSseStream:
         return self
 
     async def __anext__(self) -> str:
         await asyncio.sleep(0)
-        if not self._frames:
+        if not self._lines:
             raise StopAsyncIteration
-        frame = self._frames.pop(0)
-        if isinstance(frame, BaseException):
-            raise frame
-        return frame
+        line = self._lines.pop(0)
+        if isinstance(line, BaseException):
+            raise line
+        return line
 
 
-def _ws_event(**overrides: Any) -> str:
+def _sse_lines(*events: dict[str, Any], last_id: int = 0) -> list[str]:
+    """Serialize event dicts into SSE wire lines (``id:``/``data:``/blank)."""
+
+    lines: list[str] = []
+    seq = last_id
+    for event in events:
+        seq += 1
+        lines.extend([f"id: {seq}", f"data: {json.dumps(event)}", ""])
+    return lines
+
+
+def _stream_event(**overrides: Any) -> dict[str, Any]:
     event = {
         "type": "answer.delta",
         "session_id": "s1",
@@ -85,7 +106,7 @@ def _ws_event(**overrides: Any) -> str:
         "payload": {"text": "hi"},
     }
     event.update(overrides)
-    return json.dumps(event)
+    return event
 
 
 @pytest.mark.asyncio
@@ -166,14 +187,16 @@ async def test_send_subscribes_stream_before_posting_message() -> None:
             return _ok({"accepted": True}, status=202)
         return _error(404, "not_found")
 
-    def ws_connect(url: str) -> FakeSocket:
-        order.append("WS /api/events")
-        return FakeSocket([_ws_event()])
+    def sse_connect(url: str) -> FakeSseStream:
+        order.append(f"SSE {url}")
+        return FakeSseStream(_sse_lines(_stream_event()))
 
-    client = _client(handler, ws_connect=ws_connect)
+    client = _client(handler, sse_connect=sse_connect)
     try:
         await client.send("hello", session_id="s1")
-        assert order.index("WS /api/events") < order.index("POST /api/sessions/s1/messages")
+        assert order.index("SSE http://server.test/api/sessions/s1/stream") < order.index(
+            "POST /api/sessions/s1/messages"
+        )
     finally:
         await client.aclose()
 
@@ -191,7 +214,7 @@ async def test_send_retries_event_stream_not_ready_then_succeeds() -> None:
             return _ok({"accepted": True}, status=202)
         return _error(404, "not_found")
 
-    client = _client(handler, ws_connect=lambda url: FakeSocket([_ws_event()]))
+    client = _client(handler, sse_connect=lambda url: FakeSseStream(_sse_lines(_stream_event())))
     try:
         result = await client.send("hello", session_id="s1")
         assert result["accepted"] is True
@@ -210,7 +233,7 @@ async def test_api_error_typing() -> None:
             return _error(404, "session_not_found", "gone")
         return _error(500, "internal", "broken")
 
-    client = _client(handler, ws_connect=lambda url: FakeSocket())
+    client = _client(handler, sse_connect=lambda url: FakeSseStream())
     try:
         with pytest.raises(SessionBusyError):
             await client.send("hi", session_id="s1")
@@ -238,20 +261,22 @@ async def test_unreachable_server_raises_typed_error() -> None:
 
 @pytest.mark.asyncio
 async def test_events_reconnects_and_marks_resync() -> None:
-    sockets = iter(
+    streams = iter(
         [
-            FakeSocket(
+            FakeSseStream(
                 [
-                    _ws_event(payload={"text": "old"}),
+                    *_sse_lines(_stream_event(payload={"text": "old"})),
                     ConnectionError("drop"),
                 ]
             ),
-            FakeSocket([_ws_event(payload={"text": "new"})]),
+            FakeSseStream(_sse_lines(_stream_event(payload={"text": "new"}), last_id=1)),
         ]
     )
+    urls: list[str] = []
 
-    def ws_connect(url: str) -> FakeSocket:
-        return next(sockets)
+    def sse_connect(url: str) -> FakeSseStream:
+        urls.append(url)
+        return next(streams)
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -265,7 +290,7 @@ async def test_events_reconnects_and_marks_resync() -> None:
 
     client = _client(
         handler,
-        ws_connect=ws_connect,
+        sse_connect=sse_connect,
         backoff_base_s=0.001,
         backoff_max_s=0.005,
         jitter=lambda: 0.5,
@@ -285,23 +310,30 @@ async def test_events_reconnects_and_marks_resync() -> None:
         assert resync["payload"]["approvals"][0]["approval_id"] == "a1"
         # Pending questions ride the resync payload so consumers can re-prompt.
         assert resync["payload"]["questions"][0]["question_id"] == "q1"
+        # The SSE ``id:`` field feeds Last-Event-ID: the reconnect URL carries
+        # the last seen seq as the documented ``?last_seq=`` hint.
+        assert urls[1].endswith("?last_seq=1")
     finally:
         await client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_unknown_session_close_fails_subscribe_fast() -> None:
-    class Reject(Exception):
-        response = type("R", (), {"status_code": 404})()
+async def test_unknown_session_rejection_fails_subscribe_fast() -> None:
+    urls: list[str] = []
+
+    def sse_connect(url: str) -> FakeSseStream:
+        urls.append(url)
+        return FakeSseStream(error=_StreamRejected(404))
 
     client = _client(
         lambda request: _error(404, "not_found"),
-        ws_connect=lambda url: FakeSocket(error=Reject("no session")),
+        sse_connect=sse_connect,
         backoff_base_s=0.001,
     )
     try:
         with pytest.raises(StreamClosedError):
             await client.subscribe("ghost")
+        assert urls == ["http://server.test/api/sessions/ghost/stream"]
     finally:
         await client.aclose()
 
@@ -310,18 +342,82 @@ async def test_unknown_session_close_fails_subscribe_fast() -> None:
 async def test_events_iterator_ends_when_stream_stops() -> None:
     client = _client(
         lambda request: _error(404, "not_found"),
-        ws_connect=lambda url: FakeSocket([_ws_event()]),
+        sse_connect=lambda url: FakeSseStream(_sse_lines(_stream_event())),
         backoff_base_s=0.01,
     )
     try:
         await client.subscribe("s1")
         items = []
-        # Socket exhausts its single frame; the loop will attempt reconnects
+        # Stream exhausts its single event; the loop will attempt reconnects
         # forever, so close once the first event landed.
         async for event in client.events():
             items.append(event)
             if len(items) == 1:
                 await client.aclose()
         assert items[0]["payload"]["text"] == "hi"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sse_events_parser_frames_ids_and_heartbeats() -> None:
+    """The shared line parser: data accumulates, blank flushes, id records,
+    ``:`` comments (heartbeats) and event:/retry: fields are ignored."""
+
+    async def lines() -> AsyncIterator[str]:
+        for line in [
+            ": ping",
+            "",
+            "id: 41",
+            "event: ignored",
+            "retry: 3000",
+            "data: {\"type\":\"answer.delta\"",
+            "data: ,\"payload\":{}}",
+            "",
+            "data: {\"type\":\"run.completed\",\"payload\":{\"status\":\"replied\"}}",
+            "",
+        ]:
+            yield line
+
+    parsed = [pair async for pair in _sse_events(lines())]
+    assert parsed == [
+        ("41", '{"type":"answer.delta"\n,"payload":{}}'),
+        (None, '{"type":"run.completed","payload":{"status":"replied"}}'),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_default_httpx_stream_path_consumes_sse_and_rejects_404() -> None:
+    """Without ``sse_connect`` the client drives real httpx streaming GETs."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/sessions/gone/stream":
+            return _error(404, "session_not_found", "gone")
+        if path.endswith("/stream"):
+            body = "".join(
+                f"id: {i}\ndata: {json.dumps(event)}\n\n"
+                for i, event in enumerate(
+                    [_stream_event(payload={"text": "over-httpx"})], start=1
+                )
+            )
+            return httpx.Response(
+                200,
+                content=body.encode(),
+                headers={"Content-Type": "text/event-stream"},
+            )
+        return _error(404, "not_found")
+
+    client = _client(handler, backoff_base_s=0.001, max_reconnect_attempts=2)
+    try:
+        await client.subscribe("s1")
+        seen = []
+        async for event in client.events():
+            seen.append(event)
+            break
+        assert seen[0]["payload"]["text"] == "over-httpx"
+
+        with pytest.raises(StreamClosedError):
+            await client.subscribe("gone")
     finally:
         await client.aclose()

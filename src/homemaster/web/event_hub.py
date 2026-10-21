@@ -16,7 +16,7 @@ _RUN_FINISHED_EVENT_TYPE = "web.run_finished"
 
 
 class _DroppedSubscriber:
-    """Queue sentinel telling ``_stream_events`` its subscription was dropped."""
+    """Queue sentinel telling the SSE stream loop its subscription was dropped."""
 
 
 class WebEventHub:
@@ -91,7 +91,7 @@ class WebEventHub:
         Runtime events and direct publishes alike. Delivery is non-blocking:
         a connected client that stopped reading must never stall the shared
         pump. A subscriber whose bounded queue is full is dropped and queued
-        the sentinel so the WebSocket handler exits and the client can
+        the sentinel so the SSE handler exits and the client can
         reconnect and resync.
         """
 

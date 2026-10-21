@@ -1,12 +1,15 @@
-"""Async thin client for the HomeMaster server (REST + WebSocket).
+"""Async thin client for the HomeMaster server (REST + SSE event stream).
 
 The CLI no longer composes an application in-process for ``shell``/``run`` —
-it talks to the long-lived ``homemaster serve`` runtime over the same REST+WS
-protocol the browser console uses.
+it talks to the long-lived ``homemaster serve`` runtime over the same
+REST+SSE protocol the browser console uses (``GET /api/sessions/{id}/stream``,
+parsed by hand — ``data:`` accumulates, blank line flushes, ``id:`` feeds the
+reconnect ``last_seq`` hint, ``:`` comment heartbeats are ignored).
 
 Ordering contract (server enforced, ``app.py`` returns 409 otherwise):
 subscribe the session event stream *before* ``POST /messages``.  ``send()``
-guarantees that ordering internally.
+guarantees that ordering internally — the stream request's response headers
+arrive only after the server registered the subscriber.
 
 Reconnect semantics follow dsh ``connection.ts``: a generation counter is
 bumped per connect attempt, drops retry with exponential backoff + jitter,
@@ -32,7 +35,14 @@ STREAM_END = object()
 _DEFAULT_BACKOFF_BASE_S = 0.5
 _DEFAULT_BACKOFF_FACTOR = 2.0
 _DEFAULT_BACKOFF_MAX_S = 10.0
-_WS_OPEN_TIMEOUT_S = 10.0
+_SSE_CONNECT_TIMEOUT_S = 10.0
+# A read this quiet means a dead connection — the server heartbeats every ~15s.
+_SSE_READ_TIMEOUT_S = 60.0
+_STREAM_REQUEST_TIMEOUT = httpx.Timeout(
+    None,
+    connect=_SSE_CONNECT_TIMEOUT_S,
+    read=_SSE_READ_TIMEOUT_S,
+)
 _NOT_READY_RETRY_LIMIT = 8
 _NOT_READY_RETRY_BASE_S = 0.15
 
@@ -77,7 +87,15 @@ class EventStreamNotReadyError(ApiError):
 
 
 class StreamClosedError(ServerError):
-    """The server rejected the event subscription (unknown session)."""
+    """The server rejected the event subscription (HTTP 404 unknown session)."""
+
+
+class _StreamRejected(Exception):
+    """Internal: the stream endpoint answered a non-2xx status before frames."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"the stream endpoint returned HTTP {status}")
+        self.status = status
 
 
 def _coalesce_body(payload: Any) -> dict[str, Any]:
@@ -85,14 +103,14 @@ def _coalesce_body(payload: Any) -> dict[str, Any]:
 
 
 class HomeServerClient:
-    """One session-scoped REST+WS client bound to a HomeMaster server."""
+    """One session-scoped REST+SSE client bound to a HomeMaster server."""
 
     def __init__(
         self,
         base_url: str,
         *,
         http_client: httpx.AsyncClient | None = None,
-        ws_connect: Callable[..., Any] | None = None,
+        sse_connect: Callable[[str], Any] | None = None,
         backoff_base_s: float = _DEFAULT_BACKOFF_BASE_S,
         backoff_factor: float = _DEFAULT_BACKOFF_FACTOR,
         backoff_max_s: float = _DEFAULT_BACKOFF_MAX_S,
@@ -109,7 +127,7 @@ class HomeServerClient:
             timeout=httpx.Timeout(request_timeout_s),
         )
         self._owns_http = http_client is None
-        self._ws_connect = ws_connect
+        self._sse_connect = sse_connect
         self._backoff_base_s = backoff_base_s
         self._backoff_factor = backoff_factor
         self._backoff_max_s = backoff_max_s
@@ -119,7 +137,7 @@ class HomeServerClient:
         # released instead of spinning forever on a dead server.
         self._max_reconnect_attempts = max_reconnect_attempts
         # Connection bookkeeping. ``generation`` counts connect attempts so a
-        # stale socket can never publish into a newer subscription.
+        # stale stream can never publish into a newer subscription.
         self.generation = 0
         self.state = "offline"  # offline|connecting|connected|reconnecting
         self._session_id: str | None = None
@@ -129,6 +147,10 @@ class HomeServerClient:
         self._stream_failed = asyncio.Event()
         self._stream_error: ServerError | None = None
         self._stop_requested = False
+        # Last SSE ``id:`` seen — echoed as ``?last_seq=`` on reconnects. The
+        # server accepts-and-logs it this phase; replay lands with P1's event
+        # store, so recovery still rides the resync/hydrate path.
+        self._last_seq: str | None = None
 
     # ------------------------------------------------------------------
     # HTTP surface
@@ -233,7 +255,7 @@ class HomeServerClient:
         provider_name: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
-        """POST one message, guaranteeing the WS subscription came first."""
+        """POST one message, guaranteeing the stream subscription came first."""
 
         sid = session_id or self._session_id
         if not sid:
@@ -256,7 +278,7 @@ class HomeServerClient:
                     )
                 )
             except EventStreamNotReadyError as exc:
-                # Server-side race: the WS handshake completed but the hub has
+                # Server-side race: the stream response started but the hub has
                 # not registered the subscriber yet.  Short retry; after the
                 # limit the typed error propagates.
                 last_error = exc
@@ -415,7 +437,7 @@ class HomeServerClient:
             raise
 
     # ------------------------------------------------------------------
-    # WebSocket event stream
+    # SSE event stream
     # ------------------------------------------------------------------
     @property
     def session_id(self) -> str | None:
@@ -430,7 +452,7 @@ class HomeServerClient:
         )
 
     async def subscribe(self, session_id: str) -> None:
-        """Start (or restart) the WS pump for ``session_id``; wait for open."""
+        """Start (or restart) the SSE pump for ``session_id``; wait for headers."""
 
         if (
             self._stream_task is not None
@@ -441,13 +463,14 @@ class HomeServerClient:
             return
         await self._stop_stream()
         self._session_id = session_id
+        self._last_seq = None
         self._stream_ready.clear()
         self._stream_failed.clear()
         self._stream_error = None
         self._stop_requested = False
         self.state = "connecting"
         self._stream_task = asyncio.create_task(
-            self._stream_loop(session_id), name=f"homemaster-ws-{session_id}"
+            self._stream_loop(session_id), name=f"homemaster-sse-{session_id}"
         )
         ready_task = asyncio.create_task(self._stream_ready.wait())
         failed_task = asyncio.create_task(self._stream_failed.wait())
@@ -482,7 +505,7 @@ class HomeServerClient:
                 self.generation += 1
                 generation = self.generation
                 try:
-                    async with self._open_socket(session_id) as socket:
+                    async with self._open_stream(session_id) as lines:
                         self.state = "connected"
                         attempt = 0
                         if first_connect:
@@ -490,7 +513,9 @@ class HomeServerClient:
                             self._stream_ready.set()
                         else:
                             await self._emit_resync(session_id, generation)
-                        async for raw in socket:
+                        async for event_id, raw in _sse_events(lines):
+                            if event_id is not None:
+                                self._last_seq = event_id
                             event = _parse_event(raw)
                             if event is not None:
                                 self._queue.put_nowait(event)
@@ -518,10 +543,20 @@ class HomeServerClient:
             self._stream_ready.clear()
             self._queue.put_nowait(STREAM_END)
 
-    def _open_socket(self, session_id: str) -> Any:
-        url = _ws_url(self.base_url, session_id)
-        factory = self._ws_connect or _default_ws_connect
-        return factory(url)
+    def _open_stream(self, session_id: str) -> Any:
+        """Async-CM yielding the raw SSE line stream for ``session_id``.
+
+        ``sse_connect`` is the test seam (mirroring the retired
+        ``ws_connect``): the factory takes the fully built stream URL and
+        returns a context manager whose iterator produces raw SSE *lines* —
+        the shared ``_sse_events`` parser still handles framing.
+        """
+
+        url = _stream_url(self.base_url, session_id, last_seq=self._last_seq)
+        factory = self._sse_connect
+        if factory is not None:
+            return factory(url)
+        return _sse_stream(self._http, url)
 
     def _backoff_delay(self, attempt: int) -> float:
         cap = min(
@@ -579,29 +614,72 @@ class HomeServerClient:
         await self.aclose()
 
 
-def _default_ws_connect(url: str) -> Any:
-    from websockets.asyncio.client import connect
+class _SseStream:
+    """``httpx`` streaming GET on the SSE endpoint as one async CM.
 
-    return connect(
-        url,
-        open_timeout=_WS_OPEN_TIMEOUT_S,
-        close_timeout=5,
-    )
+    ``__aenter__`` returns the raw line iterator only once response headers
+    arrive — and response headers flush strictly after the server registered
+    the hub subscriber, which is what makes ``subscribe()`` a valid
+    precondition for ``POST /messages``.  A non-2xx answer is normalized to
+    ``_StreamRejected`` so the caller's error mapping sees a status.
+    """
+
+    def __init__(self, client: httpx.AsyncClient, url: str) -> None:
+        self._cm = client.stream("GET", url, timeout=_STREAM_REQUEST_TIMEOUT)
+        self._response: httpx.Response | None = None
+
+    async def __aenter__(self) -> AsyncIterator[str]:
+        response = await self._cm.__aenter__()
+        if response.status_code >= 400:
+            status = response.status_code
+            await self._cm.__aexit__(None, None, None)
+            raise _StreamRejected(status)
+        self._response = response
+        return response.aiter_lines()
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self._cm.__aexit__(*exc_info)
 
 
-def _ws_url(base_url: str, session_id: str) -> str:
-    if base_url.startswith("https://"):
-        scheme = "wss://"
-        rest = base_url[len("https://") :]
-    elif base_url.startswith("http://"):
-        scheme = "ws://"
-        rest = base_url[len("http://") :]
-    elif base_url.startswith(("ws://", "wss://")):
-        scheme, _, rest = base_url.partition("://")
-        return f"{scheme}://{rest}/api/events?session_id={session_id}"
-    else:
+def _sse_stream(client: httpx.AsyncClient, url: str) -> _SseStream:
+    return _SseStream(client, url)
+
+
+def _stream_url(base_url: str, session_id: str, *, last_seq: str | None = None) -> str:
+    if not base_url.startswith(("http://", "https://")):
         raise ValueError(f"unsupported base_url scheme: {base_url!r}")
-    return f"{scheme}{rest}/api/events?session_id={session_id}"
+    url = f"{base_url}/api/sessions/{session_id}/stream"
+    if last_seq is not None:
+        url += f"?last_seq={last_seq}"
+    return url
+
+
+async def _sse_events(lines: AsyncIterator[str]) -> AsyncIterator[tuple[str | None, str]]:
+    """Parse raw SSE wire lines into ``(event_id, data)`` pairs.
+
+    ``data:`` accumulates across lines until a blank line flushes the event;
+    ``id:`` feeds the reconnect ``last_seq`` hint; ``:`` comment lines (the
+    server heartbeat) are ignored, as are ``event:``/``retry:`` fields.
+    """
+
+    data_parts: list[str] = []
+    event_id: str | None = None
+    async for line in lines:
+        if line == "":
+            if data_parts:
+                yield event_id, "\n".join(data_parts)
+            data_parts = []
+            event_id = None
+            continue
+        if line.startswith(":"):
+            continue
+        field, sep, value = line.partition(":")
+        if sep and value.startswith(" "):
+            value = value[1:]
+        if field == "data":
+            data_parts.append(value)
+        elif field == "id" and sep:
+            event_id = value
 
 
 def _parse_event(raw: Any) -> dict[str, Any] | None:
@@ -615,30 +693,16 @@ def _parse_event(raw: Any) -> dict[str, Any] | None:
 
 
 def _classify_connect_error(exc: BaseException, base_url: str) -> ServerError:
-    code = _ws_close_code(exc)
-    if code == 4404:
-        return StreamClosedError("the server rejected the session event subscription")
-    status = _ws_reject_status(exc)
-    if status in (403, 404):
-        return StreamClosedError(
-            f"the server rejected the session event subscription (HTTP {status})"
-        )
+    if isinstance(exc, _StreamRejected):
+        if exc.status in (403, 404):
+            # HTTP 404 is the SSE-era unknown-session rejection — the old WS
+            # close code 4404's role.
+            return StreamClosedError(
+                f"the server rejected the session event subscription (HTTP {exc.status})"
+            )
     return ServerUnavailableError(
         f"cannot reach HomeMaster event stream at {base_url}: {exc}"
     )
-
-
-def _ws_close_code(exc: BaseException) -> int | None:
-    return getattr(exc, "code", None) or getattr(getattr(exc, "rcvd", None), "code", None)
-
-
-def _ws_reject_status(exc: BaseException) -> int | None:
-    response = getattr(exc, "response", None)
-    status = getattr(response, "status_code", None)
-    if isinstance(status, int):
-        return status
-    status = getattr(exc, "status_code", None)
-    return status if isinstance(status, int) else None
 
 
 __all__ = [

@@ -1,26 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { EventConnection, type SocketLike } from './connection'
+import { EventConnection, type EventSourceLike } from './connection'
 import type { WebEvent } from '../protocol/events'
 
-class FakeSocket extends EventTarget implements SocketLike {
+class FakeEventSource extends EventTarget implements EventSourceLike {
   readonly OPEN = 1
   readonly CONNECTING = 0
-  readyState: 0 | 1 | 2 | 3 = this.CONNECTING
-  close = vi.fn(() => { this.readyState = 3 })
+  readyState: 0 | 1 | 2 = this.CONNECTING
+  close = vi.fn(() => { this.readyState = 2 })
 
   open(): void {
     this.readyState = this.OPEN
     this.dispatchEvent(new Event('open'))
   }
 
-  message(event: WebEvent): void {
-    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(event) }))
+  message(event: WebEvent, lastEventId = ''): void {
+    this.dispatchEvent(new MessageEvent('message', {
+      data: JSON.stringify(event),
+      lastEventId,
+    }))
   }
 
   fail(): void {
-    this.readyState = 3
-    this.dispatchEvent(new Event('close'))
+    this.readyState = 0 // EventSource re-enters CONNECTING before retrying
+    this.dispatchEvent(new Event('error'))
   }
 }
 
@@ -34,18 +37,20 @@ const frame = (text: string): WebEvent => ({
   payload: { text },
 })
 
+const okProbe = () => Promise.resolve(200)
+
 describe('EventConnection', () => {
   afterEach(() => { vi.useRealTimers() })
 
   it('reconnects and ignores late frames from an older generation', async () => {
     vi.useFakeTimers()
-    const sockets: FakeSocket[] = []
+    const sockets: FakeEventSource[] = []
     const received: string[] = []
     const states: string[] = []
     const connection = new EventConnection(
       'session-01',
       () => {
-        const socket = new FakeSocket()
+        const socket = new FakeEventSource()
         sockets.push(socket)
         return socket
       },
@@ -53,7 +58,7 @@ describe('EventConnection', () => {
         onEvent: event => { if (event.type === 'answer.delta') received.push(event.payload.text) },
         onStateChange: state => { states.push(state) },
       },
-      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1 },
+      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1, probe: okProbe },
     )
 
     connection.start()
@@ -72,12 +77,13 @@ describe('EventConnection', () => {
   })
 
   it('drops malformed frames and isolates an event sink exception', () => {
-    const socket = new FakeSocket()
+    const socket = new FakeEventSource()
     let calls = 0
     const connection = new EventConnection(
       'session-01',
       () => socket,
       { onEvent: () => { calls += 1; throw new Error('render failed') } },
+      { probe: okProbe },
     )
     connection.start()
     socket.open()
@@ -92,15 +98,15 @@ describe('EventConnection', () => {
     connection.stop()
   })
 
-  it('fails fast without retrying when the server rejects an unknown session', async () => {
+  it('fails fast without retrying when the stream is rejected with 404', async () => {
     vi.useFakeTimers()
-    const sockets: FakeSocket[] = []
+    const sockets: FakeEventSource[] = []
     let rejected: number | null = null
     const states: string[] = []
     const connection = new EventConnection(
       'session-01',
       () => {
-        const socket = new FakeSocket()
+        const socket = new FakeEventSource()
         sockets.push(socket)
         return socket
       },
@@ -108,17 +114,73 @@ describe('EventConnection', () => {
         onReject: code => { rejected = code },
         onStateChange: state => { states.push(state) },
       },
-      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1 },
+      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1, probe: () => Promise.resolve(404) },
     )
 
     connection.start()
-    sockets[0].readyState = 3
-    sockets[0].dispatchEvent(new CloseEvent('close', { code: 4404 }))
+    sockets[0].fail() // EventSource fires 'error' (no status) — probe finds 404
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(rejected).toBe(4404)
+    expect(rejected).toBe(404)
     expect(sockets).toHaveLength(1)
     expect(states).toEqual(['connecting', 'offline'])
+    connection.stop()
+  })
+
+  it('records the SSE id and carries it into the reconnect URL', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeEventSource[] = []
+    const seenLastSeq: (string | null)[] = []
+    const connection = new EventConnection(
+      'session-01',
+      (_sessionId, lastSeq) => {
+        seenLastSeq.push(lastSeq)
+        const socket = new FakeEventSource()
+        sockets.push(socket)
+        return socket
+      },
+      {},
+      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1, probe: okProbe },
+    )
+
+    connection.start()
+    sockets[0].open()
+    sockets[0].message(frame('first'), '41')
+    sockets[0].fail()
+    await vi.advanceTimersByTimeAsync(10)
+    sockets[1].open()
+
+    expect(seenLastSeq).toEqual([null, '41'])
+    connection.stop()
+  })
+
+  it('keeps retrying (not rejecting) when the probe cannot reach the server', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeEventSource[] = []
+    const states: string[] = []
+    let rejected = false
+    const connection = new EventConnection(
+      'session-01',
+      () => {
+        const socket = new FakeEventSource()
+        sockets.push(socket)
+        return socket
+      },
+      {
+        onReject: () => { rejected = true },
+        onStateChange: state => { states.push(state) },
+      },
+      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1, probe: () => Promise.resolve(null) },
+    )
+
+    connection.start()
+    sockets[0].fail()
+    await vi.advanceTimersByTimeAsync(20)
+    sockets[1].open()
+
+    expect(rejected).toBe(false)
+    expect(sockets).toHaveLength(2)
+    expect(states).toEqual(['connecting', 'reconnecting', 'connected'])
     connection.stop()
   })
 })

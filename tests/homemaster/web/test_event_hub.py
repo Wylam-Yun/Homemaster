@@ -69,25 +69,22 @@ async def test_publish_drops_stalled_subscriber_but_keeps_healthy_ones() -> None
 
 @pytest.mark.asyncio
 async def test_stream_exits_on_dropped_subscriber_sentinel() -> None:
-    from homemaster.web.app import _stream_events
+    from homemaster.web.sse import _sse_frames
 
     queue: asyncio.Queue[object] = asyncio.Queue()
     queue.put_nowait(_DroppedSubscriber())
 
-    async def _never_disconnect() -> dict[str, str]:
+    async def _never_disconnect() -> bool:
         await asyncio.get_running_loop().create_future()
-        return {"type": "websocket.disconnect"}
+        return True
 
-    websocket = SimpleNamespace(
-        receive=_never_disconnect,
-        send_json=lambda _payload: _unexpected_send(),
-    )
+    request = SimpleNamespace(is_disconnected=_never_disconnect)
 
-    await asyncio.wait_for(_stream_events(websocket, queue), timeout=1)
-
-
-async def _unexpected_send() -> None:
-    raise AssertionError("a dropped subscriber must not receive frames")
+    frames = [
+        frame
+        async for frame in _sse_frames(request, queue, disconnect_poll_s=60)
+    ]
+    assert frames == []
 
 
 @pytest.mark.asyncio

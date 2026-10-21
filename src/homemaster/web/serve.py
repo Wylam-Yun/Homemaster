@@ -252,7 +252,9 @@ async def _serve_web_server(
     else:
         app = create_home_web_app(config_path)
     try:
-        config = uvicorn.Config(app=app, host=host, port=port)
+        # P0-4 retired every WebSocket route; ``ws="none"`` keeps uvicorn from
+        # even installing a WS protocol implementation.
+        config = uvicorn.Config(app=app, host=host, port=port, ws="none")
         await uvicorn.Server(config).serve()
     finally:
         await app.state.aclose()

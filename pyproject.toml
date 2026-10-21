@@ -26,7 +26,6 @@ dependencies = [
   "structlog>=25.5.0",
   "typer>=0.12",
   "uvicorn>=0.47.0",
-  "websockets>=12",
   # vendored agentscope (src/agentscope/) core import closure —
   # upstream core deps not already covered above
   "aiofiles",

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sse_support import asgi_client
 from test_app import _FakeApplication
 
 import homemaster
@@ -72,9 +73,7 @@ def test_patch_session_title_updates_summaries() -> None:
 
     with TestClient(app) as client:
         session_id = client.post("/api/sessions").json()["session_id"]
-        renamed = client.patch(
-            f"/api/sessions/{session_id}", json={"title": " renamed title "}
-        )
+        renamed = client.patch(f"/api/sessions/{session_id}", json={"title": " renamed title "})
         assert renamed.status_code == 200
         assert renamed.json() == {
             "session_id": session_id,
@@ -98,19 +97,9 @@ def test_patch_session_title_validation_and_missing_session(tmp_path) -> None:
     with TestClient(app) as client:
         session_id = client.post("/api/sessions").json()["session_id"]
 
-        assert (
-            client.patch(f"/api/sessions/{session_id}", json={"title": ""}).status_code
-            == 422
-        )
-        assert (
-            client.patch(
-                f"/api/sessions/{session_id}", json={"title": "   "}
-            ).status_code
-            == 422
-        )
-        missing = client.patch(
-            "/api/sessions/session-missing", json={"title": "x"}
-        )
+        assert client.patch(f"/api/sessions/{session_id}", json={"title": ""}).status_code == 422
+        assert client.patch(f"/api/sessions/{session_id}", json={"title": "   "}).status_code == 422
+        missing = client.patch("/api/sessions/session-missing", json={"title": "x"})
         assert missing.status_code == 404
         assert missing.json()["code"] == "session_not_found"
 
@@ -126,9 +115,12 @@ def test_rename_persists_across_manager_restarts(tmp_path) -> None:
     asyncio.run(_seed())
 
     assert manager.rename_session("sess-01", "重启后保留的标题") == "重启后保留的标题"
-    assert json.loads(
-        (tmp_path / "sess-01" / "meta.json").read_text(encoding="utf-8")
-    )["title_override"] == "重启后保留的标题"
+    assert (
+        json.loads((tmp_path / "sess-01" / "meta.json").read_text(encoding="utf-8"))[
+            "title_override"
+        ]
+        == "重启后保留的标题"
+    )
 
     fresh = SessionManager(session_root=tmp_path)
     (summary,) = fresh.session_summaries()
@@ -337,9 +329,7 @@ def test_doctor_returns_structured_report(tmp_path) -> None:
     payload = response.json()
     assert payload["live"] is False
     assert isinstance(payload["checks"], list) and payload["checks"]
-    assert all(
-        {"name", "status", "message"} <= set(check) for check in payload["checks"]
-    )
+    assert all({"name", "status", "message"} <= set(check) for check in payload["checks"])
     assert "doctor-secret" not in json.dumps(payload)
 
 
@@ -355,9 +345,7 @@ def test_doctor_endpoint_does_not_block_the_event_loop(tmp_path) -> None:
         import httpx
 
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             doctor = asyncio.create_task(client.get("/api/doctor?live=false"))
             await asyncio.sleep(0)
             health = await asyncio.wait_for(client.get("/api/health"), timeout=2)
@@ -421,24 +409,25 @@ async def test_publish_stamps_monotonic_seq_and_ts_on_direct_events() -> None:
     assert other.get_nowait().seq == 1
 
 
-def test_websocket_frames_carry_seq_and_ts_across_pump_and_direct_paths() -> None:
+@pytest.mark.asyncio
+async def test_stream_frames_carry_seq_and_ts_across_pump_and_direct_paths() -> None:
     """request.accepted is a direct publish; run.* frames come via the pump —
-    every wire frame must share one per-session sequence."""
+    every wire frame must share one per-session sequence, and the SSE ``id:``
+    field mirrors that seq for the Last-Event-ID channel."""
 
     application = _FakeApplication()
     app = _app(application)
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            accepted = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "request-01", "text": "hello"},
             )
             assert accepted.status_code == 202
-            frames = [websocket.receive_json() for _ in range(7)]
+            frames = [await events.receive_json() for _ in range(7)]
+            assert events.last_id == str(frames[-1]["seq"])
 
     assert [frame["type"] for frame in frames] == [
         "request.accepted",

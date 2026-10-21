@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
@@ -53,6 +53,7 @@ from homemaster.web.schemas import (
     SkillResolveRequest,
     WebEvent,
 )
+from homemaster.web.sse import mount_sse_stream
 from homemaster.web.static import mount_web_static
 
 _DEFAULT_SUBJECT = RunRequest(text="Web permission subject").permission_subject
@@ -1271,72 +1272,19 @@ def create_web_app(
             headers={"X-Content-SHA256": hashlib.sha256(content).hexdigest()},
         )
 
-    @app.websocket("/api/events")
-    async def events(websocket: WebSocket, session_id: str) -> None:
-        if session_id not in _session_ids(application.session_manager):
-            await websocket.close(code=4404)
-            return
-        queue = await hub.subscribe(session_id)
-        await websocket.accept()
-        try:
-            await _stream_events(websocket, queue)
-        except WebSocketDisconnect:
-            pass
-        except asyncio.CancelledError:
-            # The hosting scope (test-client teardown, ASGI shutdown) cancels
-            # the handler right after queueing the disconnect frame; for this
-            # outbound-only stream that is equivalent to a client disconnect.
-            # Pending approvals are durable server-side state and survive.
-            pass
-        finally:
-            try:
-                await hub.unsubscribe(session_id, queue)
-            except asyncio.CancelledError:
-                pass
-
-    @app.websocket("/{path:path}")
-    async def reject_unknown_websocket(websocket: WebSocket, path: str) -> None:
-        # The StaticFiles SPA mount below asserts http scope; without this
-        # catch-all, a mistyped websocket path crashes into a 500
-        # AssertionError instead of a clean close.
-        await websocket.close(code=4404)
+    # The retired ``/api/events`` WebSocket and its ``/{path:path}`` reject
+    # catch-all are gone; SSE on ``/api/sessions/{id}/stream`` is the single
+    # live event channel. WebSocket upgrade requests now hit no route and get
+    # a plain HTTP 403/404 from the ASGI layer instead of a 4404 close.
+    mount_sse_stream(
+        app,
+        hub=hub,
+        session_ids=lambda: _session_ids(application.session_manager),
+        error=_error,
+    )
 
     mount_web_static(app)
     return app
-
-
-async def _stream_events(
-    websocket: WebSocket,
-    queue: asyncio.Queue[object],
-) -> None:
-    """Forward events while independently observing an idle client disconnect."""
-
-    event_task = asyncio.create_task(queue.get())
-    receive_task = asyncio.create_task(websocket.receive())
-    try:
-        while True:
-            done, _pending = await asyncio.wait(
-                (event_task, receive_task),
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if receive_task in done:
-                message = receive_task.result()
-                if message.get("type") == "websocket.disconnect":
-                    return
-                receive_task = asyncio.create_task(websocket.receive())
-            if event_task in done:
-                event = event_task.result()
-                if not isinstance(event, WebEvent):
-                    # The hub dropped this subscriber after its bounded queue
-                    # filled up; exit so the client can reconnect and resync.
-                    return
-                await websocket.send_json(event.to_dict())
-                event_task = asyncio.create_task(queue.get())
-    finally:
-        for task in (event_task, receive_task):
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(event_task, receive_task, return_exceptions=True)
 
 
 async def _run_and_report_prestart_failure(

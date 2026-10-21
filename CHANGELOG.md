@@ -1,5 +1,22 @@
 # Unreleased
 
+- The browser event channel migrated from WebSocket to SSE:
+  `GET /api/sessions/{id}/stream` (`web/sse.py`, bare StreamingResponse)
+  replaces `/api/events`; frames carry `id: {seq}` + `data:` with a 15s
+  `: ping` heartbeat, `hub.subscribe()` registers before response
+  headers so the `has_subscriber` POST gate is preserved, and unknown
+  sessions now return HTTP 404 instead of WS close code 4404.
+  `Last-Event-ID`/`?last_seq=` are accepted and logged (replay lands in
+  P1). `web/src/api/connection.ts` is now an EventSource client with an
+  identical consumer surface (App.tsx unchanged); `cli/client.py`
+  consumes SSE via httpx streaming with a manual frame parser, mapping
+  HTTP 404 to `StreamClosedError`; `websockets` removed from
+  dependencies and uvicorn runs `ws="none"` — no WS protocol installed.
+  static_dist rebuilt (verified zero `new WebSocket`/`api/events`).
+  Coverage: `tests/homemaster/web/test_sse_stream.py`,
+  `sse_support.py` (ASGI streaming harness), rewritten
+  `test_w2_protocol.py`/`test_http_client.py`.
+
 - New `homemaster setup` command productizes installation: after
   `uv tool install` (or a wheel install), one command provisions the
   per-user runtime at `~/.homemaster/runtime` — creates the runtime

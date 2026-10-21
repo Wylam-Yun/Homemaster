@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sse_support import asgi_client
 
 from homemaster.agent.messages import UserMessage
 from homemaster.application import RunRequest, SessionManager
@@ -21,10 +22,10 @@ from homemaster.memory.management import (
 )
 from homemaster.web.app import (
     _run_and_report_prestart_failure,
-    _stream_events,
     create_web_app,
 )
 from homemaster.web.confirmations import WebConfirmationHandler
+from homemaster.web.sse import _sse_frames
 
 
 class _FakeApplication:
@@ -255,37 +256,35 @@ def test_web_lifespan_starts_application_before_serving() -> None:
 
 
 @pytest.mark.asyncio
-async def test_idle_websocket_disconnect_stops_event_stream_without_an_event() -> None:
-    websocket = SimpleNamespace(
-        receive=lambda: _disconnect_message(),
-        send_json=lambda _payload: _unexpected_send(),
-    )
+async def test_idle_disconnect_stops_event_stream_without_an_event() -> None:
+    request = SimpleNamespace(is_disconnected=_already_disconnected)
 
-    await asyncio.wait_for(_stream_events(websocket, asyncio.Queue()), timeout=1)
+    frames = [
+        frame async for frame in _sse_frames(request, asyncio.Queue(), disconnect_poll_s=0.01)
+    ]
 
-
-async def _disconnect_message() -> dict[str, str]:
-    return {"type": "websocket.disconnect"}
+    assert frames == []
 
 
-async def _unexpected_send() -> None:
-    raise AssertionError("an idle disconnect must not send an event")
+async def _already_disconnected() -> bool:
+    return True
 
 
-def test_http_command_and_websocket_event_flow_share_one_request_id() -> None:
+@pytest.mark.asyncio
+async def test_http_command_and_sse_event_flow_share_one_request_id() -> None:
     application = _FakeApplication()
     app = create_web_app(
         application=application,
         confirmation_handler=WebConfirmationHandler(timeout_s=None),
     )
 
-    with TestClient(app) as client:
-        created = client.post("/api/sessions")
+    async with asgi_client(app) as client:
+        created = await client.post("/api/sessions")
         assert created.status_code == 201
         session_id = created.json()["session_id"]
 
-        with client.websocket_connect(f"/api/events?session_id={session_id}") as websocket:
-            accepted = client.post(
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "request-01", "text": "hello"},
             )
@@ -296,7 +295,7 @@ def test_http_command_and_websocket_event_flow_share_one_request_id() -> None:
                 "request_id": "request-01",
             }
 
-            frames = [websocket.receive_json() for _ in range(7)]
+            frames = [await events.receive_json() for _ in range(7)]
 
         assert [frame["type"] for frame in frames] == [
             "request.accepted",
@@ -315,16 +314,16 @@ def test_http_command_and_websocket_event_flow_share_one_request_id() -> None:
         assert frames[3]["payload"] == {"text": "answer"}
         assert frames[5]["payload"] == {"text": "full answer"}
 
-        duplicate = client.post(
+        duplicate = await client.post(
             f"/api/sessions/{session_id}/messages",
             json={"request_id": "request-01", "text": "ignored duplicate"},
         )
         assert duplicate.status_code == 202
         assert len(application.run_requests) == 1
 
-        other = client.post("/api/sessions")
+        other = await client.post("/api/sessions")
         other_session = other.json()["session_id"]
-        not_subscribed = client.post(
+        not_subscribed = await client.post(
             f"/api/sessions/{other_session}/messages",
             json={"request_id": "request-02", "text": "must reject"},
         )

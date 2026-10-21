@@ -21,6 +21,7 @@ from perm_harness import (
     make_request,
     wait_pending,
 )
+from sse_support import asgi_client
 
 from homemaster.application import RunRequest, SessionManager
 from homemaster.application.runtime import CompactionResult, SessionStatus
@@ -190,9 +191,7 @@ class _W2Application:
                 ),
             )
             answer = result.text
-            await self._emit(
-                "assistant.reply", session_id, {"reply": f"answer:{answer}"}
-            )
+            await self._emit("assistant.reply", session_id, {"reply": f"answer:{answer}"})
             await self._emit(
                 "runtime.turn_completed",
                 session_id,
@@ -203,9 +202,7 @@ class _W2Application:
             # Give the hub pump a beat so the run is bound before asking.
             await asyncio.sleep(0.05)
             answer = await prompt(request.text.removeprefix("ask:"))
-            await self._emit(
-                "assistant.reply", session_id, {"reply": f"answer:{answer}"}
-            )
+            await self._emit("assistant.reply", session_id, {"reply": f"answer:{answer}"})
             await self._emit(
                 "runtime.turn_completed",
                 session_id,
@@ -318,16 +315,15 @@ def test_providers_lists_profiles_without_leaking_keys() -> None:
     assert "sk-live-secret" not in response.text
 
 
-def test_send_message_maps_provider_and_model_to_run_request() -> None:
+@pytest.mark.asyncio
+async def test_send_message_maps_provider_and_model_to_run_request() -> None:
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            accepted = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={
                     "request_id": "req-provider",
@@ -337,7 +333,7 @@ def test_send_message_maps_provider_and_model_to_run_request() -> None:
                 },
             )
             assert accepted.status_code == 202
-            while websocket.receive_json()["type"] != "run.completed":
+            while (await events.receive_json())["type"] != "run.completed":
                 pass
 
     (request,) = application.run_requests
@@ -345,7 +341,8 @@ def test_send_message_maps_provider_and_model_to_run_request() -> None:
     assert request.model_override == "claude-main"
 
 
-def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
+@pytest.mark.asyncio
+async def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
     ambiguous = HomeMasterConfig(
         providers={
             "default": "main",
@@ -363,10 +360,10 @@ def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
     application = _W2Application()
     app = _app(application, config=ambiguous)
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(f"/api/events?session_id={session_id}"):
-            unknown = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id):
+            unknown = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-u", "text": "x", "model": "ghost-model"},
             )
@@ -374,7 +371,7 @@ def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
             assert unknown.json()["code"] == "unknown_model"
             assert unknown.json()["retryable"] is False
 
-            ambiguous_model = client.post(
+            ambiguous_model = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={
                     "request_id": "req-a",
@@ -385,7 +382,7 @@ def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
             assert ambiguous_model.status_code == 422
             assert ambiguous_model.json()["code"] == "unknown_model"
 
-            conflict = client.post(
+            conflict = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={
                     "request_id": "req-c",
@@ -397,7 +394,7 @@ def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> None:
             assert conflict.status_code == 422
             assert conflict.json()["code"] == "unknown_model"
 
-            unknown_provider = client.post(
+            unknown_provider = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={
                     "request_id": "req-p",
@@ -435,17 +432,16 @@ def test_status_reports_runtime_fields_and_ui_mode() -> None:
         assert missing.json()["code"] == "session_not_found"
 
 
-def test_mode_endpoint_switches_plan_mode_and_broadcasts() -> None:
+@pytest.mark.asyncio
+async def test_mode_endpoint_switches_plan_mode_and_broadcasts() -> None:
     application = _W2Application()
     plan_mode = application.settings.application_services["plan_mode"]
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            switched = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            switched = await client.post(
                 f"/api/sessions/{session_id}/mode", json={"ui_mode": "plan"}
             )
             assert switched.status_code == 200
@@ -454,42 +450,37 @@ def test_mode_endpoint_switches_plan_mode_and_broadcasts() -> None:
                 "ui_mode": "plan",
             }
             assert plan_mode.enabled(session_id) is True
-            event = websocket.receive_json()
+            event = await events.receive_json()
             assert event["type"] == "session.mode_changed"
             assert event["session_id"] == session_id
             assert event["payload"] == {"ui_mode": "plan"}
 
-            back = client.post(
-                f"/api/sessions/{session_id}/mode", json={"ui_mode": "act"}
-            )
+            back = await client.post(f"/api/sessions/{session_id}/mode", json={"ui_mode": "act"})
             assert back.json()["ui_mode"] == "act"
             assert plan_mode.enabled(session_id) is False
-            event = websocket.receive_json()
+            event = await events.receive_json()
             assert event["payload"] == {"ui_mode": "act"}
 
-        invalid = client.post(
-            f"/api/sessions/{session_id}/mode", json={"ui_mode": "turbo"}
-        )
+        invalid = await client.post(f"/api/sessions/{session_id}/mode", json={"ui_mode": "turbo"})
         assert invalid.status_code == 422
         assert invalid.json()["code"] == "invalid_request"
 
 
-def test_service_driven_mode_flip_and_rest_emit_one_event_per_transition() -> None:
+@pytest.mark.asyncio
+async def test_service_driven_mode_flip_and_rest_emit_one_event_per_transition() -> None:
     """Tool-driven ``plan_mode.set`` broadcasts like the REST /mode path."""
 
     application = _W2Application()
     plan_mode = application.settings.application_services["plan_mode"]
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
             # enter/exit_plan_mode call plan_mode.set directly; the registered
             # listener bridges onto the hub loop from this foreign thread.
             plan_mode.set(session_id, True)
-            event = websocket.receive_json()
+            event = await events.receive_json()
             assert event["type"] == "session.mode_changed"
             assert event["session_id"] == session_id
             assert event["payload"] == {"ui_mode": "plan"}
@@ -499,35 +490,34 @@ def test_service_driven_mode_flip_and_rest_emit_one_event_per_transition() -> No
             plan_mode.set(session_id, True)
 
             # The REST path rides the same listener now: still exactly one.
-            switched = client.post(
+            switched = await client.post(
                 f"/api/sessions/{session_id}/mode", json={"ui_mode": "act"}
             )
             assert switched.status_code == 200
-            event = websocket.receive_json()
+            event = await events.receive_json()
             assert event["type"] == "session.mode_changed"
             assert event["session_id"] == session_id
             assert event["payload"] == {"ui_mode": "act"}
 
             # A duplicate REST write also emits nothing; the following real
             # transition would be masked by any leftover duplicate frame.
-            client.post(f"/api/sessions/{session_id}/mode", json={"ui_mode": "act"})
+            await client.post(f"/api/sessions/{session_id}/mode", json={"ui_mode": "act"})
             plan_mode.set(session_id, True)
-            event = websocket.receive_json()
+            event = await events.receive_json()
             assert event["type"] == "session.mode_changed"
             assert event["payload"] == {"ui_mode": "plan"}
             assert plan_mode.enabled(session_id) is True
 
 
-def test_compact_returns_result_and_conflicts_while_busy() -> None:
+@pytest.mark.asyncio
+async def test_compact_returns_result_and_conflicts_while_busy() -> None:
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            compacted = client.post(f"/api/sessions/{session_id}/compact")
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            compacted = await client.post(f"/api/sessions/{session_id}/compact")
             assert compacted.status_code == 200
             assert compacted.json() == {
                 "session_id": session_id,
@@ -539,48 +529,47 @@ def test_compact_returns_result_and_conflicts_while_busy() -> None:
             assert application.compact_calls == [session_id]
 
             # A run suspended on a pending question keeps the session busy.
-            client.post(
+            await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-q1", "text": "ask:阻塞中"},
             )
-            while websocket.receive_json()["type"] != "question.asked":
+            while (await events.receive_json())["type"] != "question.asked":
                 pass
-            busy = client.post(f"/api/sessions/{session_id}/compact")
+            busy = await client.post(f"/api/sessions/{session_id}/compact")
             assert busy.status_code == 409
             assert busy.json()["code"] == "session_busy"
 
-            questions = client.get(f"/api/sessions/{session_id}/questions").json()[
+            questions = (await client.get(f"/api/sessions/{session_id}/questions")).json()[
                 "questions"
             ]
             qid = questions[0]["question_id"]
-            client.post(
+            await client.post(
                 f"/api/sessions/{session_id}/questions/{qid}/answer",
                 json={"text": "好"},
             )
-            while websocket.receive_json()["type"] != "run.completed":
+            while (await events.receive_json())["type"] != "run.completed":
                 pass
 
-        missing = client.post("/api/sessions/session-ghost/compact")
+        missing = await client.post("/api/sessions/session-ghost/compact")
         assert missing.status_code == 404
 
 
-def test_question_lifecycle_ask_answer_reconnect_recovery_and_cleanup() -> None:
+@pytest.mark.asyncio
+async def test_question_lifecycle_ask_answer_reconnect_recovery_and_cleanup() -> None:
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            accepted = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-ask", "text": "ask:哪个杯子？"},
             )
             assert accepted.status_code == 202
-            assert websocket.receive_json()["type"] == "request.accepted"
-            assert websocket.receive_json()["type"] == "run.started"
-            asked = websocket.receive_json()
+            assert (await events.receive_json())["type"] == "request.accepted"
+            assert (await events.receive_json())["type"] == "run.started"
+            asked = await events.receive_json()
             assert asked["type"] == "question.asked"
             question_id = asked["payload"]["question_id"]
             assert asked["payload"]["question"] == "哪个杯子？"
@@ -588,53 +577,52 @@ def test_question_lifecycle_ask_answer_reconnect_recovery_and_cleanup() -> None:
             assert asked["request_id"] == "req-ask"
 
             # Reconnect-style recovery: the same pending question is listable.
-            listed = client.get(f"/api/sessions/{session_id}/questions")
+            listed = await client.get(f"/api/sessions/{session_id}/questions")
             (entry,) = listed.json()["questions"]
             assert entry["question_id"] == question_id
             assert entry["question"] == "哪个杯子？"
             assert entry["run_id"] == "run-01"
             assert entry["request_id"] == "req-ask"
 
-            foreign = client.post(
+            foreign = await client.post(
                 f"/api/sessions/{session_id}-other/questions/{question_id}/answer",
                 json={"text": "x"},
             )
             assert foreign.status_code == 404
             assert foreign.json()["code"] == "session_not_found"
 
-            other_session = client.post("/api/sessions").json()["session_id"]
-            wrong_session = client.post(
+            other_session = (await client.post("/api/sessions")).json()["session_id"]
+            wrong_session = await client.post(
                 f"/api/sessions/{other_session}/questions/{question_id}/answer",
                 json={"text": "x"},
             )
             assert wrong_session.status_code == 404
             assert wrong_session.json()["code"] == "question_not_found"
 
-            answered = client.post(
+            answered = await client.post(
                 f"/api/sessions/{session_id}/questions/{question_id}/answer",
                 json={"text": "蓝色"},
             )
             assert answered.status_code == 200
             assert answered.json() == {"accepted": True}
-            resolved = websocket.receive_json()
+            resolved = await events.receive_json()
             assert resolved["type"] == "question.answered"
             assert resolved["payload"] == {"question_id": question_id}
 
-            snapshot = websocket.receive_json()
+            snapshot = await events.receive_json()
             assert snapshot["type"] == "answer.snapshot"
             assert snapshot["payload"] == {"text": "answer:蓝色"}
-            completed = websocket.receive_json()
+            completed = await events.receive_json()
             assert completed["type"] == "run.completed"
             assert completed["payload"] == {
                 "status": "replied",
                 "final_reply": "final:蓝色",
             }
 
-            assert (
-                client.get(f"/api/sessions/{session_id}/questions").json()["questions"]
-                == []
-            )
-            again = client.post(
+            assert (await client.get(f"/api/sessions/{session_id}/questions")).json()[
+                "questions"
+            ] == []
+            again = await client.post(
                 f"/api/sessions/{session_id}/questions/{question_id}/answer",
                 json={"text": "再答"},
             )
@@ -642,38 +630,36 @@ def test_question_lifecycle_ask_answer_reconnect_recovery_and_cleanup() -> None:
             assert again.json()["code"] == "question_not_found"
 
 
-def test_questions_are_cancelled_when_their_run_ends() -> None:
+@pytest.mark.asyncio
+async def test_questions_are_cancelled_when_their_run_ends() -> None:
     application = _W2Application()
     app = _app(application, config=_config())
     application.question_registry = app.state.pending_questions
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-leak", "text": "leak:悬空问题"},
             )
             seen: set[str] = set()
             asked_id: str | None = None
             while not {"question.asked", "question.cancelled", "run.completed"} <= seen:
-                frame = websocket.receive_json()
+                frame = await events.receive_json()
                 seen.add(frame["type"])
                 if frame["type"] == "question.asked":
                     asked_id = frame["payload"]["question_id"]
                 if frame["type"] == "question.cancelled":
                     assert frame["payload"] == {"question_id": asked_id}
             assert asked_id is not None
-            assert (
-                client.get(f"/api/sessions/{session_id}/questions").json()["questions"]
-                == []
-            )
+            assert (await client.get(f"/api/sessions/{session_id}/questions")).json()[
+                "questions"
+            ] == []
 
 
 @pytest.mark.asyncio
-async def test_pending_approvals_survive_websocket_disconnect(tmp_path: Path) -> None:
+async def test_pending_approvals_survive_stream_disconnect(tmp_path: Path) -> None:
     clock = FakeClock()
     store = PermissionStore.open(tmp_path / "perm.sqlite3", clock=clock)
     sink = EventSink()
@@ -695,17 +681,15 @@ async def test_pending_approvals_survive_websocket_disconnect(tmp_path: Path) ->
         )
         await wait_pending(handler)
 
-        with TestClient(app) as client:
+        async with asgi_client(app) as client:
             # A subscriber connects and disconnects while the approval pends.
-            with client.websocket_connect(
-                f"/api/events?session_id={request.session_id}"
-            ):
+            async with client.stream(request.session_id):
                 pass
 
             # W2 durability: disconnect is NOT a decision — the approval stays
             # pending and remains listable for reconnect recovery.
             assert handler.pending_count == 1
-            listed = client.get(f"/api/sessions/{request.session_id}/approvals")
+            listed = await client.get(f"/api/sessions/{request.session_id}/approvals")
             assert listed.status_code == 200
             (entry,) = listed.json()["approvals"]
             assert entry["approval_id"] == request.approval_id
@@ -714,15 +698,13 @@ async def test_pending_approvals_survive_websocket_disconnect(tmp_path: Path) ->
 
             # ...and a reconnected client can still submit the real decision.
             item_id = item_ids[0]
-            submitted = client.post(
+            submitted = await client.post(
                 f"/api/approvals/{request.approval_id}",
                 json={
                     "protocol_version": 2,
                     "submission_id": "sub-durable",
                     "request_revision": request.revision,
-                    "decisions": [
-                        {"item_id": item_id, "choice": "allow_once"}
-                    ],
+                    "decisions": [{"item_id": item_id, "choice": "allow_once"}],
                 },
             )
             assert submitted.status_code == 200
@@ -759,18 +741,14 @@ def test_session_approvals_lists_only_pending_for_that_session(
         )
         await wait_pending(handler)
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             listed = await client.get(f"/api/sessions/{request.session_id}/approvals")
             assert listed.status_code == 200
             (entry,) = listed.json()["approvals"]
             assert entry["approval_id"] == request.approval_id
 
             other = await application.session_manager.open_or_resume("session-empty")
-            empty = await client.get(
-                f"/api/sessions/{other.session.session_id}/approvals"
-            )
+            empty = await client.get(f"/api/sessions/{other.session.session_id}/approvals")
             assert empty.json()["approvals"] == []
         waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -832,29 +810,28 @@ def test_skills_resolve_reports_unavailable_registry() -> None:
     assert response.json()["code"] == "skill_registry_unavailable"
 
 
-def test_real_ask_user_tool_roundtrips_through_pending_questions() -> None:
+@pytest.mark.asyncio
+async def test_real_ask_user_tool_roundtrips_through_pending_questions() -> None:
     """The real ask_user_question executor drives the web prompt seam."""
 
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-real", "text": "real-ask:哪层？"},
             )
             while True:
-                frame = websocket.receive_json()
+                frame = await events.receive_json()
                 if frame["type"] == "question.asked":
                     break
             question_id = frame["payload"]["question_id"]
             assert frame["payload"]["question"] == "哪层？"
 
-            answered = client.post(
+            answered = await client.post(
                 f"/api/sessions/{session_id}/questions/{question_id}/answer",
                 json={"text": "二楼"},
             )
@@ -863,7 +840,7 @@ def test_real_ask_user_tool_roundtrips_through_pending_questions() -> None:
             types: list[str] = []
             final: dict[str, str] = {}
             while True:
-                frame = websocket.receive_json()
+                frame = await events.receive_json()
                 types.append(frame["type"])
                 if frame["type"] == "run.completed":
                     final = frame["payload"]
@@ -880,16 +857,11 @@ def test_mode_endpoint_reports_unavailable_plan_mode_service() -> None:
 
     with TestClient(app) as client:
         session_id = client.post("/api/sessions").json()["session_id"]
-        response = client.post(
-            f"/api/sessions/{session_id}/mode", json={"ui_mode": "plan"}
-        )
+        response = client.post(f"/api/sessions/{session_id}/mode", json={"ui_mode": "plan"})
         assert response.status_code == 503
         assert response.json()["code"] == "plan_mode_unavailable"
         # With no plan_mode service the session simply stays in act mode.
-        assert (
-            client.get(f"/api/sessions/{session_id}/status").json()["ui_mode"]
-            == "act"
-        )
+        assert client.get(f"/api/sessions/{session_id}/status").json()["ui_mode"] == "act"
 
 
 @pytest.mark.asyncio
@@ -903,79 +875,80 @@ async def test_pending_question_registry_unit_semantics() -> None:
         tool_call_id="call-1",
     )
     assert record.question_id.startswith("question-")
-    assert [r.question_id for r in await registry.pending_for_session("s1")] == [
-        record.question_id
-    ]
+    assert [r.question_id for r in await registry.pending_for_session("s1")] == [record.question_id]
     assert await registry.pending_for_session("s2") == []
 
     waiter = asyncio.create_task(record.wait())
-    resolved = await registry.answer(
-        session_id="s1", question_id=record.question_id, text="蓝色"
-    )
+    resolved = await registry.answer(session_id="s1", question_id=record.question_id, text="蓝色")
     assert resolved is record
     assert await waiter == "蓝色"
     assert registry.pending_count == 0
 
     with pytest.raises(KeyError):
-        await registry.answer(
-            session_id="s1", question_id=record.question_id, text="x"
-        )
+        await registry.answer(session_id="s1", question_id=record.question_id, text="x")
 
     second = await registry.ask(
-        session_id="s1", run_id="r2", request_id="req-2",
-        question="哪间?", tool_call_id="",
+        session_id="s1",
+        run_id="r2",
+        request_id="req-2",
+        question="哪间?",
+        tool_call_id="",
     )
     third = await registry.ask(
-        session_id="s2", run_id="r3", request_id="req-3",
-        question="何时?", tool_call_id="",
+        session_id="s2",
+        run_id="r3",
+        request_id="req-3",
+        question="何时?",
+        tool_call_id="",
     )
     # Another request on the same session is untouched by this request's end.
     same_session_other_request = await registry.ask(
-        session_id="s1", run_id="r2b", request_id="req-2b",
-        question="另外?", tool_call_id="",
+        session_id="s1",
+        run_id="r2b",
+        request_id="req-2b",
+        question="另外?",
+        tool_call_id="",
     )
     dropped = await registry.cancel_request("s1", "req-2")
     assert [r.question_id for r in dropped] == [second.question_id]
-    assert await registry.pending_for_session("s1") == [
-        same_session_other_request
-    ]
+    assert await registry.pending_for_session("s1") == [same_session_other_request]
     with pytest.raises(QuestionCancelledError):
         await second.wait()
-    assert [r.question_id for r in await registry.pending_for_session("s2")] == [
-        third.question_id
-    ]
+    assert [r.question_id for r in await registry.pending_for_session("s2")] == [third.question_id]
 
     await registry.aclose()
     with pytest.raises(QuestionCancelledError):
         await third.wait()
     with pytest.raises(QuestionCancelledError):
         await registry.ask(
-            session_id="s1", run_id="r4", request_id="req-4",
-            question="还有?", tool_call_id="",
+            session_id="s1",
+            run_id="r4",
+            request_id="req-4",
+            question="还有?",
+            tool_call_id="",
         )
 
 
-def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
+@pytest.mark.asyncio
+async def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
     """Cancel kills the in-flight run; the web layer still emits the honest
     terminal and releases the session so the next message is not 409."""
 
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            accepted = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-hang", "text": "hang:forever"},
             )
             assert accepted.status_code == 202
-            while websocket.receive_json()["type"] != "run.started":
+            while (await events.receive_json())["type"] != "run.started":
                 pass
 
-            cancelled = client.post(f"/api/sessions/{session_id}/cancel")
+            cancelled = await client.post(f"/api/sessions/{session_id}/cancel")
             assert cancelled.status_code == 200
             assert cancelled.json() == {
                 "cancelled": True,
@@ -987,7 +960,7 @@ def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
             # honest terminal itself, once.
             cancelled_frames = []
             while True:
-                frame = websocket.receive_json()
+                frame = await events.receive_json()
                 if frame["type"] == "run.cancelled":
                     cancelled_frames.append(frame)
                     break
@@ -1007,12 +980,12 @@ def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
             }
 
             # The session binding was released — no session_busy on retry.
-            again = client.post(
+            again = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-after", "text": "hello again"},
             )
             assert again.status_code == 202
-            while websocket.receive_json()["type"] != "run.completed":
+            while (await events.receive_json())["type"] != "run.completed":
                 pass
 
     assert [request.text for request in application.run_requests] == [
@@ -1021,19 +994,18 @@ def test_cancel_bound_run_terminalizes_and_frees_session() -> None:
     ]
 
 
-def test_mid_run_propagated_failure_terminalizes_and_frees_session() -> None:
+@pytest.mark.asyncio
+async def test_mid_run_propagated_failure_terminalizes_and_frees_session() -> None:
     """A bound run whose exception escapes ``application.run`` must end in a
     truthful ``run.failed`` and release the session — not wedge as busy."""
 
     application = _W2Application()
     app = _app(application, config=_config())
 
-    with TestClient(app) as client:
-        session_id = client.post("/api/sessions").json()["session_id"]
-        with client.websocket_connect(
-            f"/api/events?session_id={session_id}"
-        ) as websocket:
-            accepted = client.post(
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-boom", "text": "boom:midrun"},
             )
@@ -1041,7 +1013,7 @@ def test_mid_run_propagated_failure_terminalizes_and_frees_session() -> None:
 
             failed = None
             while failed is None:
-                frame = websocket.receive_json()
+                frame = await events.receive_json()
                 if frame["type"] == "run.failed":
                     failed = frame
                 else:
@@ -1051,12 +1023,12 @@ def test_mid_run_propagated_failure_terminalizes_and_frees_session() -> None:
             assert failed["payload"]["code"] == "run_failed"
             assert failed["payload"]["retryable"] is False
 
-            again = client.post(
+            again = await client.post(
                 f"/api/sessions/{session_id}/messages",
                 json={"request_id": "req-after", "text": "hello again"},
             )
             assert again.status_code == 202
-            while websocket.receive_json()["type"] != "run.completed":
+            while (await events.receive_json())["type"] != "run.completed":
                 pass
 
 
@@ -1098,9 +1070,7 @@ def test_shutdown_enqueues_finalization_for_active_sessions() -> None:
     lose memory finalization entirely."""
     application = _W2Application()
     enqueued: list[tuple[str, str]] = []
-    application.session_end_handler = lambda sid, reason: enqueued.append(
-        (sid, reason)
-    )
+    application.session_end_handler = lambda sid, reason: enqueued.append((sid, reason))
     app = _app(application, config=_config())
 
     with TestClient(app) as client:

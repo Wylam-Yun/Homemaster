@@ -1,6 +1,6 @@
 """Interactive remote shell — a thin client over the HomeMaster server.
 
-The shell talks REST+WS through :class:`HomeServerClient`; the server runtime
+The shell talks REST+SSE through :class:`HomeServerClient`; the server runtime
 owns tools, memory, and the event stream.  This module drives the prompt loop
 (prompt_toolkit on TTY, ``input()`` otherwise), renders WebEvents via
 :class:`EventRenderer`, and answers ``approval.requested`` /
@@ -168,7 +168,7 @@ def _request_mode_toggle(ctx: RemoteShellContext) -> None:
     """Tab pressed on an empty prompt: schedule the mode flip on the loop."""
 
     target = "plan" if ctx.ui_mode != "plan" else "act"
-    ctx.ui_mode = target  # optimistic; the WS echo reconciles
+    ctx.ui_mode = target  # optimistic; the stream echo reconciles
 
     async def flip() -> None:
         try:
@@ -261,8 +261,8 @@ async def _consume_resync(
 ) -> None:
     """Consume a ``client.resync`` marker: re-prompt pendings, clear dead turns.
 
-    Pending approvals/questions survived server-side but their WS events were
-    lost with the dropped socket, so they come back as synthetic interactive
+    Pending approvals/questions survived server-side but their stream events
+    were lost with the dropped connection, so they come back as synthetic interactive
     events; dedup keeps ones already queued or decided from re-prompting.
     """
 
