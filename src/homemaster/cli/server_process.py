@@ -31,7 +31,8 @@ import httpx
 from homemaster.cli.client import ServerError, ServerUnavailableError
 
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
-READY_TIMEOUT_S = 15.0
+# Full-tier first runs start managed Neo4j inside app startup; 15s is too tight.
+READY_TIMEOUT_S = 90.0
 _PROBE_TIMEOUT_S = 1.5
 _POLL_INTERVAL_S = 0.2
 

@@ -1,40 +1,51 @@
 #!/usr/bin/env bash
+# Repo-development entry point: forwards to `homemaster setup` with the
+# checkout's .runtime as the runtime root. The CLI owns all logic.
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-offline_bundle=""
+runtime_root="$repo_root/.runtime"
+state_file="$runtime_root/setup-state.json"
+
+cli_args=(--runtime-root "$runtime_root")
 with_browser=0
+offline_bundle=""
+tier_set=0
 while (($#)); do
   case "$1" in
+    --with-browser) with_browser=1; shift ;;
     --offline)
       (($# >= 2)) || { echo "--offline requires a bundle path" >&2; exit 2; }
       offline_bundle="$2"; shift 2 ;;
-    --with-browser) with_browser=1; shift ;;
+    --offline-bundle) (($# >= 2)) || { echo "--offline-bundle requires a path" >&2; exit 2; }
+      offline_bundle="$2"; shift 2 ;;
+    --files) tier_set=1; cli_args+=(--files); shift ;;
+    --full) tier_set=1; cli_args+=(--full); shift ;;
+    --rebuild) cli_args+=(--rebuild); shift ;;
+    --no-doctor) cli_args+=(--no-doctor); shift ;;
+    --yes|-y) shift ;; # accepted for forward compatibility; setup is non-interactive
+    --config) (($# >= 2)) || { echo "--config requires a path" >&2; exit 2; }
+      cli_args+=(--config "$2"); shift 2 ;;
     -h|--help)
-      printf '%s\n' 'Usage: ./scripts/setup.sh [--with-browser] [--offline BUNDLE]'; exit 0 ;;
+      printf '%s\n' 'Usage: ./scripts/setup.sh [--with-browser] [--offline BUNDLE] [--files|--full] [--rebuild] [--no-doctor]'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
-case "$(uname -s):$(uname -m)" in
-  Linux:x86_64|Darwin:arm64) ;;
-  Darwin:*) echo "HomeMaster setup on macOS requires Apple Silicon (arm64)" >&2; exit 2 ;;
-  *) echo "HomeMaster setup requires Linux x86_64 or macOS arm64" >&2; exit 2 ;;
-esac
+# Repo checkouts historically provisioned the full tier; keep that default
+# while the user-facing CLI defaults to files.
+(( tier_set )) || cli_args+=(--full)
 
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256_check() { sha256sum --check "$1" --quiet; }
-else
-  sha256_check() { shasum -a 256 --check "$1" --quiet; }
-fi
-
-file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
-
-state_file="$repo_root/.runtime/setup-state.json"
-runtime_root="$repo_root/.runtime"
-runtime_python="$runtime_root/venv/bin/python"
+# Re-run stickiness: a prior --with-browser install keeps browser on reruns.
 if (( ! with_browser )) && [[ -f "$state_file" ]] && grep -q '"browser"[[:space:]]*:[[:space:]]*true' "$state_file"; then
   with_browser=1
+fi
+(( with_browser )) && cli_args+=(--with-browser)
+
+if [[ -n "$offline_bundle" ]]; then
+  cli_args+=(--offline --offline-bundle "$offline_bundle")
+  # uv run below may need the bundle wheelhouse to materialize the dev env.
+  export UV_NO_INDEX=1 UV_FIND_LINKS="$offline_bundle/wheelhouse"
 fi
 
 uv_bin="${HOMEMASTER_UV:-}"
@@ -43,77 +54,5 @@ if [[ -z "$uv_bin" || ! -x "$uv_bin" ]]; then
   echo "uv executable is required (supported range: >=0.11,<0.13); install it or set HOMEMASTER_UV" >&2
   exit 2
 fi
-uv_version="$($uv_bin --version 2>/dev/null | awk '{print $2}')"
-if [[ ! "$uv_version" =~ ^0\.(11|12)(\.|$) ]]; then
-  echo "unsupported uv version: ${uv_version:-unknown} (supported range: >=0.11,<0.13)" >&2
-  exit 2
-fi
 
-if [[ -n "$offline_bundle" ]]; then
-  [[ -d "$offline_bundle" ]] || { echo "offline bundle is missing: $offline_bundle" >&2; exit 2; }
-  [[ -f "$offline_bundle/SHA256SUMS" ]] || { echo "offline bundle manifest is missing: $offline_bundle/SHA256SUMS" >&2; exit 2; }
-  (cd "$offline_bundle" && sha256_check SHA256SUMS)
-  export UV_NO_INDEX=1 UV_FIND_LINKS="$offline_bundle/wheelhouse"
-fi
-
-mkdir -p "$runtime_root"
-"$uv_bin" venv --allow-existing --python 3.11 "$runtime_root/venv"
-sync_args=(sync --frozen --no-editable)
-if ((with_browser)); then sync_args+=(--extra browser); fi
-UV_PROJECT_ENVIRONMENT="$runtime_root/venv" "$uv_bin" "${sync_args[@]}" --project "$repo_root"
-
-neo4j_home="${HOMEMASTER_NEO4J_HOME:-$repo_root/.runtime/neo4j}"
-java_home="${HOMEMASTER_JAVA_HOME:-$repo_root/.runtime/java}"
-if [[ ! -x "$neo4j_home/bin/neo4j" || ! -x "$neo4j_home/bin/neo4j-admin" ]]; then
-  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
-  [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
-  "$runtime_python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
-elif [[ ! -x "$java_home/bin/java" ]]; then
-  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
-  [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
-  "$runtime_python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
-fi
-
-config="$repo_root/config/homemaster.yaml"
-template="$repo_root/config/homemaster.example.yaml"
-mkdir -p "$(dirname "$config")"
-if [[ ! -e "$config" ]]; then
-  cp -- "$template" "$config"
-  chmod 600 "$config"
-  "$runtime_python" - "$config" <<'PY'
-from pathlib import Path
-import secrets
-import sys
-import yaml
-
-path = Path(sys.argv[1])
-payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-neo4j = payload.setdefault("memory", {}).setdefault("neo4j", {})
-neo4j["mode"] = "managed_local"
-if not str(neo4j.get("password") or "").strip():
-    neo4j["password"] = secrets.token_urlsafe(32)
-path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
-PY
-else
-  [[ "$(file_mode "$config")" == 600 ]] || { echo "private config must be mode 0600: $config" >&2; exit 2; }
-fi
-
-python_path="$runtime_python"
-[[ -x "$neo4j_home/bin/neo4j" ]] || { echo "Neo4j executable is missing: $neo4j_home/bin/neo4j" >&2; exit 2; }
-[[ -x "$java_home/bin/java" ]] || { echo "Java executable is missing: $java_home/bin/java" >&2; exit 2; }
-
-"$python_path" "$repo_root/scripts/setup_memory_runtime.py" setup \
-  --repo-root "$repo_root" --config "$config" --python "$python_path" \
-  --neo4j-home "$neo4j_home" --java-home "$java_home"
-
-if ((with_browser)); then
-  "$python_path" -m playwright install chromium
-fi
-
-mkdir -p "$(dirname "$state_file")"
-printf '{"browser":%s}\n' "$([[ $with_browser -eq 1 ]] && echo true || echo false)" > "$state_file"
-
-"$python_path" -c 'import homemaster, mindmemos'
-
-export HOMEMASTER_CONFIG_PATH="$config"
-exec "$repo_root/scripts/homemaster" doctor --json
+exec "$uv_bin" run --project "$repo_root" python -m homemaster.cli setup "${cli_args[@]}"

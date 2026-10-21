@@ -1,5 +1,25 @@
 # Unreleased
 
+- New `homemaster setup` command productizes installation: after
+  `uv tool install` (or a wheel install), one command provisions the
+  per-user runtime at `~/.homemaster/runtime` — creates the runtime
+  venv (`uv pip install homemaster[memory]` for `--full`), downloads
+  and sha256-verifies the locked Neo4j/Temurin assets, writes a
+  mode-0600 `$HOMEMASTER_HOME/config.yaml` from the packaged example
+  (default `files` tier; `--full` wires managed-local Neo4j + embedded
+  Qdrant with a generated password), then runs a non-live doctor.
+  `--offline-bundle`/`--offline` install from a
+  `build_runtime_bundle.sh` bundle; re-runs are idempotent and only
+  top up managed keys on an existing config. The asset downloader
+  moved into `homemaster.setup_runtime` (`scripts/download_runtime_assets.py`
+  and `python -m scripts.download_runtime_assets` remain as thin repo
+  shims) and `runtime-assets.lock.json`/`homemaster.example.yaml` now
+  ship inside the wheel under `homemaster/resources/`.
+  `scripts/setup.sh` is now a thin shim that forwards to
+  `homemaster setup --runtime-root <repo>/.runtime`, keeping the
+  repo-dev flow (`--with-browser`, `--offline BUNDLE`, `--rebuild`)
+  unchanged.
+
 - Web UI gains a real product surface: a minimal hash router
   (`web/src/router.tsx`) splits the app into chat / sessions / memory /
   permissions / skills / settings / onboarding routes. A new three-step

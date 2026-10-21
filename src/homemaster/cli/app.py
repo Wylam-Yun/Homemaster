@@ -608,6 +608,80 @@ def doctor_command(
         render_error_and_exit(exc)
 
 
+@app.command("setup")
+def setup_command(
+    runtime_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--runtime-root",
+            help="Runtime root for venv/assets (default: $HOMEMASTER_HOME/runtime; "
+            "the setup.sh shim passes the checkout's .runtime).",
+        ),
+    ] = None,
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full/--files",
+            help="Provision the full MindMemOS tier or the files-only tier (default).",
+        ),
+    ] = False,
+    offline_bundle: Annotated[
+        Path | None,
+        typer.Option("--offline-bundle", help="Pre-built runtime bundle (SHA256SUMS verified)."),
+    ] = None,
+    offline: Annotated[
+        bool,
+        typer.Option(
+            "--offline",
+            help="Never touch the network (missing assets need --offline-bundle).",
+        ),
+    ] = False,
+    no_doctor: Annotated[
+        bool,
+        typer.Option("--no-doctor", help="Skip the closing doctor check."),
+    ] = False,
+    rebuild: Annotated[
+        bool,
+        typer.Option("--rebuild", help="Recreate the runtime venv even if it already exists."),
+    ] = False,
+    with_browser: Annotated[
+        bool,
+        typer.Option(
+            "--with-browser",
+            help="Also provision the browser environment (playwright chromium).",
+        ),
+    ] = False,
+    config_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            help="Managed config path "
+            "(default: repo config or $HOMEMASTER_HOME/config.yaml).",
+        ),
+    ] = None,
+) -> None:
+    """Install the HomeMaster runtime: venv, locked Neo4j/Java assets, config."""
+    from homemaster.setup_runtime import SetupError, setup_runtime
+
+    try:
+        code = setup_runtime(
+            runtime_root=runtime_root,
+            config_path=config_path,
+            offline_bundle=offline_bundle,
+            offline_only=offline,
+            full=full,
+            rebuild=rebuild,
+            with_browser=with_browser,
+            skip_doctor=no_doctor,
+            echo=typer.echo,
+        )
+    except SetupError as exc:
+        typer.echo(f"[FAIL] {exc}")
+        raise typer.Exit(code=2) from exc
+    if code:
+        raise typer.Exit(code=code)
+
+
 @app.command("shell")
 def shell_command(
     resume_session_id: Annotated[

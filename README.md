@@ -117,7 +117,8 @@ flowchart LR
 `full` 记忆档（MindMemOS + managed Neo4j + embedded Qdrant）同样两个平台均可——macOS
 走 embedded Qdrant（零额外二进制），Neo4j 仅支持 `managed_local`，连接地址必须是 loopback。
 
-V3.2 的可复现安装入口会创建项目虚拟环境、绑定本地 memory/Neo4j 运行时并输出 doctor JSON：
+V3.2 的可复现安装入口会创建项目虚拟环境、绑定本地 memory/Neo4j 运行时并输出 doctor JSON。
+仓库内的 `scripts/setup.sh` 现在是薄 shim，转发到 `homemaster setup --runtime-root <repo>/.runtime`：
 
 ```bash
 ./scripts/setup.sh
@@ -139,9 +140,16 @@ Neo4j 运行资产通过 [V3.2 runtime-assets Release](https://github.com/Wylam-
 
 ```bash
 uv tool install homemaster-<version>-py3-none-any.whl   # 或 GitHub Release 的 wheel URL
+homemaster setup    # 建 ~/.homemaster/runtime/venv 并生成 0600 的 config.yaml
 homemaster auth     # 交互式配置 provider，写入 $HOMEMASTER_HOME/config.yaml
 homemaster          # 起 server 并打开浏览器
 ```
+
+`homemaster setup` 是幂等命令：默认安装 `files` 记忆档；`homemaster setup --full`
+额外下载 `config/runtime-assets.lock.json` 锁定的 Neo4j/Java（macOS 用 embedded Qdrant），
+生成 managed-local 密码并启用 MindMemOS full 档。离线环境用
+`homemaster setup --offline-bundle <bundle>`（bundle 由 `scripts/build_runtime_bundle.sh` 生成）。
+已有 `config.yaml` 时 setup 只补齐托管运行时键，不覆盖 provider 配置。
 
 **源码安装（开发 / 完整 `full` 记忆档）：**
 

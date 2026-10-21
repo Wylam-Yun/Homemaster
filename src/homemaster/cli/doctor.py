@@ -99,7 +99,7 @@ def _python_environment_check() -> DoctorCheck:
     managed_runtime = any(
         ".venv" in parts
         or any(
-            parts[index : index + 2] == (".runtime", "venv")
+            parts[index : index + 2] in ((".runtime", "venv"), ("runtime", "venv"))
             for index in range(len(parts) - 1)
         )
         for parts in managed_parts
@@ -109,7 +109,10 @@ def _python_environment_check() -> DoctorCheck:
         name="python_environment",
         status=status,
         message=f"python={executable}",
-        suggestion="Use the project-managed .runtime/venv Python executable"
+        suggestion=(
+            "Use the project-managed .runtime/venv (checkout) or "
+            "$HOMEMASTER_HOME/runtime/venv (installed) Python executable"
+        )
         if status == "WARN"
         else None,
         details={"executable": str(executable)},

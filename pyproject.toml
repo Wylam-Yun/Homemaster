@@ -1,6 +1,6 @@
 [project]
 name = "homemaster"
-version = "0.1.0"
+version = "3.2.0"
 description = "LLM-first generic agent runtime with home-robot domain tools"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -114,6 +114,8 @@ homemaster = [
   "tools/*.json",
   "prompts/*.md",
   "prompts/*.txt",
+  "resources/*.json",
+  "resources/*.yaml",
   "memory/*.json",
   "alfworld/*.md",
   "alfworld/*.yaml",
