@@ -1151,4 +1151,47 @@ def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     assert application.closed
 
 
+
+def test_archive_status_reports_controller_view() -> None:
+    """GET /archive-status surfaces the latest finalization job for a session."""
+    application = _W2Application()
+
+    class _Finalization:
+        def status_for(self, session_id):
+            if session_id == "known":
+                return {"state": "processing", "job_id": "job-1"}
+            return None
+
+        def statuses(self):
+            return {"known": {"state": "processing", "job_id": "job-1"}}
+
+    application.settings.application_services["session_finalization"] = _Finalization()
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        assert client.get("/api/sessions/ghost/archive-status").status_code == 404
+        session_id = client.post("/api/sessions", json={}).json()["session_id"]
+        assert client.get(f"/api/sessions/{session_id}/archive-status").json() == {
+            "session_id": session_id,
+            "state": "none",
+        }
+        # The fake session manager does not know "known" — exercise the merge
+        # path through the bulk endpoint instead.
+        bulk = client.get("/api/archive-status")
+        assert bulk.status_code == 200
+        assert bulk.json() == {"sessions": {"known": {"state": "processing", "job_id": "job-1"}}}
+
+
+def test_archive_status_unavailable_without_full_tier() -> None:
+    application = _W2Application()
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions", json={}).json()["session_id"]
+        response = client.get(f"/api/sessions/{session_id}/archive-status")
+        assert response.status_code == 503
+        assert response.json()["code"] == "archive_unavailable"
+        assert client.get("/api/archive-status").json() == {"sessions": {}}
+
+
 __all__ = []
