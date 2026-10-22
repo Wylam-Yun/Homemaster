@@ -526,6 +526,12 @@ class MemoryConfig(BaseModel):
     user_char_limit: int = Field(default=1375, gt=0)
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
+    # Optional dedicated chat provider for MindMemOS extraction/finalization
+    # work.  ``None`` keeps the historical behaviour of reusing
+    # ``runtime_defaults.default_provider_name``; set it to isolate memory
+    # jobs from the interactive chat provider's account limits (the StepFun
+    # key is shared and its 5-request ceiling rejected every finalization).
+    chat_provider_name: str | None = None
     embedding_dimensions: int = Field(default=4096, gt=0)
     # Extraction fans out several simultaneous LLM calls per episode
     # (objectify + description + per-domain extractors, plus retry

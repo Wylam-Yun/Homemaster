@@ -1,5 +1,14 @@
 # Unreleased
 
+- Dedicated memory-extraction provider: `memory.chat_provider_name`
+  routes MindMemOS extraction/finalization LLM calls to a different
+  chat provider than interactive chat (`runtime_defaults.
+  default_provider_name` stays the fallback).  Finalization was
+  exhausting the shared StepFun key's 5-request ceiling (`current: 6,
+  limit: 5`) no matter the semaphore; pointing extraction at the Mimo
+  provider completed the same 78-event job in ~2.5 minutes with 12
+  memories extracted.
+
 - Memory-extraction concurrency cap: session finalization's schema
   pipeline fans out five simultaneous LLM calls per episode (objectify
   + description + three fixed-domain extractors) and each retry layer

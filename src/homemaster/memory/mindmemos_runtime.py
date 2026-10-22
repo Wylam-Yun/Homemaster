@@ -109,7 +109,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
     from mindmemos.config import MemoryConfig, build, validate_config
 
     chat = config.get_provider(
-        config.runtime_defaults.default_provider_name,
+        config.memory.chat_provider_name or config.runtime_defaults.default_provider_name,
         kind="chat",
     )
     embedding = config.get_provider(

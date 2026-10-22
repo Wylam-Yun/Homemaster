@@ -117,6 +117,23 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     capped = config.model_copy(update={"memory": capped_memory})
     assert module.build_mindmemos_config(capped).chat_model_router.max_concurrency == 1
 
+    # A dedicated extraction provider overrides the runtime default without
+    # touching interactive chat routing.
+    alt_chat = _chat_provider().model_copy(
+        update={"name": "AltChat", "model": "alt-model", "api_keys": ["alt-key"]}
+    )
+    dedicated = config.model_copy(
+        update={
+            "providers": config.providers.model_copy(
+                update={"items": list(config.providers.items) + [alt_chat]}
+            ),
+            "memory": config.memory.model_copy(update={"chat_provider_name": "AltChat"}),
+        }
+    )
+    dedicated_chat = module.build_mindmemos_config(dedicated).chat_model_router.endpoints[0]
+    assert dedicated_chat.model == "anthropic/alt-model"
+    assert dedicated_chat.api_key == "alt-key"
+
 
 def test_build_mindmemos_config_maps_server_mode_qdrant(tmp_path: Path) -> None:
     module = importlib.import_module("homemaster.memory.mindmemos_runtime")
