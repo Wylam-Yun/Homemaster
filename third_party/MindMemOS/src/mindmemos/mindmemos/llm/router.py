@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -120,6 +121,26 @@ def build_router(router_cfg: ModelRouterConfig, alias: str, *, num_retries: int 
 # client wrappers stay per-request since they hold no cross-request state.
 _ROUTER_CACHE: dict[str, tuple[Router, int]] = {}
 
+# Concurrency limiters share the router cache key so every per-request client
+# built for the same resolved config contends on ONE semaphore — the account
+# ceiling applies across all callers of that router, not per client wrapper.
+_LIMITER_CACHE: dict[str, asyncio.Semaphore] = {}
+
+
+def get_limiter(router_cfg: ModelRouterConfig, alias: str, *, num_retries: int | None = None) -> asyncio.Semaphore | None:
+    """Return the shared semaphore for this resolved config, or None when
+    ``max_concurrency`` is not positive.  The semaphore is created lazily on
+    first use inside the running event loop."""
+    limit = router_cfg.max_concurrency
+    if limit <= 0:
+        return None
+    key = _router_cache_key(router_cfg, alias, num_retries)
+    limiter = _LIMITER_CACHE.get(key)
+    if limiter is None:
+        limiter = asyncio.Semaphore(limit)
+        _LIMITER_CACHE[key] = limiter
+    return limiter
+
 
 def _router_cache_key(router_cfg: ModelRouterConfig, alias: str, num_retries: int | None) -> str:
     """Build a stable cache key from everything that affects Router identity."""
@@ -129,6 +150,7 @@ def _router_cache_key(router_cfg: ModelRouterConfig, alias: str, num_retries: in
         "allowed_fails": router_cfg.allowed_fails,
         "cool_down": router_cfg.cool_down,
         "num_retries": num_retries,
+        "max_concurrency": router_cfg.max_concurrency,
         "dimensions_supported_models": list(router_cfg.dimensions_supported_models),
         "endpoints": [
             build_litellm_params(ep, dimensions_supported_models=router_cfg.dimensions_supported_models)
@@ -157,6 +179,7 @@ def get_router(router_cfg: ModelRouterConfig, alias: str, *, num_retries: int | 
 def clear_router_cache() -> None:
     """Drop all cached Routers so the next ``get_router`` rebuilds from current config."""
     _ROUTER_CACHE.clear()
+    _LIMITER_CACHE.clear()
 
 
 def dump_response(obj: Any) -> dict:

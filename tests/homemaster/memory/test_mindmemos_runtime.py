@@ -70,6 +70,8 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert chat.timeout == 90
     assert chat.num_retries == 3
 
+    assert mapped.chat_model_router.max_concurrency == 3
+
     embedding = mapped.embed_model_router.endpoints[0]
     assert embedding.model == "openai/Qwen/Qwen3-Embedding-8B"
     assert embedding.api_base == "https://embedding.example/v1"
@@ -82,6 +84,9 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert mapped.database.neo4j.password == "neo4j-test-password"
     assert mapped.database.neo4j.database == "memory"
     assert mapped.algo_config.add.schema.merge.enable_entity_merge_decision is False
+    drain = mapped.algo_config.add.schema.drain
+    assert drain.episode_retry_backoff_base == 15.0
+    assert drain.episode_retry_backoff_max == 120.0
     schema_path = Path(mapped.algo_config.add.schema.entity_modeling_path)
     assert schema_path.is_file()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -107,6 +112,10 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
         }
     )
     assert module.build_mindmemos_config(uncapped).chat_model_router.endpoints[0].max_tokens == 8192
+
+    capped_memory = config.memory.model_copy(update={"llm_max_concurrency": 1})
+    capped = config.model_copy(update={"memory": capped_memory})
+    assert module.build_mindmemos_config(capped).chat_model_router.max_concurrency == 1
 
 
 def test_build_mindmemos_config_maps_server_mode_qdrant(tmp_path: Path) -> None:

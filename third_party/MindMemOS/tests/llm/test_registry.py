@@ -10,7 +10,7 @@ def test_get_llm_client_creates_new_client_each_call(monkeypatch) -> None:
     class FakeLLMClient:
         ALIAS = "chat"
 
-        def __init__(self, router, *, default_model=None, max_attempts=3) -> None:
+        def __init__(self, router, *, default_model=None, max_attempts=3, limiter=None) -> None:
             self.router = router
             created.append(self)
 
@@ -38,7 +38,7 @@ def test_get_llm_client_uses_request_scoped_config(monkeypatch) -> None:
     class FakeLLMClient:
         ALIAS = "chat"
 
-        def __init__(self, router, *, default_model=None, max_attempts=3) -> None:
+        def __init__(self, router, *, default_model=None, max_attempts=3, limiter=None) -> None:
             pass
 
     def fake_get_router(router_cfg, alias, *, num_retries=None):

@@ -12,7 +12,7 @@ from ..errors import InvalidConfigError
 from .chat import LLMClient
 from .embedding import EmbedClient
 from .rerank import RerankClient
-from .router import _ROUTER_CACHE, clear_router_cache, get_router
+from .router import _ROUTER_CACHE, clear_router_cache, get_limiter, get_router
 
 
 def init_llm_client() -> LLMClient:
@@ -48,7 +48,12 @@ def get_llm_client() -> LLMClient:
     router_cfg = cfg.chat_model_router
     router, _ = get_router(router_cfg, LLMClient.ALIAS)
     default_model = LLMClient.ALIAS if router_cfg.endpoints else None
-    return LLMClient(router, default_model=default_model, max_attempts=router_cfg.format_parser_max_attempts)
+    return LLMClient(
+        router,
+        default_model=default_model,
+        max_attempts=router_cfg.format_parser_max_attempts,
+        limiter=get_limiter(router_cfg, LLMClient.ALIAS),
+    )
 
 
 def get_embed_client() -> EmbedClient:

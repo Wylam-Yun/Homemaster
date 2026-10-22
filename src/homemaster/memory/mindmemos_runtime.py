@@ -146,6 +146,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
         {
             "telemetry": {"enabled": False},
             "chat_model_router": {
+                "max_concurrency": config.memory.llm_max_concurrency,
                 "endpoints": [
                     {
                         "model": _litellm_model(chat.api_format, chat.model),
@@ -183,6 +184,16 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                             "episode_search_fields_augment": False,
                         },
                         "merge": {"enable_entity_merge_decision": False},
+                        "drain": {
+                            # Provider account concurrency ceilings reject
+                            # extraction bursts (Anthropic: "current: 6,
+                            # limit: 5"); the semaphore caps our fan-out, and
+                            # a wider retry window lets retries outlast
+                            # external bursts on shared accounts.  Defaults
+                            # (~1s/2s) always lost to real-world pressure.
+                            "episode_retry_backoff_base": 15.0,
+                            "episode_retry_backoff_max": 120.0,
+                        },
                     }
                 }
             },

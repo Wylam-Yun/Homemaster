@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
@@ -32,7 +33,14 @@ class LLMClient:
 
     ALIAS = "chat"
 
-    def __init__(self, router: Router, *, default_model: str | None = ALIAS, max_attempts: int = 3) -> None:
+    def __init__(
+        self,
+        router: Router,
+        *,
+        default_model: str | None = ALIAS,
+        max_attempts: int = 3,
+        limiter: asyncio.Semaphore | None = None,
+    ) -> None:
         """Wrap a pre-built litellm Router for chat calls.
 
         Args:
@@ -40,10 +48,15 @@ class LLMClient:
             default_model: Router alias to target, or ``None`` when no endpoint is
                 configured (chat then raises a clear error).
             max_attempts: Maximum chat generations when ``format_parser`` rejects output.
+            limiter: Optional shared semaphore bounding simultaneous
+                ``acompletion`` calls across every client built on this router.
+                Only the wire call is gated; parse-feedback retries re-acquire
+                per attempt so in-flight requests never exceed the limit.
         """
         self._router = router
         self._default_model = default_model
         self._format_parser_max_attempts = max(1, max_attempts)
+        self._limiter = limiter
 
     @traced("llm.chat")
     async def chat(
@@ -84,7 +97,11 @@ class LLMClient:
                 },
             )
             try:
-                resp = await self._router.acompletion(model=target, messages=convo, **kwargs)
+                if self._limiter is None:
+                    resp = await self._router.acompletion(model=target, messages=convo, **kwargs)
+                else:
+                    async with self._limiter:
+                        resp = await self._router.acompletion(model=target, messages=convo, **kwargs)
             except Exception as exc:
                 logger.info(
                     "litellm_call",

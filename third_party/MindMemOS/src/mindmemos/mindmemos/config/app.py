@@ -229,6 +229,13 @@ class ModelRouterConfig:
     format_parser_max_attempts: int = 3
     """Maximum chat generations when format_parser rejects model output."""
 
+    max_concurrency: int = 0
+    """Process-wide cap on simultaneous ``chat`` completions issued through
+    routers built from this config.  Extraction pipelines fan out several
+    LLM calls at once (objectify + description + per-domain extractors) and
+    provider accounts enforce a concurrent-request ceiling; 0 disables the
+    limit, any positive value shares one semaphore per resolved router."""
+
     dimensions_supported_models: list[str] = field(default_factory=list)
     """Model name prefixes (provider prefix stripped) known to support the
     ``dimensions`` embedding request param. litellm otherwise drops

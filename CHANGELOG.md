@@ -1,5 +1,19 @@
 # Unreleased
 
+- Memory-extraction concurrency cap: session finalization's schema
+  pipeline fans out five simultaneous LLM calls per episode (objectify
+  + description + three fixed-domain extractors) and each retry layer
+  can leave in-flight stragglers, so Anthropic accounts with a
+  concurrent-request ceiling rejected runs outright ("concurrency
+  reached, current: 6, limit: 5"). MindMemOS `ModelRouterConfig` gains
+  `max_concurrency` backed by a per-router shared `asyncio.Semaphore`
+  gating every `LLMClient.chat` wire call (parse-feedback retries
+  re-acquire per attempt); HomeMaster exposes it as
+  `memory.llm_max_concurrency` defaulting to 3. Episode retry backoff
+  widened to 15s/120s so retries can outlast external bursts on shared
+  accounts. User-facing chat runs do not flow through this path and are
+  unaffected.
+
 - Session archive visibility: the Memory page "已归档" tab is renamed
   "历史版本" — it lists superseded memory versions (`status=archived`),
   which session archival never produced (extracted memories are stored

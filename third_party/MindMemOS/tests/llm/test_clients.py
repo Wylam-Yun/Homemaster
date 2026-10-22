@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -59,6 +60,72 @@ class SuccessfulEmbedRouter:
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=None, total_tokens=1),
             model="embedding",
         )
+
+
+class ConcurrencyTrackingRouter:
+    def __init__(self) -> None:
+        self.inflight = 0
+        self.max_inflight = 0
+        self.calls = 0
+
+    async def acompletion(self, **kwargs):
+        self.inflight += 1
+        self.max_inflight = max(self.max_inflight, self.inflight)
+        self.calls += 1
+        try:
+            await asyncio.sleep(0.01)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model="chat",
+            )
+        finally:
+            self.inflight -= 1
+
+
+@pytest.mark.asyncio
+async def test_chat_limiter_bounds_concurrent_wire_calls() -> None:
+    router = ConcurrencyTrackingRouter()
+    limiter = asyncio.Semaphore(2)
+    clients = [LLMClient(router, limiter=limiter) for _ in range(6)]
+
+    await asyncio.gather(
+        *(c.chat(task="t", messages=[{"role": "user", "content": "hi"}]) for c in clients)
+    )
+
+    assert router.calls == 6
+    assert router.max_inflight <= 2
+
+
+@pytest.mark.asyncio
+async def test_chat_without_limiter_allows_full_fanout() -> None:
+    router = ConcurrencyTrackingRouter()
+    client = LLMClient(router)
+
+    await asyncio.gather(
+        *(client.chat(task="t", messages=[{"role": "user", "content": "hi"}]) for _ in range(4))
+    )
+
+    assert router.max_inflight > 2
+
+
+@pytest.mark.asyncio
+async def test_get_limiter_shares_semaphore_per_router_key_and_respects_zero() -> None:
+    from mindmemos.config.app import ModelRouterConfig
+    from mindmemos.llm.router import _LIMITER_CACHE, clear_router_cache, get_limiter
+
+    clear_router_cache()
+    cfg = ModelRouterConfig(max_concurrency=3)
+    first = get_limiter(cfg, "chat")
+    second = get_limiter(ModelRouterConfig(max_concurrency=3), "chat")
+    assert first is not None and first is second
+    assert first._value == 3  # noqa: SLF001 — observable bound, not internals for its own sake
+    assert get_limiter(ModelRouterConfig(max_concurrency=0), "chat") is None
+    # A different limit resolves to a different cache key (and limiter).
+    other = get_limiter(ModelRouterConfig(max_concurrency=4), "chat")
+    assert other is not None and other is not first
+    clear_router_cache()
+    assert not _LIMITER_CACHE
 
 
 @pytest.mark.asyncio

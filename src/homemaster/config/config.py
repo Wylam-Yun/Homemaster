@@ -527,6 +527,13 @@ class MemoryConfig(BaseModel):
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
     embedding_dimensions: int = Field(default=4096, gt=0)
+    # Extraction fans out several simultaneous LLM calls per episode
+    # (objectify + description + per-domain extractors, plus retry
+    # stragglers) while provider accounts enforce a concurrent-request
+    # ceiling — the Anthropic tier rejected finalization at "current: 6,
+    # limit: 5".  Cap all MindMemOS chat calls so the peak stays below
+    # the account limit; 0 disables the cap.
+    llm_max_concurrency: int = Field(default=3, ge=0)
     dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     qdrant: MemoryQdrantConfig = Field(default_factory=MemoryQdrantConfig)
