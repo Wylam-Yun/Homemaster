@@ -1,4 +1,4 @@
-import type { SessionSummary } from '../api/http'
+import type { ArchiveStatus, SessionSummary } from '../api/http'
 import { Link, chatHash } from '../router'
 import styles from './SessionsPage.module.css'
 
@@ -10,6 +10,8 @@ type Props = {
   signals: Record<string, SessionSignal>
   sessionTitle: (session: SessionSummary) => string
   formatTime: (value: string | null) => string
+  archiveStates?: Record<string, ArchiveStatus>
+  archiveBadgeText?: (status: ArchiveStatus | undefined) => string | null
 }
 
 /**
@@ -17,7 +19,7 @@ type Props = {
  * surface) so flows that drop the selection (e.g. deleting the open session)
  * have somewhere meaningful to land.
  */
-export function SessionsPage({ sessions, sessionId, signals, sessionTitle, formatTime }: Props) {
+export function SessionsPage({ sessions, sessionId, signals, sessionTitle, formatTime, archiveStates, archiveBadgeText }: Props) {
   return (
     <section className={styles.page} aria-labelledby="sessions-page-title">
       <div className={styles.headingRow}>
@@ -34,6 +36,7 @@ export function SessionsPage({ sessions, sessionId, signals, sessionTitle, forma
           const meta = [formatTime(session.updated_at), `${session.message_count} 条`]
             .filter(part => part.length > 0)
             .join(' · ')
+          const badge = archiveBadgeText?.(archiveStates?.[session.session_id])
           return (
             <Link
               key={session.session_id}
@@ -44,7 +47,10 @@ export function SessionsPage({ sessions, sessionId, signals, sessionTitle, forma
             >
               <span className={styles.dot} data-status={signals[session.session_id] ?? 'idle'} aria-hidden="true" />
               <span className={styles.title}>{title}</span>
-              <span className={styles.meta}>{meta.length > 0 ? meta : session.session_id.slice(0, 12)}</span>
+              <span className={styles.meta}>
+                {meta.length > 0 ? meta : session.session_id.slice(0, 12)}
+                {badge !== null && badge !== undefined && <span data-archive-state={archiveStates?.[session.session_id]?.state}> · {badge}</span>}
+              </span>
             </Link>
           )
         })}

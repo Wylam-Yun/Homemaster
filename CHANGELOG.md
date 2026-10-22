@@ -1,5 +1,20 @@
 # Unreleased
 
+- Session archive visibility: the Memory page "已归档" tab is renamed
+  "历史版本" — it lists superseded memory versions (`status=archived`),
+  which session archival never produced (extracted memories are stored
+  `active` so they stay recallable). `GET
+  /api/sessions/{id}/archive-status` reports the latest finalization
+  job per session (`none`/`queued`/`processing`/`completed`/`failed`,
+  stage detail, `failed_phase`, error, `extracted_count`) backed by the
+  durable `experience_jobs` receipts, so archive state survives restart
+  and page refresh. The session-finalization controller now emits
+  `memory.work.processing/completed/failed` RuntimeEvents that project
+  onto the session SSE stream; the UI shows a per-session archive badge
+  (排队中/整理中/已整理/整理失败), toasts the extracted count or the
+  failure reason (e.g. provider rate-limit), and distinguishes
+  "completed, nothing extractable" from failure.
+
 - Review hardening round on the productization branch: the provider
   `test` probe no longer ships stored credentials to a caller-chosen
   `base_url`/`api_format`/`auth_type` (keys are dropped unless the

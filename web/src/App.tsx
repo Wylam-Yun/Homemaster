@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderProfile, type SessionStatusInfo, type SessionSummary, type SkillInfo, type UiMode } from './api/http'
+import { HomeMasterApi, HttpError, type ArchiveStatus, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderProfile, type SessionStatusInfo, type SessionSummary, type SkillInfo, type UiMode } from './api/http'
 import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type ModelSelection } from './components/composer/ComposerPanel'
@@ -42,6 +42,23 @@ function sessionTitle(session: SessionSummary): string {
   const title = session.title.trim()
   if (title.length > 0) return title
   return `会话 ${session.session_id.slice(0, 8)}`
+}
+
+function archiveBadgeText(status: ArchiveStatus | undefined): string | null {
+  if (status === undefined) return null
+  switch (status.state) {
+    case 'queued':
+    case 'processing':
+      return '整理中…'
+    case 'completed':
+      return status.extracted_count !== null && status.extracted_count !== undefined && status.extracted_count > 0
+        ? `已提取 ${status.extracted_count} 条记忆`
+        : '已整理（无新记忆）'
+    case 'failed':
+      return '整理失败'
+    default:
+      return null
+  }
 }
 
 function formatRelativeTime(value: string | null): string {
@@ -92,6 +109,8 @@ function AppShell() {
   const routeRef = useRef(route)
   routeRef.current = route
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [archiveStates, setArchiveStates] = useState<Record<string, ArchiveStatus>>({})
+  const archivePollTimers = useRef<Record<string, number>>({})
   const [sessionQuery, setSessionQuery] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryMessage[]>([])
@@ -212,6 +231,15 @@ function AppShell() {
     return listed.sessions
   }, [])
 
+  const refreshArchiveStates = useCallback(async () => {
+    try {
+      const statuses = await api.archiveStatuses()
+      setArchiveStates(current => ({ ...statuses.sessions, ...current }))
+    } catch {
+      // files tier or older backends have no archive status — hide the badges.
+    }
+  }, [])
+
   const refreshMemories = useCallback(async () => {
     setMemoryLoading(true)
     try {
@@ -246,6 +274,39 @@ function AppShell() {
       setSessionStatus(current => current !== null && current.session_id === event.session_id
         ? { ...current, ui_mode: mode }
         : current)
+    }
+    if (event.type.startsWith('memory.work.')) {
+      const payload = event.payload as Record<string, unknown>
+      const state: ArchiveStatus['state'] =
+        event.type === 'memory.work.completed' ? 'completed'
+        : event.type === 'memory.work.failed' ? 'failed'
+        : 'processing'
+      setArchiveStates(current => ({
+        ...current,
+        [event.session_id]: {
+          ...current[event.session_id],
+          state,
+          job_id: typeof payload.job_id === 'string' ? payload.job_id : current[event.session_id]?.job_id,
+          extracted_count: typeof payload.extracted_count === 'number' ? payload.extracted_count : current[event.session_id]?.extracted_count,
+          error: typeof payload.error === 'string' ? payload.error : null,
+        },
+      }))
+      if (event.type === 'memory.work.completed') {
+        const extracted = typeof payload.extracted_count === 'number' ? payload.extracted_count : null
+        toast.show({
+          title: '会话整理完成',
+          description: extracted !== null && extracted > 0 ? `已提取 ${extracted} 条记忆` : '没有提取出新的记忆。',
+        })
+        void refreshMemories()
+        void refreshArchiveStates()
+      }
+      if (event.type === 'memory.work.failed') {
+        toast.show({
+          title: '会话整理失败',
+          description: typeof payload.error === 'string' ? payload.error : '归档任务执行失败。',
+        })
+        void refreshArchiveStates()
+      }
     }
     dispatch(event)
     if (
@@ -402,6 +463,7 @@ function AppShell() {
   }, [route, ensureChatSession, selectSession])
 
   useEffect(() => { void refreshMemories() }, [refreshMemories])
+  useEffect(() => { void refreshArchiveStates() }, [refreshArchiveStates])
 
   const normalizedSessionQuery = sessionQuery.trim().toLocaleLowerCase()
   const visibleSessions = useMemo(() => {
@@ -568,10 +630,36 @@ function AppShell() {
 
   const [archivingIds, setArchivingIds] = useState<ReadonlySet<string>>(new Set())
 
+  const pollArchiveStatus = useCallback((sid: string) => {
+    if (archivePollTimers.current[sid] !== undefined) return
+    archivePollTimers.current[sid] = window.setInterval(async () => {
+      try {
+        const status = await api.archiveStatus(sid)
+        setArchiveStates(current => ({ ...current, [sid]: status }))
+        if (status.state === 'completed' || status.state === 'failed' || status.state === 'none') {
+          window.clearInterval(archivePollTimers.current[sid])
+          delete archivePollTimers.current[sid]
+        }
+      } catch {
+        window.clearInterval(archivePollTimers.current[sid])
+        delete archivePollTimers.current[sid]
+      }
+    }, 3000)
+  }, [])
+
+  useEffect(() => () => {
+    Object.values(archivePollTimers.current).forEach(timer => window.clearInterval(timer))
+  }, [])
+
   const archiveSession = useCallback(async (session: SessionSummary) => {
     setArchivingIds(current => new Set(current).add(session.session_id))
     try {
-      await api.archiveSession(session.session_id)
+      const receipt = await api.archiveSession(session.session_id)
+      setArchiveStates(current => ({
+        ...current,
+        [session.session_id]: { state: 'queued', job_id: receipt.job_id },
+      }))
+      pollArchiveStatus(session.session_id)
       toast.show({
         title: `已归档会话 ${sessionTitle(session)}`,
         description: '记忆总结与整理在后台执行',
@@ -585,7 +673,7 @@ function AppShell() {
         return next
       })
     }
-  }, [showNotice, toast])
+  }, [pollArchiveStatus, showNotice, toast])
 
   const persistModelSelection = useCallback((selection: ModelSelection) => {
     setModelSelection(selection)
@@ -787,6 +875,9 @@ function AppShell() {
                     >
                       <span>{title}</span>
                       <small>{itemMeta.length > 0 ? itemMeta : session.session_id.slice(0, 12)}</small>
+                      {archiveBadgeText(archiveStates[session.session_id]) !== null && (
+                        <small data-archive-state={archiveStates[session.session_id]?.state}>{archiveBadgeText(archiveStates[session.session_id])}</small>
+                      )}
                     </button>
                   )}
                   <span className="session-actions">
@@ -844,6 +935,8 @@ function AppShell() {
             signals={sessionSignals}
             sessionTitle={sessionTitle}
             formatTime={formatRelativeTime}
+            archiveStates={archiveStates}
+            archiveBadgeText={archiveBadgeText}
           />
         ) : <>
           <section className="conversation" aria-live="polite" ref={follow.containerRef}>

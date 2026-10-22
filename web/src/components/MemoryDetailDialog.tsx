@@ -91,7 +91,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
         </header>
         <div className={styles.body}>
           <div className={styles.statusLine}>
-            <span data-status={memory.status}>{memory.status === 'active' ? '生效中' : '已归档'}</span>
+            <span data-status={memory.status}>{memory.status === 'active' ? '生效中' : '历史版本'}</span>
             <span>{typeLabel(memory.memory_type)}</span>
             {showOutcome && <span>{memory.outcome === 'success' ? '成功' : '失败'}</span>}
             {memory.is_executable === true && <span>可执行</span>}

@@ -189,6 +189,29 @@ class SessionFinalizer:
             rendered_messages=len(episode["events"]),
         )
 
+    def job_index(self) -> dict[str, dict[str, Any]]:
+        """Newest durable job receipt per session, for archive-status reads."""
+
+        index: dict[str, dict[str, Any]] = {}
+        latest_mtime: dict[str, float] = {}
+        if not self._jobs_root.is_dir():
+            return index
+        for job_dir in self._jobs_root.iterdir():
+            if not job_dir.is_dir() or job_dir.name.startswith("_"):
+                continue
+            try:
+                job = self._read_json(job_dir / "job.json")
+                mtime = (job_dir / "job.json").stat().st_mtime
+            except (OSError, json.JSONDecodeError):
+                continue
+            session_id = job.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                continue
+            if session_id not in latest_mtime or latest_mtime[session_id] < mtime:
+                latest_mtime[session_id] = mtime
+                index[session_id] = job
+        return index
+
     def incomplete_jobs(self) -> list[tuple[Path, str]]:
         """Return (job_dir, session_id) for unfinished jobs that can still resume."""
 

@@ -660,6 +660,7 @@ def _finish_home_application(
             finalizer,
             memory_add_queue,
             ready=lambda: mindmemos.available,
+            event_sink=bus,
         )
         if finalizer is not None and memory_add_queue is not None
         else None
@@ -745,6 +746,7 @@ def _finish_home_application(
                             "memory_migration": memory_migration,
                             "managed_neo4j": managed_neo4j,
                             "managed_qdrant": managed_qdrant,
+                            "session_finalization": session_finalization,
                         }
                         if resolved.memory.mode == "full" and mindmemos is not None
                         else {}

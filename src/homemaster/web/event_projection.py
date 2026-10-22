@@ -42,6 +42,12 @@ class WebEventProjection:
         """Return zero or more Web events for one private Runtime event."""
 
         payload = event.payload if isinstance(event.payload, dict) else {}
+        if event.type in {
+            "memory.work.processing",
+            "memory.work.completed",
+            "memory.work.failed",
+        }:
+            return (self._web_event(event, request_id, event.type, dict(payload)),)
         if event.type == "transport.delta":
             return self._project_deltas(event, request_id, payload)
         if event.type == "runtime.turn_started":

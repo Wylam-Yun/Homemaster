@@ -83,7 +83,7 @@ describe('MemoryPage', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: /已归档/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /历史版本/ }))
     fireEvent.click(screen.getByRole('button', { name: /事实/ }))
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'archived memory' } })
 

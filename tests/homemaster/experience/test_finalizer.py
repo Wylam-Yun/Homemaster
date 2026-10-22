@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -687,3 +688,40 @@ async def test_finalizer_feeds_dreaming_despite_implicit_failure(tmp_path: Path)
     assert job["implicit_feedback"]["attempts_allowed"] == 3
     assert job["dreaming_counter"]["status"] == "completed"
     assert job["dreaming"]["status"] == "no_action"
+
+
+def test_job_index_returns_newest_receipt_per_session(tmp_path: Path) -> None:
+    jobs_root = tmp_path / "memory" / "experience_jobs"
+    for name, session_id, status in (
+        ("oldjob", "session-one", "completed"),
+        ("newjob", "session-one", "failed"),
+        ("otherjob", "session-two", "completed"),
+    ):
+        job_dir = jobs_root / name
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps({"job_id": name, "session_id": session_id, "status": status})
+        )
+    # The "newjob" receipt is the newer file for session-one.
+    newest = jobs_root / "newjob" / "job.json"
+    os.utime(newest, (newest.stat().st_atime, newest.stat().st_mtime + 10))
+
+    finalizer = SessionFinalizer(
+        trace_path=tmp_path / "runtime_events.jsonl",
+        data_root=tmp_path / "memory",
+        mindmemos=SimpleNamespace(add_schema_episode=lambda *args, **kwargs: None),
+    )
+
+    index = finalizer.job_index()
+
+    assert set(index) == {"session-one", "session-two"}
+    assert index["session-one"]["job_id"] == "newjob"
+    assert index["session-one"]["status"] == "failed"
+    assert index["session-two"]["job_id"] == "otherjob"
+
+    empty = SessionFinalizer(
+        trace_path=tmp_path / "runtime_events.jsonl",
+        data_root=tmp_path / "missing",
+        mindmemos=SimpleNamespace(add_schema_episode=lambda *args, **kwargs: None),
+    )
+    assert empty.job_index() == {}

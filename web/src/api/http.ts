@@ -1,3 +1,17 @@
+export type ArchiveState = 'none' | 'queued' | 'processing' | 'completed' | 'failed'
+
+export type ArchiveStatus = {
+  session_id?: string
+  state: ArchiveState
+  job_id?: string | null
+  exit_reason?: string | null
+  stages?: Record<string, string | null>
+  failed_phase?: string | null
+  error?: string | null
+  collected_events?: number | null
+  extracted_count?: number | null
+}
+
 export type SessionSummary = {
   session_id: string
   title: string
@@ -400,6 +414,16 @@ export class HomeMasterApi {
 
   archiveSession(sessionId: string): Promise<{ session_id: string; job_id: string; status: string }> {
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' })
+  }
+
+  /** GET /api/sessions/{id}/archive-status — latest finalization job for one session. */
+  archiveStatus(sessionId: string): Promise<ArchiveStatus> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive-status`)
+  }
+
+  /** GET /api/archive-status — latest archive job per session, for badge restore. */
+  archiveStatuses(): Promise<{ sessions: Record<string, ArchiveStatus> }> {
+    return this.request('/api/archive-status')
   }
 
   /**

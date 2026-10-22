@@ -922,6 +922,37 @@ def create_web_app(
             "status": receipt.status,
         }
 
+    @app.get("/api/sessions/{session_id}/archive-status")
+    async def archive_status(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        controller = _application_services(application).get("session_finalization")
+        status_for = getattr(controller, "status_for", None)
+        if not callable(status_for):
+            return _error(
+                503,
+                "archive_unavailable",
+                "Session archival requires memory.mode='full'.",
+                retryable=False,
+            )
+        view = await asyncio.to_thread(status_for, session_id)
+        if view is None:
+            return {"session_id": session_id, "state": "none"}
+        return {"session_id": session_id, **view}
+
+    @app.get("/api/archive-status")
+    async def archive_statuses() -> object:
+        controller = _application_services(application).get("session_finalization")
+        statuses = getattr(controller, "statuses", None)
+        if not callable(statuses):
+            return {"sessions": {}}
+        return {"sessions": await asyncio.to_thread(statuses)}
+
     @app.post("/api/sessions/{session_id}/mode")
     async def set_session_mode(session_id: str, body: SetSessionModeRequest) -> object:
         if session_id not in _session_ids(application.session_manager):

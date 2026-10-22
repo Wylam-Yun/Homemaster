@@ -212,6 +212,12 @@ class WebEventHub:
                 if event.type == _RUN_FINISHED_EVENT_TYPE:
                     await self._finish_marker(event)
                     continue
+                if event.type.startswith("memory.work."):
+                    # Memory work jobs are session-scoped but own no run: they
+                    # bypass run/request correlation and project directly.
+                    for projected in self._projection.project(event, request_id=""):
+                        await self.publish(projected)
+                    continue
                 try:
                     request_id = await self._run_registry.correlate(event)
                 except RunCorrelationError:

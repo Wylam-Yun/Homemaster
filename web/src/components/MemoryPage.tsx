@@ -125,7 +125,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
             生效中 <span>{snapshot?.stats.active_count ?? 0}</span>
           </button>
           <button type="button" role="tab" aria-selected={tab === 'archived'} onClick={() => { setTab('archived') }}>
-            已归档 <span>{snapshot?.stats.archived_count ?? 0}</span>
+            历史版本 <span>{snapshot?.stats.archived_count ?? 0}</span>
           </button>
         </div>
         <div className={styles.filters}>

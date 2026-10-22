@@ -91,6 +91,9 @@ vi.mock('./api/http', () => ({
     listGrants = vi.fn().mockResolvedValue({ grants: [], next_cursor: null })
     revokeGrant = vi.fn().mockResolvedValue(null)
     memoryHistory = vi.fn().mockResolvedValue({ memory_id: 'memory-01', versions: [] })
+    archiveSession = vi.fn().mockResolvedValue({ session_id: 'session-01', job_id: 'job-01', status: 'accepted' })
+    archiveStatus = vi.fn().mockResolvedValue({ session_id: 'session-01', state: 'completed', job_id: 'job-01', extracted_count: 2 })
+    archiveStatuses = vi.fn().mockResolvedValue({ sessions: { 'session-01': { state: 'completed', job_id: 'job-01', extracted_count: 2 } } })
     memories = vi.fn().mockImplementation(() => {
       if (mocks.memoryUnavailable) {
         return Promise.reject(new mocks.HttpError(503, 'memory_unavailable', 'files memory tier has no memory manager'))
@@ -172,6 +175,44 @@ describe('App memory navigation', () => {
     expect(document.querySelector('.shell')).toHaveAttribute('data-recording', 'true')
     expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
     window.history.replaceState({}, '', '/')
+  })
+
+  it('shows the archive badge for a session with a completed finalization job', async () => {
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+    await waitFor(() => { expect(screen.getByText('已提取 2 条记忆')).toBeVisible() })
+  })
+
+  it('updates the archive badge when memory.work events arrive over the stream', async () => {
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+    act(() => {
+      mocks.emitters.forEach(emitter => emitter.onEvent({
+        type: 'memory.work.processing',
+        session_id: 'session-01',
+        run_id: 'job-9',
+        request_id: '',
+        seq: 1,
+        ts: 0,
+        payload: { job_id: 'job-9' },
+      }))
+    })
+    await waitFor(() => { expect(screen.getByText('整理中…')).toBeVisible() })
+
+    act(() => {
+      mocks.emitters.forEach(emitter => emitter.onEvent({
+        type: 'memory.work.failed',
+        session_id: 'session-01',
+        run_id: 'job-9',
+        request_id: '',
+        seq: 2,
+        ts: 0,
+        payload: { job_id: 'job-9', error: 'rate limited' },
+      }))
+    })
+    await waitFor(() => { expect(screen.getByText('整理失败')).toBeVisible() })
   })
 
   it('filters the session list through the search box', async () => {

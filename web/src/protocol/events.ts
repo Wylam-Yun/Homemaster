@@ -103,6 +103,17 @@ export type WebEvent =
       question_id: string
     }>
   | Envelope<'session.mode_changed', { ui_mode: UiMode }>
+  // Session-finalization (archive) job lifecycle, emitted by the memory work
+  // queue on the session's stream; the payload carries job status detail.
+  | Envelope<'memory.work.processing' | 'memory.work.completed' | 'memory.work.failed', {
+      job_id?: string
+      job_type?: string
+      status?: string
+      error?: string
+      extracted_count?: number
+      collected_events?: number
+      duration_ms?: number
+    }>
 
 const EVENT_TYPES = new Set<WebEvent['type']>([
   'request.accepted', 'run.started', 'run.completed', 'run.failed', 'run.cancelled',
@@ -111,6 +122,7 @@ const EVENT_TYPES = new Set<WebEvent['type']>([
   'approval.requested', 'approval.resolved', 'permission.grants_changed',
   'usage.updated', 'context.compacted',
   'question.asked', 'question.answered', 'question.cancelled', 'session.mode_changed',
+  'memory.work.processing', 'memory.work.completed', 'memory.work.failed',
 ])
 
 export function isWebEvent(value: unknown): value is WebEvent {

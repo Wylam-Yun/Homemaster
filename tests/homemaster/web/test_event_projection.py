@@ -358,3 +358,31 @@ def test_projection_maps_structured_events_with_explicit_field_allowlists() -> N
                 payload=payload,
             ),
         )
+
+
+def test_memory_work_events_pass_through_with_payload() -> None:
+    projection = WebEventProjection()
+    for event_type in (
+        "memory.work.processing",
+        "memory.work.completed",
+        "memory.work.failed",
+    ):
+        projected = projection.project(
+            RuntimeEvent(
+                type=event_type,
+                session_id="session-01",
+                run_id="job-1",
+                turn_index=None,
+                payload={"job_id": "job-1", "extracted_count": 2},
+            ),
+            request_id="request-01",
+        )
+        assert projected == (
+            WebEvent(
+                type=event_type,
+                session_id="session-01",
+                run_id="job-1",
+                request_id="request-01",
+                payload={"job_id": "job-1", "extracted_count": 2},
+            ),
+        )

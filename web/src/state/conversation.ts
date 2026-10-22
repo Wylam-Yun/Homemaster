@@ -364,6 +364,12 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
     case 'run.cancelled':
       turn = { ...current, approval: null, status: 'cancelled' }
       break
+    case 'memory.work.processing':
+    case 'memory.work.completed':
+    case 'memory.work.failed':
+      // Archive job progress is surfaced by the sidebar/notification layer,
+      // never inside the conversation.
+      return state
     default: {
       const exhaustive: never = event
       return exhaustive
