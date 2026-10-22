@@ -25,6 +25,66 @@ _ACTIONABLE_EVENT_TYPES = frozenset(
     }
 )
 
+# Stored-step compaction bounds: compiled task_procedure records must stay far
+# below the embedding endpoint's per-item limit (~32k tokens). Verbatim tool
+# results are the dominant size driver (a single mindmemos_search result was
+# 226KB → the record hit 337KB / 110k tokens), so oversized results keep only a
+# bounded tail plus provenance metadata; errors and outcome summaries live at
+# the end of tool output, and the full result remains in the runtime trace.
+MAX_STORED_RESULT_TAIL_CHARS = 500
+_MEMORY_TOOL_PREFIX = "mindmemos_"
+
+
+def _compact_tool_result(name: Any, result: Any) -> Any:
+    """Bound the result payload materialized into schema-episode tool steps.
+
+    Memory-tool results are replaced by a compact reference (their records
+    contain memory content verbatim, which recursively nests prior episodes).
+    Other oversized results keep only the tail — errors and outcome fields
+    appear at the end of tool output — plus the original length so readers can
+    detect truncation.
+    """
+    if isinstance(name, str) and name.startswith(_MEMORY_TOOL_PREFIX):
+        return _memory_result_projection(result)
+    serialized = (
+        result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
+    )
+    if len(serialized) <= MAX_STORED_RESULT_TAIL_CHARS:
+        return result
+    return {
+        "_hm_result_truncated": True,
+        "result_chars": len(serialized),
+        "tail": serialized[-MAX_STORED_RESULT_TAIL_CHARS:],
+    }
+
+
+def _memory_result_projection(result: Any) -> dict[str, Any]:
+    """Project a mindmemos_* tool result down to ids/counts, never raw content."""
+    parsed = result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+        except (ValueError, TypeError):
+            return {"_hm_result_compacted": True, "result_chars": len(result)}
+    if not isinstance(parsed, dict):
+        return {"_hm_result_compacted": True}
+    records = parsed.get("records")
+    projection: dict[str, Any] = {
+        "_hm_result_compacted": True,
+        "operation": parsed.get("operation"),
+        "count": parsed.get("count"),
+    }
+    if isinstance(records, list):
+        memory_ids = [
+            record.get("memory_id")
+            for record in records
+            if isinstance(record, dict) and record.get("memory_id")
+        ]
+        projection["record_count"] = len(records)
+        if memory_ids:
+            projection["memory_ids"] = memory_ids
+    return projection
+
 
 def serialize_schema_episode(episode: dict[str, Any]) -> str:
     """Return the canonical UTF-8-safe JSON representation used for hashing."""
@@ -66,7 +126,9 @@ def build_schema_episode(
             "type": source.get("type"),
             "name": source.get("name"),
             "tool_call_id": source.get("tool_call_id"),
-            "payload": _actionable_payload(source.get("type"), payload),
+            "payload": _actionable_payload(
+                source.get("type"), payload, source.get("name")
+            ),
             "trace_offset": offset,
         }
         normalized.append((offset, event))
@@ -105,7 +167,9 @@ def build_schema_episode(
     }
 
 
-def _actionable_payload(event_type: Any, payload: dict[str, Any]) -> dict[str, Any]:
+def _actionable_payload(
+    event_type: Any, payload: dict[str, Any], name: Any = None
+) -> dict[str, Any]:
     if event_type == "runtime.turn_started":
         return {"user_text": payload.get("user_text")}
     if event_type == "tool.call_started":
@@ -113,7 +177,7 @@ def _actionable_payload(event_type: Any, payload: dict[str, Any]) -> dict[str, A
     if event_type in {"tool.call_completed", "tool.call_failed"}:
         return {
             "args": payload.get("args"),
-            "result": payload.get("result"),
+            "result": _compact_tool_result(name, payload.get("result")),
             "status": _result_status(event_type, payload),
         }
     if event_type in {

@@ -172,6 +172,71 @@ def test_schema_episode_pairs_calls_and_results_without_adjacency_guesses() -> N
     assert episode["provenance"]["authoritative_goal_event_ids"] == ["evt-goal"]
 
 
+def test_schema_episode_compacts_mindmemos_tool_results() -> None:
+    search_payload = json.dumps(
+        {
+            "operation": "search",
+            "count": 2,
+            "diagnostics": [],
+            "records": [
+                {"memory_id": "mem-aaa", "content": "x" * 50000},
+                {"memory_id": "mem-bbb", "content": "y" * 50000},
+            ],
+        }
+    )
+    events = _contract_events()
+    events.append(
+        _event(
+            "tool.call_completed",
+            "evt-search",
+            timestamp="2026-09-17T10:00:08Z",
+            tool_call_id="call-search",
+            name="mindmemos_search",
+            payload={
+                "args": {"query": "prior episodes"},
+                "result": search_payload,
+                "data": {"status": "success"},
+            },
+        )
+    )
+
+    episode = build_schema_episode("session-1", "episode_end", events)
+    step = next(s for s in episode["tool_steps"] if s["tool_call_id"] == "call-search")
+
+    assert step["result"]["_hm_result_compacted"] is True
+    assert step["result"]["operation"] == "search"
+    assert step["result"]["count"] == 2
+    assert step["result"]["record_count"] == 2
+    assert step["result"]["memory_ids"] == ["mem-aaa", "mem-bbb"]
+    serialized = json.dumps(step["result"])
+    assert len(serialized) < 1000
+    assert "xxxx" not in serialized
+
+
+def test_schema_episode_truncates_oversized_tool_results() -> None:
+    events = _contract_events()
+    events[2]["payload"]["result"] = "H" * 95000 + "T" * 5000
+
+    episode = build_schema_episode("session-1", "episode_end", events)
+    result = episode["tool_steps"][0]["result"]
+
+    assert result["_hm_result_truncated"] is True
+    assert result["result_chars"] == 100000
+    assert result["tail"] == "T" * 500
+    assert "H" not in result["tail"]
+    assert len(json.dumps(result)) < 1000
+
+
+def test_schema_episode_keeps_small_tool_results_verbatim() -> None:
+    episode = build_schema_episode("session-1", "episode_end", _contract_events())
+
+    assert episode["tool_steps"][0]["result"] == {
+        "result": "not_found",
+        "object": "medicine",
+    }
+    assert episode["tool_steps"][1]["result"] == {"error": "blocked"}
+
+
 def test_schema_episode_serialization_is_deterministic_and_round_trips_json_values() -> None:
     first = build_schema_episode("session-1", "episode_end", _contract_events())
     second = build_schema_episode("session-1", "episode_end", list(_contract_events()))

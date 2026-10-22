@@ -154,21 +154,36 @@ def build_episode_entity(
     }
 
 
+# Embedding endpoints reject single oversized inputs with HTTP 400; a 337KB
+# entity text once poisoned a whole batch. Clamp joined texts well under the
+# provider's per-item token limit as a last-line guard regardless of upstream
+# extractor output size.
+MAX_EMBEDDING_TEXT_CHARS = 24_000
+
+
+def _clamp_embedding_text(text: str) -> str:
+    if len(text) <= MAX_EMBEDDING_TEXT_CHARS:
+        return text
+    return text[:MAX_EMBEDDING_TEXT_CHARS]
+
+
 def entity_embedding_text(entity: dict[str, Any]) -> str:
     """Build embedding text from entity fields, properties, and search fields."""
     props = entity.get("properties") or []
     prop_text = " ".join(str(prop.get("value", "")) for prop in props[:5])
     search_field_text = " ".join(str(field) for field in entity.get("search_fields", [])[:5])
-    return " ".join(
-        part
-        for part in [
-            str(entity.get("name") or ""),
-            str(entity.get("entity_type") or ""),
-            str(entity.get("description") or ""),
-            prop_text,
-            search_field_text,
-        ]
-        if part
+    return _clamp_embedding_text(
+        " ".join(
+            part
+            for part in [
+                str(entity.get("name") or ""),
+                str(entity.get("entity_type") or ""),
+                str(entity.get("description") or ""),
+                prop_text,
+                search_field_text,
+            ]
+            if part
+        )
     )
 
 
@@ -179,16 +194,18 @@ def entity_write_embedding_text(entity: EntityWrite, memories: list[MemoryWrite]
     search_field_text = " ".join(
         str(field) for field in (entity.metadata or {}).get("search_fields", [])[:5] if isinstance(field, str)
     )
-    return " ".join(
-        part
-        for part in [
-            entity.entity_name,
-            entity.entity_type or "",
-            entity.description or "",
-            property_text,
-            search_field_text,
-        ]
-        if part
+    return _clamp_embedding_text(
+        " ".join(
+            part
+            for part in [
+                entity.entity_name,
+                entity.entity_type or "",
+                entity.description or "",
+                property_text,
+                search_field_text,
+            ]
+            if part
+        )
     )
 
 
@@ -197,7 +214,7 @@ def memory_embedding_text(memory: MemoryWrite | MemoryView) -> str:
 
     entity_name = str((memory.metadata or {}).get("entity_name") or "")
     property_name = str(memory.property_name or "")
-    return f"{entity_name}:{property_name}:{memory.content}"
+    return _clamp_embedding_text(f"{entity_name}:{property_name}:{memory.content}")
 
 
 def base_metadata(request_metadata: dict[str, Any]) -> dict[str, Any]:

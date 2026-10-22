@@ -4,19 +4,21 @@ from types import SimpleNamespace
 
 import mindmemos.components.extractor._records as records
 import pytest
-from mindmemos.pipelines.add.schema.schema_add import _request_prompt_set
-from mindmemos.prompts import get_add_prompts
 from mindmemos.components.extractor.schema._schema_utils import (
+    MAX_EMBEDDING_TEXT_CHARS,
     build_episode_entity,
     build_filtered_schema,
     dedupe_non_empty,
     entity_embedding_text,
+    memory_embedding_text,
     parse_json_object,
     schema_memory_type,
     strip_for_generation,
 )
-from mindmemos.components.extractor.schema.search_field import SchemaSearchFieldExtractor
 from mindmemos.components.extractor.schema.schema_extractor import SchemaAddExtractor
+from mindmemos.components.extractor.schema.search_field import SchemaSearchFieldExtractor
+from mindmemos.pipelines.add.schema.schema_add import _request_prompt_set
+from mindmemos.prompts import get_add_prompts
 from mindmemos.typing.memory import MemoryRequestContext
 
 
@@ -148,6 +150,28 @@ def test_schema_add_utils_filter_schema_and_build_episode_entity() -> None:
     assert episode_entity["properties"][0]["property_name"] == "input_messages"
     assert "Qdrant" in entity_embedding_text(episode_entity)
     assert dedupe_non_empty([" a ", "", "a", "b"]) == ["a", "b"]
+
+
+def test_entity_embedding_text_clamps_oversized_output() -> None:
+    huge = {
+        "name": "task-1",
+        "entity_type": "task_procedure",
+        "description": "x" * (MAX_EMBEDDING_TEXT_CHARS * 5),
+        "properties": [{"value": "y" * 10000}],
+    }
+    text = entity_embedding_text(huge)
+    assert len(text) <= MAX_EMBEDDING_TEXT_CHARS
+    assert text.startswith("task-1 task_procedure")
+
+
+def test_memory_embedding_text_clamps_oversized_content() -> None:
+    memory = SimpleNamespace(
+        metadata={"entity_name": "e"},
+        property_name="p",
+        content="z" * (MAX_EMBEDDING_TEXT_CHARS * 3),
+    )
+    text = memory_embedding_text(memory)
+    assert len(text) <= MAX_EMBEDDING_TEXT_CHARS
 
 
 @pytest.mark.asyncio

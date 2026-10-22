@@ -1,5 +1,15 @@
 # Unreleased
 
+- Memory-content self-referential bloat fix: `task_procedure`
+  compilation no longer copies tool results verbatim into stored
+  records — `mindmemos_*` results project to reference fields
+  (operation/count/memory_ids) and other oversized results tail at 500
+  chars; embedding texts clamp at 24k chars/item.  Previously each
+  generation embedded the previous procedure's full JSON (a single
+  record hit ~110k tokens), batch embedding calls returned 400, and
+  affected memories lost vectors — becoming invisible to search and
+  dreaming dedup.
+
 - Dedicated memory-extraction provider: `memory.chat_provider_name`
   routes MindMemOS extraction/finalization LLM calls to a different
   chat provider than interactive chat (`runtime_defaults.

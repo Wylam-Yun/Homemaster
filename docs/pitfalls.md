@@ -1,3 +1,34 @@
+## 2026-10-17 - 记忆自指递归膨胀：`mindmemos_search` result 原文写进新记忆
+
+- 症状：RoboCasa composite 跑批时 `memory.add.entity` embedding 调用 787 次
+  400（`code 20015`），robocasa 域 99 条 Memory 节点 **0% 有 Qdrant 向量**，
+  语义召回与 dreaming 判重全线失效（4 次 dreaming 全 `no_action`——
+  `get_memories` 从 Qdrant 取正文，无向量的记忆被静默过滤出簇）。
+- 根因：三层叠加。① `task_procedure` 编译器
+  （`_compile_procedure_steps`）把 trace 里的 `result` **原样抄进**存储
+  记录——ALFWorld 时代 result 是一句话，无感；② agent 每格开头调
+  `mindmemos_search`，其 result 内嵌**上代 task_procedure 的完整 JSON
+  字符串**（records[].content），被原样抄进本格 steps → 每代嵌套上一代
+  全文，指数膨胀（WashLettuce 单条 337KB / cl100k 实测 110,565 tokens，
+  其中 mindmemos_search 一步占 226KB）；③ embedding 拼装
+  （`entity_embedding_text`/`memory_embedding_text`/`entity_write_embedding_text`）
+  无长度守卫且整批一次发送，一条超限整批连坐。API 实测：单条 ~32k tokens
+  是上限（20k 过、40k 拒）。
+- 修法/教训：① 编译期 `_compact_tool_result`——`mindmemos_*` result
+  只留 `{operation,count,record_count,memory_ids}` 引用（执行时要全文，
+  存储只要引用；evidence_event_ids 已供审计），其余 result 超
+  `MAX_STORED_RESULT_TAIL_CHARS=500` 只留**尾部** 500 字符+原长标记
+  （错误/结论在末尾）；② embedding 文本出口
+  `MAX_EMBEDDING_TEXT_CHARS=24_000` clamp 兜底；③ 教训：凡"照抄
+  result 入库"的管道，必须假设工具 result 无上限——尤其**记忆系统自己的
+  工具**（自指递归是唯一会指数爆炸的形状）。
+- Ref: `src/homemaster/experience/schema_episode.py`（`_compact_tool_result`/
+  `_memory_result_projection`/`MAX_STORED_RESULT_TAIL_CHARS`）、
+  `third_party/.../extractor/schema/_schema_utils.py`
+  （`MAX_EMBEDDING_TEXT_CHARS`/`_clamp_embedding_text`）、回归
+  `tests/homemaster/experience/test_schema_episode.py`（3 条新例）、
+  `third_party/MindMemOS/tests/components/test_schema_add_extractor.py`（2 条 clamp 例）
+
 ## 2026-10-16 - 模型把真实 tool_call 写进正文，结构化 `tool_use` 空参三连发
 
 - 症状：`session-d99d7e419d22` 中 `search_files` 连续三次返回
