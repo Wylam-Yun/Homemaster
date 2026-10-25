@@ -505,3 +505,66 @@ def test_alfworld_compile_routes_only_admit_and_read_server_owned_jobs() -> None
     assert status.status_code == 200
     assert status.json()["status"] == "succeeded"
     assert missing.status_code == 404
+
+
+def test_web_route_table_is_stable() -> None:
+    """Pin the public API surface so route refactors cannot silently drift.
+
+    Splitting ``create_web_app`` into ``web/routes/`` changed where handlers
+    live; this snapshot locks the externally visible (method, path) table so
+    future moves still have to update this file deliberately.
+    """
+
+    from fastapi.routing import APIRoute
+
+    app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+    actual = sorted(
+        (route.path, tuple(sorted(route.methods)))
+        for route in app.routes
+        if isinstance(route, APIRoute)
+    )
+    expected = [
+        ("/api/approvals/{approval_id}", ("GET",)),
+        ("/api/approvals/{approval_id}", ("POST",)),
+        ("/api/approvals/{approval_id}/cancel", ("POST",)),
+        ("/api/archive-status", ("GET",)),
+        ("/api/artifacts/{artifact_handle}", ("GET",)),
+        ("/api/doctor", ("GET",)),
+        ("/api/health", ("GET",)),
+        ("/api/memories", ("GET",)),
+        ("/api/memories/{memory_id}/compile", ("POST",)),
+        ("/api/memories/{memory_id}/history", ("GET",)),
+        ("/api/memory-compilations/{job_id}", ("GET",)),
+        ("/api/meta", ("GET",)),
+        ("/api/permissions/grants", ("GET",)),
+        ("/api/permissions/grants/{grant_id}/revoke", ("POST",)),
+        ("/api/provider-templates", ("GET",)),
+        ("/api/providers", ("GET",)),
+        ("/api/providers", ("POST",)),
+        ("/api/providers/test", ("POST",)),
+        ("/api/providers/{name}", ("DELETE",)),
+        ("/api/providers/{name}", ("PATCH",)),
+        ("/api/providers/{name}/models", ("GET",)),
+        ("/api/sessions", ("GET",)),
+        ("/api/sessions", ("POST",)),
+        ("/api/sessions/{session_id}", ("DELETE",)),
+        ("/api/sessions/{session_id}", ("PATCH",)),
+        ("/api/sessions/{session_id}/approvals", ("GET",)),
+        ("/api/sessions/{session_id}/archive", ("POST",)),
+        ("/api/sessions/{session_id}/archive-status", ("GET",)),
+        ("/api/sessions/{session_id}/cancel", ("POST",)),
+        ("/api/sessions/{session_id}/compact", ("POST",)),
+        ("/api/sessions/{session_id}/history", ("GET",)),
+        ("/api/sessions/{session_id}/messages", ("POST",)),
+        ("/api/sessions/{session_id}/mode", ("POST",)),
+        ("/api/sessions/{session_id}/questions", ("GET",)),
+        ("/api/sessions/{session_id}/questions/{question_id}/answer", ("POST",)),
+        ("/api/sessions/{session_id}/status", ("GET",)),
+        ("/api/sessions/{session_id}/stream", ("GET",)),
+        ("/api/skills", ("GET",)),
+        ("/api/skills/resolve", ("POST",)),
+    ]
+    assert actual == expected

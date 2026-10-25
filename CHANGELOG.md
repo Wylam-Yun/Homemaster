@@ -34,6 +34,16 @@
   and a documented 293-error baseline as the gradual-tightening plan;
   first CI gate added (`.github/workflows/ci.yml`: ruff check + format,
   pytest, web typecheck + vitest on push to main and PRs).
+- Post-review fixes on the same branch: restored the 100-iteration bound
+  for alfworld web runs (now clamped in `AlfworldGatewayApplication.run`
+  when the caller carries no explicit cap); semantic-judge
+  `min_confidence` coercion moved inside the config-validation block and
+  unexpected request errors log only the exception type (no URL leak);
+  `tasks.json` reconcile now tolerates byte-corrupt files and non-numeric
+  record fields instead of crashing manager init; `.gitignore` restored
+  unanchored `tmp/`/`report/`/`log/` patterns (nested evidence dirs stay
+  ignored) while `/dist/` and `/build/` remain root-anchored; added
+  `src/homemaster/py.typed` and a web route-table snapshot test.
 - Removed stale `TODO.md`: its only item (debug `robot_manipulate`
   `invalid_tool_arguments`) was superseded by the V3.5 grounding and
   validation work — `invalid_tool_arguments` is now a classified typed

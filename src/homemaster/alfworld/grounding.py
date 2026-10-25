@@ -394,6 +394,7 @@ def _judge_same_semantic_target(
             "max_tokens": int(config.get("max_tokens", 32)),
         }
         timeout = float(config.get("timeout_s", 30))
+        threshold = float(config.get("min_confidence", 0.5))
     except KeyError as exc:
         logger.warning("semantic judge config missing key %s", exc)
         return False
@@ -411,8 +412,10 @@ def _judge_same_semantic_target(
         # Exception messages may embed the base_url; log the type name only.
         logger.warning("semantic judge request failed: %s", type(exc).__name__)
         return False
-    except Exception:
-        logger.warning("semantic judge request failed unexpectedly", exc_info=True)
+    except Exception as exc:
+        # e.g. httpx.InvalidURL sits outside HTTPError; its message can carry
+        # the config-derived URL, so log only the exception type.
+        logger.warning("semantic judge request failed unexpectedly: %s", type(exc).__name__)
         return False
     try:
         content = response.json()["choices"][0]["message"]["content"]
@@ -423,7 +426,6 @@ def _judge_same_semantic_target(
     if not payload.get("match"):
         return False
     confidence = payload.get("confidence")
-    threshold = float(config.get("min_confidence", 0.5))
     if isinstance(confidence, int | float) and confidence < threshold:
         return False
     return True

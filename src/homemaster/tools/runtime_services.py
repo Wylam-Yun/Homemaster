@@ -82,7 +82,9 @@ class HomeTaskManager(BackgroundTaskManager):
             payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError) as exc:
+            # ValueError covers JSONDecodeError and UnicodeDecodeError — a
+            # byte-corrupt file must never crash manager init.
             logger.warning("could not reconcile %s (%s); starting empty", path, exc)
             return
         if not isinstance(payload, list):
@@ -114,6 +116,19 @@ class HomeTaskManager(BackgroundTaskManager):
         data["output_file"] = Path(str(data.get("output_file") or "output.log"))
         metadata = data.get("metadata")
         data["metadata"] = dict(metadata) if isinstance(metadata, dict) else {}
+        # TaskRecord is a plain dataclass — a corrupt entry could land a str
+        # in a numeric field and crash the ``sorted`` in ``_persist``.
+        for key in ("created_at", "started_at", "ended_at"):
+            value = data.get(key)
+            if value is not None and (
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+            ):
+                raise ValueError(f"task record field {key} must be numeric")
+        return_code = data.get("return_code")
+        if return_code is not None and (
+            not isinstance(return_code, int) or isinstance(return_code, bool)
+        ):
+            raise ValueError("task record field return_code must be an integer")
         record = TaskRecord(**data)
         if not isinstance(record.id, str) or not record.id:
             raise ValueError("task record requires a non-empty string id")

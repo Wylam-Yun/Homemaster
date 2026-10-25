@@ -488,8 +488,11 @@ def _finish_home_application(
                 audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
             )
             # Lazy: trajectory writers belong to per-profile optional domains
-            # (alfworld/robocasa); importing them unconditionally would pull a
-            # domain package into every composition, including web/gateway.
+            # (alfworld/robocasa). Name-level deferral only for alfworld —
+            # homemaster.experience (imported above) already pulls
+            # alfworld.trajectory_memory transitively via its package exports;
+            # full decoupling needs an experience __init__ split. The robocasa
+            # half does stay genuinely deferred.
             from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
             from homemaster.robocasa.trajectory_memory import RoboCasaTrajectoryWriter
 

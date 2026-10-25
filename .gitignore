@@ -23,7 +23,7 @@ config/homemaster.json
 /.worktrees/
 /.runtime/
 /artifacts/
-/tmp/
+tmp/
 data/runs/
 trace.jsonl
 *.sqlite3
@@ -34,8 +34,8 @@ permissions.events.jsonl
 var/homemaster/
 var/alfworld_smoke/
 /record/
-/report/
-/log/
+report/
+log/
 web/node_modules/
 web/src/node_modules/
 web/.vite/
