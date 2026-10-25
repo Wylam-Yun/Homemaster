@@ -8,8 +8,12 @@ from fastapi import FastAPI
 
 from homemaster.web._shared import _WEB_PERMISSION_SUBJECT, _error
 from homemaster.web.context import WebAppContext
-from homemaster.web.memory_views import MemoryNotFoundError
-from homemaster.web.schemas import MemoryHistoryResponse, MemorySnapshotResponse
+from homemaster.web.memory_views import MemoryNotFoundError, MemoryUnavailableError
+from homemaster.web.schemas import (
+    MemoryGraphResponse,
+    MemoryHistoryResponse,
+    MemorySnapshotResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,35 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=True,
             )
         return MemorySnapshotResponse.from_domain(snapshot).model_dump(mode="json")
+
+    @app.get("/api/memories/graph")
+    async def memories_graph() -> object:
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        try:
+            graph = await service.graph(tenant_id=_WEB_PERMISSION_SUBJECT.tenant_id)
+        except MemoryUnavailableError:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory graph backend is unavailable.",
+                retryable=True,
+            )
+        except Exception:
+            logger.exception("web_memory_graph_failed")
+            return _error(
+                503,
+                "memory_read_failed",
+                "Memory data could not be read.",
+                retryable=True,
+            )
+        return MemoryGraphResponse.from_domain(graph).model_dump(mode="json")
 
     @app.post("/api/memories/{memory_id}/compile", status_code=202)
     async def compile_memory(memory_id: str) -> object:

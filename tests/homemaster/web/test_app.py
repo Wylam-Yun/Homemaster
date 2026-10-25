@@ -535,6 +535,7 @@ def test_web_route_table_is_stable() -> None:
         ("/api/doctor", ("GET",)),
         ("/api/health", ("GET",)),
         ("/api/memories", ("GET",)),
+        ("/api/memories/graph", ("GET",)),
         ("/api/memories/{memory_id}/compile", ("POST",)),
         ("/api/memories/{memory_id}/history", ("GET",)),
         ("/api/memory-compilations/{job_id}", ("GET",)),

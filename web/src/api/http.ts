@@ -155,6 +155,32 @@ export type MemorySnapshot = { stats: MemoryStats; groups: MemoryGroup[] }
 export type MemoryHistory = { memory_id: string; versions: ManagedMemory[] }
 export type CompileJob = { job_id: string; status: string; memory_id?: string; derived_memory_id?: string; error?: string }
 
+/** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
+ * Neo4j relationships actually stored between them. */
+export type MemoryGraphNode = {
+  memory_id: string
+  preview: string
+  memory_type: string
+  status: string
+  session_id: string | null
+  updated_at: string | null
+}
+
+export type MemoryGraphEdge = {
+  src: string
+  rel: 'MENTIONS' | 'EXTRACTED_FROM' | 'RELATES_TO' | 'DERIVED_FROM' | string
+  dst: string
+  dst_label: string
+  entity_name: string | null
+}
+
+export type MemoryGraph = {
+  nodes: MemoryGraphNode[]
+  entities: { entity_id: string; name: string }[]
+  edges: MemoryGraphEdge[]
+  sessions: { session_id: string; title: string }[]
+}
+
 export type UiMode = 'plan' | 'act'
 
 export type ProviderInfo = {
@@ -359,6 +385,10 @@ export class HomeMasterApi {
 
   memoryHistory(memoryId: string): Promise<MemoryHistory> {
     return this.request(`/api/memories/${encodeURIComponent(memoryId)}/history`)
+  }
+
+  memoryGraph(): Promise<MemoryGraph> {
+    return this.request('/api/memories/graph')
   }
 
   compileMemory(memoryId: string): Promise<CompileJob> {

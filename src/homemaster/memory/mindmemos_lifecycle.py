@@ -43,6 +43,12 @@ class MindMemOSLifecycleMixin:
         self._unavailable_cause: str | None = None
 
     @property
+    def neo4j_store(self) -> Any | None:
+        """Managed Neo4j store; ``None`` while the backend never came up."""
+
+        return self._neo4j
+
+    @property
     def available(self) -> bool:
         return self._qdrant is not None and self._unavailable_cause is None
 

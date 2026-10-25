@@ -165,6 +165,54 @@ class MemoryHistoryResponse(BaseModel):
         return cls.model_validate({"memory_id": memory_id, "versions": versions})
 
 
+class MemoryGraphNodeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: str
+    preview: str
+    memory_type: str
+    status: str
+    session_id: str | None
+    updated_at: datetime | None
+
+
+class MemoryGraphEdgeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    src: str
+    rel: str
+    dst: str
+    dst_label: str
+    entity_name: str | None
+
+
+class MemoryGraphEntityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_id: str
+    name: str
+
+
+class MemoryGraphSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: str
+    title: str
+
+
+class MemoryGraphResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    nodes: tuple[MemoryGraphNodeResponse, ...]
+    entities: tuple[MemoryGraphEntityResponse, ...]
+    edges: tuple[MemoryGraphEdgeResponse, ...]
+    sessions: tuple[MemoryGraphSessionResponse, ...]
+
+    @classmethod
+    def from_domain(cls, graph: Any) -> MemoryGraphResponse:
+        return cls.model_validate(graph)
+
+
 @dataclass(frozen=True)
 class WebEvent:
     """One browser-facing event after Runtime field projection.
@@ -214,6 +262,11 @@ __all__ = [
     "CreateSessionRequest",
     "ItemChoiceRequest",
     "ManagedMemoryResponse",
+    "MemoryGraphEdgeResponse",
+    "MemoryGraphEntityResponse",
+    "MemoryGraphNodeResponse",
+    "MemoryGraphResponse",
+    "MemoryGraphSessionResponse",
     "MemoryGroupResponse",
     "MemoryHistoryResponse",
     "MemorySnapshotResponse",

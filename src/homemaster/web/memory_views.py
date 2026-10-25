@@ -33,6 +33,10 @@ class MemoryNotFoundError(LookupError):
     """Raised when an exact memory is not visible in the current tenant."""
 
 
+class MemoryUnavailableError(RuntimeError):
+    """Raised when a memory backend needed for a read is not running."""
+
+
 @dataclass(frozen=True)
 class MemoryStats:
     active_count: int
@@ -84,6 +88,61 @@ class MemorySnapshot:
     groups: tuple[MemoryGroup, ...]
 
 
+@dataclass(frozen=True)
+class MemoryGraphNode:
+    memory_id: str
+    preview: str
+    memory_type: str
+    status: str
+    session_id: str | None
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class MemoryGraphEdge:
+    src: str
+    rel: str
+    dst: str
+    dst_label: str
+    entity_name: str | None
+
+
+@dataclass(frozen=True)
+class MemoryGraphEntity:
+    entity_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class MemoryGraphSession:
+    session_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class MemoryGraph:
+    nodes: tuple[MemoryGraphNode, ...]
+    entities: tuple[MemoryGraphEntity, ...]
+    edges: tuple[MemoryGraphEdge, ...]
+    sessions: tuple[MemoryGraphSession, ...]
+
+
+# Nodes carry Qdrant payload fields (mem_type/session_id/update_at live only
+# there); Neo4j Memory nodes only hold content/status, so edges are all the
+# graph store can authoritatively contribute here.
+_GRAPH_EDGES_QUERY = """
+MATCH (m:Memory {project_id:$pid})-[r]->(n)
+WHERE type(r) IN ['MENTIONS','EXTRACTED_FROM','RELATES_TO','DERIVED_FROM']
+  AND n.project_id = $pid
+RETURN m.memory_id AS src, type(r) AS rel,
+       coalesce(n.memory_id, n.entity_id, n.source_id) AS dst,
+       labels(n)[0] AS dst_label, n.entity_name AS entity_name
+LIMIT 2000
+"""
+
+_PREVIEW_LIMIT = 160
+
+
 class MemoryManagementService:
     """Compose project-scoped MindMemOS rows into browser-safe read DTOs."""
 
@@ -116,6 +175,51 @@ class MemoryManagementService:
             raise MemoryNotFoundError(normalized_id)
         projected = (_project_memory(row) for row in versions)
         return tuple(sorted(projected, key=_memory_sort_key))
+
+    async def graph(self, *, tenant_id: str) -> MemoryGraph:
+        store = self._mindmemos.neo4j_store
+        if store is None:
+            raise MemoryUnavailableError("neo4j store is not running")
+        context = _request_context("web-memory-graph", tenant_id)
+        raw_rows = await self._mindmemos.list_raw_memories(context)
+        nodes = tuple(
+            MemoryGraphNode(
+                memory_id=str(row.memory_id),
+                preview=str(getattr(row, "content", "") or "")[:_PREVIEW_LIMIT],
+                memory_type=_enum_text(getattr(row, "mem_type", "unknown")),
+                status=_enum_text(getattr(row, "status", "unknown")),
+                session_id=str(session) if (session := getattr(row, "session_id", None)) else None,
+                updated_at=getattr(row, "update_at", None),
+            )
+            for row in raw_rows
+        )
+        edge_rows = await store.run_read(_GRAPH_EDGES_QUERY, pid=context.project_id)
+        edges = tuple(
+            MemoryGraphEdge(
+                src=str(row.get("src") or ""),
+                rel=str(row.get("rel") or ""),
+                dst=str(row.get("dst") or ""),
+                dst_label=str(row.get("dst_label") or ""),
+                entity_name=row.get("entity_name")
+                if isinstance(row.get("entity_name"), str)
+                else None,
+            )
+            for row in edge_rows
+            if row.get("src") and row.get("dst")
+        )
+        entity_map: dict[str, str] = {}
+        for edge in edges:
+            if edge.dst_label == "Entity" and edge.entity_name:
+                entity_map.setdefault(edge.dst, edge.entity_name)
+        entities = tuple(
+            MemoryGraphEntity(entity_id=entity_id, name=name)
+            for entity_id, name in sorted(entity_map.items())
+        )
+        sessions = tuple(
+            MemoryGraphSession(session_id=sid, title=self._title_for_session(sid))
+            for sid in sorted({n.session_id for n in nodes if n.session_id is not None})
+        )
+        return MemoryGraph(nodes=nodes, entities=entities, edges=edges, sessions=sessions)
 
     def _group_snapshot(self, items: tuple[ManagedMemory, ...]) -> MemorySnapshot:
         grouped: dict[str | None, list[ManagedMemory]] = defaultdict(list)
@@ -301,9 +405,15 @@ def _group_sort_key(group: MemoryGroup) -> tuple[float, str]:
 
 __all__ = [
     "ManagedMemory",
+    "MemoryGraph",
+    "MemoryGraphEdge",
+    "MemoryGraphEntity",
+    "MemoryGraphNode",
+    "MemoryGraphSession",
     "MemoryGroup",
     "MemoryManagementService",
     "MemoryNotFoundError",
     "MemorySnapshot",
     "MemoryStats",
+    "MemoryUnavailableError",
 ]

@@ -919,6 +919,7 @@ function AppShell() {
             unavailable={memoryUnavailable}
             onRefresh={refreshMemories}
             loadHistory={memoryId => api.memoryHistory(memoryId)}
+            loadGraph={() => api.memoryGraph()}
             compileMemory={memoryId => api.compileMemory(memoryId)}
             compileStatus={jobId => api.compileStatus(jobId)}
           />

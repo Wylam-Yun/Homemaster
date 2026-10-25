@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ManagedMemory, MemoryHistory, MemorySnapshot } from '../api/http'
+import type { ManagedMemory, MemoryGraph, MemoryHistory, MemorySnapshot } from '../api/http'
 import { MemoryPage } from './MemoryPage'
 
 
@@ -51,8 +51,34 @@ const snapshot: MemorySnapshot = {
 }
 
 
+const graph: MemoryGraph = {
+  nodes: [
+    {
+      memory_id: 'memory-active',
+      preview: 'active memory body',
+      memory_type: 'fact',
+      status: 'active',
+      session_id: 'session-01',
+      updated_at: '2026-08-24T08:30:00Z',
+    },
+    {
+      memory_id: 'memory-archived',
+      preview: 'archived memory body',
+      memory_type: 'fact',
+      status: 'archived',
+      session_id: 'session-01',
+      updated_at: '2026-08-24T08:40:00Z',
+    },
+  ],
+  entities: [{ entity_id: 'ent-1', name: '厨房' }],
+  edges: [
+    { src: 'memory-active', rel: 'MENTIONS', dst: 'ent-1', dst_label: 'Entity', entity_name: '厨房' },
+  ],
+  sessions: [{ session_id: 'session-01', title: 'first user request' }],
+}
+
 describe('MemoryPage', () => {
-  it('renders insight stats and groups the active tab by type', () => {
+  it('renders insight stats and groups the active tab by session', () => {
     render(
       <MemoryPage
         snapshot={snapshot}
@@ -67,9 +93,27 @@ describe('MemoryPage', () => {
     expect(screen.getByText('失败·异常')).toBeInTheDocument()
     expect(screen.getByText('纯文本记忆')).toBeInTheDocument()
     expect(screen.getByText('记忆总数')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /事实/ })).toBeInTheDocument()
+    // Default grouping is the source session, labelled by its title.
+    expect(screen.getByRole('button', { name: /first user request/ })).toBeInTheDocument()
     expect(screen.getByText('active memory body')).toBeInTheDocument()
+    expect(screen.getByText('事实')).toBeInTheDocument()
     expect(screen.queryByText('archived memory body')).not.toBeInTheDocument()
+    expect(screen.queryByText(/memory-active/)).not.toBeInTheDocument()
+  })
+
+  it('groups by memory type when the grouping toggle is switched', () => {
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        loadHistory={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '按类型' }))
+    expect(screen.getByRole('button', { name: /事实/ })).toBeInTheDocument()
   })
 
   it('switches tabs, filters text, and keeps matched groups expanded', () => {
@@ -84,7 +128,6 @@ describe('MemoryPage', () => {
     )
 
     fireEvent.click(screen.getByRole('tab', { name: /历史版本/ }))
-    fireEvent.click(screen.getByRole('button', { name: /事实/ }))
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'archived memory' } })
 
     expect(screen.getByText('archived memory body')).toBeVisible()
@@ -152,6 +195,53 @@ describe('MemoryPage', () => {
 
     expect(screen.getByText('把Book放到SideTable')).toBeVisible()
     expect(screen.queryByText('{"classification":"agent_success",...}')).not.toBeInTheDocument()
-    expect(screen.getByText(/来源 session-/)).toBeVisible()
+    // Source session is labelled by its readable title, not the raw id.
+    expect(screen.getByRole('button', { name: /first user request/ })).toBeVisible()
+  })
+
+  it('lazy-loads the graph view and opens details from a node click', async () => {
+    const loadGraph = vi.fn().mockResolvedValue(graph)
+    const history: MemoryHistory = { memory_id: activeMemory.memory_id, versions: [activeMemory] }
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        loadHistory={vi.fn().mockResolvedValue(history)}
+        loadGraph={loadGraph}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '图谱' }))
+    expect(loadGraph).toHaveBeenCalledOnce()
+    const canvas = await screen.findByRole('img', { name: '记忆知识图谱' })
+    const memoryNode = canvas.querySelector('g[data-node="mem:memory-active"]')
+    const entityNode = canvas.querySelector('g[data-node="ent:ent-1"]')
+    expect(memoryNode?.querySelector('title')?.textContent).toBe('active memory body')
+    expect(entityNode?.querySelector('title')?.textContent).toBe('厨房')
+    // Legend exposes memory-type filters plus the entity marker.
+    expect(screen.getByRole('button', { name: /事实/ })).toBeInTheDocument()
+    expect(screen.getByText('实体')).toBeInTheDocument()
+
+    fireEvent.click(memoryNode!)
+    expect(await screen.findByRole('dialog', { name: '记忆详情' })).toBeVisible()
+  })
+
+  it('surfaces graph load errors with a retry', async () => {
+    const loadGraph = vi.fn().mockRejectedValue(new Error('neo4j down'))
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        loadHistory={vi.fn()}
+        loadGraph={loadGraph}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '图谱' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('neo4j down')
   })
 })
