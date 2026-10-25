@@ -266,7 +266,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
 
         try:
             await asyncio.to_thread(_write)
-        except OSError:
+        except (OSError, ValueError):
             logger.exception("skill_import_write_failed")
             return _error(
                 500,
