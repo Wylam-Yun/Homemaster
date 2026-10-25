@@ -1,4 +1,4 @@
-"""RoboCasa trajectory memory records (parallel to the ALFWorld pipeline)."""
+"""RoboCasa trajectory memory records (parallel to the ALFWorld trajectory memory)."""
 
 from __future__ import annotations
 

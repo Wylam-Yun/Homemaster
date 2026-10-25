@@ -175,11 +175,13 @@ class GatewayRuntime:
             task = self._active.get(session_id)
             if task is None or task.done():
                 return False
-            identity = getattr(task, "_homemaster_identity", None)
+            # ``_identities`` is written under this lock at submit() time,
+            # before the run task starts — it always carries the active
+            # run's identity.
+            identity = self._identities.get(session_id)
             generation = self._generations.get(session_id, 0) + 1
             self._generations[session_id] = generation
-            audit_identity = self._identities.get(session_id)
-            if getattr(audit_identity, "channel", None) == "feishu":
+            if getattr(identity, "channel", None) == "feishu":
                 _audit_gateway_generation(
                     "gateway.generation.cancel", session_id, generation, started
                 )
@@ -405,8 +407,6 @@ class GatewayRuntime:
         resume: bool,
     ) -> None:
         task = asyncio.current_task()
-        if task is not None:
-            task._homemaster_identity = message.identity  # type: ignore[attr-defined]
         confirmation_bound = False
         try:
             delivery = message.delivery_context

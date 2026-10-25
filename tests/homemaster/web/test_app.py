@@ -13,18 +13,18 @@ from homemaster.application import RunRequest, SessionManager
 from homemaster.artifacts import ToolOutputStore
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.memory.management import (
+from homemaster.web.app import (
+    _run_and_report_prestart_failure,
+    create_web_app,
+)
+from homemaster.web.confirmations import WebConfirmationHandler
+from homemaster.web.memory_views import (
     ManagedMemory,
     MemoryGroup,
     MemoryNotFoundError,
     MemorySnapshot,
     MemoryStats,
 )
-from homemaster.web.app import (
-    _run_and_report_prestart_failure,
-    create_web_app,
-)
-from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.sse import _sse_frames
 
 

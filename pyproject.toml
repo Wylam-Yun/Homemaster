@@ -158,6 +158,11 @@ agentscope = [
 asyncio_mode = "strict"
 pythonpath = [".", "src"]
 testpaths = ["tests"]
+# Live-marked tests call real external APIs/services (they gate on local
+# config credentials, then spend real money / depend on account state).
+# They are opt-in: `pytest -m live_api` still selects them because a
+# command-line -m overrides this addopts -m.
+addopts = ["-m", "not live_api and not live_memory and not live_alfworld"]
 markers = [
   "live_api: runs tests that call real external APIs",
   "live_alfworld: runs tests that require an installed ALFWorld dataset/environment",

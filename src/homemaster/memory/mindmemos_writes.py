@@ -454,50 +454,16 @@ class MindMemOSWriteMixin:
             AlfworldTrajectoryRecord,
         )
 
+        # Strict per-domain guard, not generic dispatch: the ALFWorld and
+        # RoboCasa records are deliberately parallel types (no shared base)
+        # and a structural Protocol could not reject a cross-domain record.
         if not isinstance(record, AlfworldTrajectoryRecord):
             raise TypeError("record must be an AlfworldTrajectoryRecord")
-        content = json.dumps(
-            record.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        result = await self.add_flat(
-            content,
-            "fact",
-            provenance_seq=record.final_environment_state.step_index or 0,
-            evidence_kind="environment_observation",
+        return await self._persist_trajectory_record(
+            record,
             context=context,
-            metadata_extra={
-                "homemaster_memory_type": "trajectory",
-                "record_kind": record.record_kind,
-                "trajectory_id": record.trajectory_id,
-                "outcome": record.outcome,
-                "classification": record.classification,
-                "failure_reason": record.failure_reason,
-                "source_trace_sha256": record.source_trace_sha256,
-                "source_trace_path": record.source_trace_path,
-                "record_json": content,
-            },
             source_type="alfworld_trajectory",
-            source_metadata={
-                "trajectory_id": record.trajectory_id,
-                "source_trace_sha256": record.source_trace_sha256,
-                "episode_id": record.episode_id,
-            },
         )
-        raw = await self.get_raw(str(result["memory_id"]), context)
-        metadata = dict(getattr(raw, "metadata", {}) or {}) if raw is not None else {}
-        if (
-            raw is None
-            or getattr(raw, "status", None) != "active"
-            or metadata.get("homemaster_memory_type") != "trajectory"
-            or metadata.get("trajectory_id") != record.trajectory_id
-            or metadata.get("source_trace_sha256") != record.source_trace_sha256
-            or metadata.get("record_json") != content
-        ):
-            raise RuntimeError("trajectory memory metadata terminal state could not be verified")
-        return {**result, "trajectory_id": record.trajectory_id, "readback_verified": True}
 
     async def add_robocasa_trajectory_memory(
         self,
@@ -513,6 +479,26 @@ class MindMemOSWriteMixin:
 
         if not isinstance(record, RoboCasaTrajectoryRecord):
             raise TypeError("record must be a RoboCasaTrajectoryRecord")
+        return await self._persist_trajectory_record(
+            record,
+            context=context,
+            source_type="robocasa_trajectory",
+            extra_source_metadata={
+                "task_name": record.task_name,
+                "seed": record.seed,
+            },
+        )
+
+    async def _persist_trajectory_record(
+        self,
+        record: Any,
+        *,
+        context: Any,
+        source_type: str,
+        extra_source_metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, object]:
+        """Persist one domain trajectory record through the shared flat path."""
+
         content = json.dumps(
             record.model_dump(mode="json"),
             ensure_ascii=False,
@@ -536,13 +522,12 @@ class MindMemOSWriteMixin:
                 "source_trace_path": record.source_trace_path,
                 "record_json": content,
             },
-            source_type="robocasa_trajectory",
+            source_type=source_type,
             source_metadata={
                 "trajectory_id": record.trajectory_id,
                 "source_trace_sha256": record.source_trace_sha256,
                 "episode_id": record.episode_id,
-                "task_name": record.task_name,
-                "seed": record.seed,
+                **dict(extra_source_metadata or {}),
             },
         )
         raw = await self.get_raw(str(result["memory_id"]), context)

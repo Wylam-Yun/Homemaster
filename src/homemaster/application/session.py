@@ -223,6 +223,14 @@ class SessionFileBackend:
     Immutable revisions are written and fsynced before the small latest pointer
     is replaced.  Readers validate the pointer and fall back to the newest
     complete revision when a crash leaves a torn pointer behind.
+
+    Owns ``<session_root>/<session_id>/revisions/*.json``, ``latest.json``,
+    ``meta.json``, and the ``.lock`` flock — the authoritative resume source
+    behind ``SessionManager``. The same session directory also carries
+    ``session.json``/``trace.jsonl``/``messages.jsonl`` written by
+    ``agent.session_persistence.SessionPersistenceManager`` (observability
+    snapshot and logs). Ownership is deliberately disjoint — do not merge
+    the two file families.
     """
 
     _locks: dict[Path, threading.Lock] = {}
@@ -487,7 +495,15 @@ def _iso_timestamp(value: Any) -> str | None:
 
 
 class SessionManager:
-    """Own session state while keeping active resources out of snapshots."""
+    """Own session state while keeping active resources out of snapshots.
+
+    Durable resume state goes through the ``SessionBackend`` (a
+    ``SessionFileBackend`` writing ``revisions/`` + ``latest.json`` +
+    ``meta.json`` per session when ``session_root`` is given) — not through
+    the ``session.json``/``trace.jsonl``/``messages.jsonl`` files that
+    ``agent.session_persistence.SessionPersistenceManager`` writes into the
+    same session directory for observability.
+    """
 
     def __init__(
         self,

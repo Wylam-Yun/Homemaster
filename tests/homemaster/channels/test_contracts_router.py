@@ -6,7 +6,7 @@ import pytest
 
 from homemaster.channels.contracts import ChannelIdentity, InboundMessage
 from homemaster.channels.router import AttachmentPolicy, ChannelRouter, RoutingError
-from homemaster.gateway.auth import AuthenticatedPrincipal
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 
 def _message(*, chat_type: str = "private", thread_id: str | None = None) -> InboundMessage:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import platform
 import tarfile
 from pathlib import Path
 
@@ -11,14 +12,11 @@ import pytest
 from scripts import download_runtime_assets as assets
 
 
-def _fake_uname(monkeypatch: pytest.MonkeyPatch, sysname: str, machine: str) -> None:
-    import types
-
-    monkeypatch.setattr(
-        assets.os,
-        "uname",
-        lambda: types.SimpleNamespace(sysname=sysname, machine=machine),
-    )
+def _fake_platform(monkeypatch: pytest.MonkeyPatch, sysname: str, machine: str) -> None:
+    # ``_current_platform()`` reads ``platform.system``/``platform.machine``
+    # (os.uname does not exist on Windows), so the fake must patch that seam.
+    monkeypatch.setattr(platform, "system", lambda: sysname)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
 
 
 def _lock(repo: Path, *, platform_key: str = "darwin-arm64") -> Path:
@@ -79,14 +77,14 @@ def _patch_lock_sha(archive: Path, lock_path: Path) -> None:
 
 
 def test_current_platform_maps_supported(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_uname(monkeypatch, "Linux", "x86_64")
+    _fake_platform(monkeypatch, "Linux", "x86_64")
     assert assets._current_platform() == "linux-x86_64"
-    _fake_uname(monkeypatch, "Darwin", "arm64")
+    _fake_platform(monkeypatch, "Darwin", "arm64")
     assert assets._current_platform() == "darwin-arm64"
 
 
 def test_current_platform_rejects_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_uname(monkeypatch, "Darwin", "x86_64")
+    _fake_platform(monkeypatch, "Darwin", "x86_64")
     with pytest.raises(RuntimeError, match="unsupported platform"):
         assets._current_platform()
 
@@ -94,7 +92,7 @@ def test_current_platform_rejects_unsupported(monkeypatch: pytest.MonkeyPatch) -
 def test_ensure_java_resolves_platform_keyed_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _fake_uname(monkeypatch, "Darwin", "arm64")
+    _fake_platform(monkeypatch, "Darwin", "arm64")
     repo = tmp_path / "repo"
     lock_path = _lock(repo)
     bundle = tmp_path / "bundle"
@@ -110,7 +108,7 @@ def test_ensure_java_resolves_platform_keyed_lock(
 def test_ensure_java_handles_macos_contents_home_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _fake_uname(monkeypatch, "Darwin", "arm64")
+    _fake_platform(monkeypatch, "Darwin", "arm64")
     repo = tmp_path / "repo"
     lock_path = _lock(repo)
     bundle = tmp_path / "bundle"
@@ -127,7 +125,7 @@ def test_ensure_java_handles_macos_contents_home_layout(
 def test_ensure_java_handles_linux_top_level_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _fake_uname(monkeypatch, "Darwin", "arm64")  # platform pick is separate from layout
+    _fake_platform(monkeypatch, "Darwin", "arm64")  # platform pick is separate from layout
     repo = tmp_path / "repo"
     lock_path = _lock(repo)
     bundle = tmp_path / "bundle"

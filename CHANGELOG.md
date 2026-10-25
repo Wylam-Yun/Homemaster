@@ -8,6 +8,25 @@
   lists `benchmark-alfworld-taskset`/`benchmark-robocasa`, `plan/README.md`
   indexes only files that exist, the duplicated `Unreleased` headings are
   merged into one top section, and stale script paths are corrected.
+- Audit remediation phase 2 (layering + test hygiene): broke the
+  channels↔gateway package cycle by moving `AuthenticatedPrincipal` into
+  `tools/contracts.py` and the channel-renderer approval DTOs
+  (`ApprovalDecision`/`ApprovalRequest`/`ApprovalResolveStatus`) into
+  `channels/contracts.py`; moved `memory/management.py` to
+  `web/memory_views.py` (removes memory→alfworld/experience edges);
+  `composition/base.py` no longer imports cli/alfworld at module level;
+  MindMemOS `MemoryRequestContext` construction unified behind
+  `build_mindmemos_request_context`. Registered the `memory.work.*`
+  event types in `KNOWN_EVENT_TYPES`, audited the three `robocasa_*`
+  deps keys, cleared `guard_no_legacy_terms` violations, deleted dead
+  session helpers (`resume_session`/`find_latest_session_snapshot`),
+  reconciled `tasks.json` on startup (interrupted records now marked
+  failed), and replaced the private asyncio.Task attribute hack in
+  gateway runtime with the existing identities map. Environment-dependent
+  tests now skip cleanly (playwright/lark_oapi import-guards, OpenHarness
+  checkout skipif); `pytest` default runs deselect `live_*` markers so a
+  plain run no longer spends real API quota — opt in with `pytest -m
+  live_api` etc.
 - Removed stale `TODO.md`: its only item (debug `robot_manipulate`
   `invalid_tool_arguments`) was superseded by the V3.5 grounding and
   validation work — `invalid_tool_arguments` is now a classified typed

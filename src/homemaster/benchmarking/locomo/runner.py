@@ -473,17 +473,14 @@ async def _readback_operations(
     session_id: str,
     result: FinalizeResult,
 ) -> list[dict[str, Any]]:
-    from mindmemos.typing import MemoryRequestContext
+    from homemaster.memory.automatic_recall import (
+        build_mindmemos_request_context,
+    )
 
-    context = MemoryRequestContext(
+    context = build_mindmemos_request_context(
         request_id=f"locomo-readback:{session_id}",
-        account_id=tenant_id,
-        project_id=tenant_id,
-        api_key_uuid="embedded-local",
-        user_id=tenant_id,
-        app_id="homemaster",
+        tenant_id=tenant_id,
         session_id=session_id,
-        agent_id="homemaster",
     )
     readback: list[dict[str, Any]] = []
     for operation in result.operations:

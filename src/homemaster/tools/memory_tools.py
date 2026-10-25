@@ -663,18 +663,14 @@ async def _emit_feedback_event(
 
 
 def _mindmemos_context(context: ToolExecutionContext) -> Any:
-    from mindmemos.typing import MemoryRequestContext
+    from homemaster.memory.automatic_recall import (
+        build_mindmemos_request_context,
+    )
 
-    tenant_id = context.permission_subject.tenant_id
-    return MemoryRequestContext(
+    return build_mindmemos_request_context(
         request_id=context.tool_call_id,
-        account_id=tenant_id,
-        project_id=tenant_id,
-        api_key_uuid="embedded-local",
-        user_id=tenant_id,
-        app_id="homemaster",
+        tenant_id=context.permission_subject.tenant_id,
         session_id=context.session_id,
-        agent_id="homemaster",
     )
 
 

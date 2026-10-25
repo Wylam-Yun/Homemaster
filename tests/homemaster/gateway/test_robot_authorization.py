@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 
 from homemaster.gateway.auth import (
-    AuthenticatedPrincipal,
     AuthenticationError,
     BearerTokenAuthenticator,
     TokenPrincipal,
 )
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 
 def test_bearer_auth_returns_only_configured_typed_principal() -> None:

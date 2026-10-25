@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,12 @@ from homemaster.tools.task_runtime import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Terminal task states — anything else found in a persisted ``tasks.json``
+# belongs to a dead process and is reconciled to ``failed`` at startup.
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "killed"})
+
+_RESTARTED_STATUS_NOTE = "Task interrupted: HomeMaster process restarted."
 
 
 @dataclass
@@ -60,6 +66,58 @@ class HomeTaskManager(BackgroundTaskManager):
         self.tasks_dir = tasks_dir.expanduser().resolve()
         self.config_path = config_path.expanduser().resolve() if config_path is not None else None
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
+        self._load_persisted()
+
+    def _load_persisted(self) -> None:
+        """Reconcile ``tasks.json`` records left behind by a previous process.
+
+        The file is written for crash inspection only — no live task can
+        survive a restart, so records still in a non-terminal state are
+        marked ``failed`` here. A missing or corrupt file only logs a
+        warning and leaves the manager empty.
+        """
+
+        path = self.tasks_dir / "tasks.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("could not reconcile %s (%s); starting empty", path, exc)
+            return
+        if not isinstance(payload, list):
+            logger.warning("could not reconcile %s: expected a list; starting empty", path)
+            return
+        for entry in payload:
+            try:
+                record = self._record_from_dict(entry)
+                if record.status not in _TERMINAL_STATUSES:
+                    record.status = "failed"
+                    if record.ended_at is None:
+                        record.ended_at = time.time()
+                    record.metadata["status_note"] = _RESTARTED_STATUS_NOTE
+            except (TypeError, ValueError) as exc:
+                logger.warning("skipping unreadable task record in %s: %s", path, exc)
+                continue
+            self._tasks[record.id] = record
+            self._output_locks[record.id] = asyncio.Lock()
+            self._input_locks[record.id] = asyncio.Lock()
+        if self._tasks:
+            self._persist()
+
+    @staticmethod
+    def _record_from_dict(entry: object) -> TaskRecord:
+        if not isinstance(entry, dict):
+            raise ValueError("task record must be a mapping")
+        known = {item.name for item in fields(TaskRecord)}
+        data = {key: value for key, value in entry.items() if key in known}
+        data["output_file"] = Path(str(data.get("output_file") or "output.log"))
+        metadata = data.get("metadata")
+        data["metadata"] = dict(metadata) if isinstance(metadata, dict) else {}
+        record = TaskRecord(**data)
+        if not isinstance(record.id, str) or not record.id:
+            raise ValueError("task record requires a non-empty string id")
+        return record
 
     async def create_shell_task(
         self,
@@ -166,6 +224,12 @@ class HomeTaskManager(BackgroundTaskManager):
         self._persist()
 
     def _persist(self) -> None:
+        """Write ``tasks.json`` — a crash-inspection snapshot of all records.
+
+        The file is not a live read path: it is reconciled once at startup
+        by ``_load_persisted`` and otherwise only rewritten on mutation.
+        """
+
         records = []
         for task in sorted(self._tasks.values(), key=lambda item: item.created_at):
             record = asdict(task)

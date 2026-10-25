@@ -699,7 +699,7 @@ class AsAgentRuntime:
                 error_code="max_tool_iterations_exceeded",
             )
         # Legacy parity: finish_reason "length" is a failed turn, not a
-        # normal reply (generic_runtime emits model_output_truncated).
+        # normal reply — it surfaces as a ``model_output_truncated`` error.
         if getattr(final_msg, "finish_reason", None) == "length":
             reply_text = _msg_text(final_msg)
             handle.agent_state.last_assistant_text = reply_text
@@ -723,8 +723,8 @@ class AsAgentRuntime:
         reply_text = _msg_text(final_msg)
         handle.agent_state.last_assistant_text = reply_text
         save_snapshot("replied")
-        # Legacy parity: assistant replies append to messages.jsonl (the
-        # user-facing dialogue log), same as generic_runtime.
+        # Assistant replies also append to messages.jsonl, the user-facing
+        # dialogue log — same durable record the legacy runtime kept.
         if persistence is not None and reply_text:
             persistence.append_message(AssistantMessage(content=[ContentBlock(text=reply_text)]))
         await emit("runtime.turn_completed", payload={"final_reply": reply_text})

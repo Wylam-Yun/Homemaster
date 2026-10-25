@@ -16,6 +16,9 @@ import homemaster.channels.impl.feishu as feishu_impl
 from homemaster.artifacts import ToolOutputArtifactResolver, ToolOutputStore
 from homemaster.channels.bus import BoundedPriorityBus
 from homemaster.channels.contracts import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalResolveStatus,
     ChannelDeliveryContext,
     ChannelEventKind,
     ChannelIdentity,
@@ -33,11 +36,6 @@ from homemaster.channels.impl.feishu import (
     render_feishu_text,
 )
 from homemaster.config import FeishuChannelConfig
-from homemaster.gateway.confirmation import (
-    ApprovalDecision,
-    ApprovalRequest,
-    ApprovalResolveStatus,
-)
 
 
 def _blocking_ws_worker(*_args) -> None:
@@ -169,6 +167,10 @@ async def test_p2p_access_is_acknowledged_and_sdk_message_reaches_private_bus(
     tmp_path,
 ) -> None:
     lark = pytest.importorskip("lark_oapi")
+    # Probe a real SDK submodule, not just the top-level name: a stray
+    # ``lark_oapi`` namespace directory (no __init__) satisfies the bare
+    # import but provides no EventDispatcherHandler.
+    pytest.importorskip("lark_oapi.event.callback.model.p2_card_action_trigger")
     packets: queue.Queue[dict[str, object]] = queue.Queue()
     handler = feishu_impl._build_feishu_event_handler(
         lark,
@@ -674,6 +676,10 @@ def test_closed_card_callback_queue_returns_typed_error_ack() -> None:
 
 
 def test_successful_send_without_message_id_fails_closed() -> None:
+    # ``_send_message_sync`` lazily imports SDK request classes from
+    # ``lark_oapi.api.im.v1``; without the optional gateway SDK installed the
+    # send short-circuits to outcome_unknown before reaching the assertion.
+    pytest.importorskip("lark_oapi.api.im.v1")
     service = FeishuApiService(_config(), app_id="cli_identifier", app_secret="secret")
     response = SimpleNamespace(
         success=lambda: True,

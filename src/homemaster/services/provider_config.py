@@ -7,7 +7,7 @@ and the existing-payload loaders.  ``cli/auth.py`` imports those names back,
 so the interactive wizard keeps its exact behaviour.
 
 The second half is ``ProviderConfigService`` — the
-``reload → merge → validate → write → hot-apply`` pipeline behind the web
+``reload → merge → validate → write → hot-apply`` flow behind the web
 management endpoints:
 
 * Every write re-reads the current YAML, merges the change into the

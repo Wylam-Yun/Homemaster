@@ -7,34 +7,15 @@ import hmac
 from dataclasses import dataclass
 
 from homemaster.events.token_patterns import SHA256_RE as _SHA256_RE
-from homemaster.tools.contracts import PermissionSubject
+
+# The principal DTO lives in the leaf contract module (tools.contracts) so
+# channels can consume it without importing the gateway package; re-exported
+# here for backward compatibility.
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 
 class AuthenticationError(RuntimeError):
     """Remote credentials did not resolve to one configured principal."""
-
-
-@dataclass(frozen=True)
-class AuthenticatedPrincipal:
-    tenant_id: str
-    principal_id: str
-    channel: str
-    roles: tuple[str, ...] = ()
-    capabilities: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        subject = self.to_permission_subject()
-        object.__setattr__(self, "roles", subject.roles)
-        object.__setattr__(self, "capabilities", subject.capabilities)
-
-    def to_permission_subject(self) -> PermissionSubject:
-        return PermissionSubject(
-            subject_id=self.principal_id,
-            channel=self.channel,
-            roles=self.roles,
-            tenant_id=self.tenant_id,
-            capabilities=self.capabilities,
-        )
 
 
 @dataclass(frozen=True)

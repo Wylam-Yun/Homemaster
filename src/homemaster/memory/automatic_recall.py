@@ -46,7 +46,7 @@ def build_mindmemos_request_context(
     *,
     request_id: str,
     tenant_id: str,
-    session_id: str,
+    session_id: str | None,
 ) -> Any:
     """Create the embedded MindMemOS identity from authoritative tenant data."""
     from mindmemos.typing import MemoryRequestContext

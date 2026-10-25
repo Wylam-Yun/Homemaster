@@ -12,9 +12,9 @@ from mindmemos.infra.db import MemoryPoint, SparseVectorData
 from homemaster.application import SessionManager
 from homemaster.config import HomeMasterConfig, ProviderProfileConfig
 from homemaster.events.bus import EventBus
-from homemaster.memory.management import MemoryManagementService
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
+from homemaster.web.memory_views import MemoryManagementService
 
 
 class _Application:

@@ -19,10 +19,10 @@ from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
     create_alfworld_gateway_binding,
 )
-from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
+from homemaster.web.memory_views import MemoryManagementService
 
 
 def validate_bind_host(host: str) -> str:

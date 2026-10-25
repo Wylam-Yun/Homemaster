@@ -20,7 +20,6 @@ from homemaster import __version__
 from homemaster.application import RunPolicy, RunRequest
 from homemaster.application.session import SessionConflictError
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
-from homemaster.memory.management import MemoryManagementService, MemoryNotFoundError
 from homemaster.permissions.models import (
     ApprovalConflict,
     ApprovalExpired,
@@ -37,6 +36,7 @@ from homemaster.tools.contracts import PermissionSubject
 from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.event_hub import WebEventHub
 from homemaster.web.event_projection import WebEventProjection
+from homemaster.web.memory_views import MemoryManagementService, MemoryNotFoundError
 from homemaster.web.pending_questions import PendingQuestionRegistry
 from homemaster.web.run_registry import SessionBusyError, WebRunRegistry
 from homemaster.web.schemas import (

@@ -10,6 +10,10 @@ from urllib.parse import quote, urlencode
 
 import pytest
 
+# Playwright is an optional extra: the real-browser session tests skip when it
+# is not installed in this environment.
+pytest.importorskip("playwright.async_api")
+
 from homemaster.browser.contracts import BrowserSessionError
 from homemaster.browser.playwright_session import PlaywrightBrowserSession
 from homemaster.browser.policy import BrowserPolicy

@@ -12,9 +12,9 @@ import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
-from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web import serve
+from homemaster.web.memory_views import MemoryManagementService
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "LOCALHOST", "::1"])

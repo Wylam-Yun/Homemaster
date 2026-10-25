@@ -130,6 +130,13 @@ class SessionFinalizationController:
                 if self._inflight.get(session_id) is pending:
                     del self._inflight[session_id]
 
+        # NOTE: the accepted episode lives only in this in-memory queue slot
+        # until the worker runs ``work()`` and ``_load_or_create_job`` persists
+        # job.json + episode.json — a process crash inside that window drops it
+        # silently (accepted risk; a durable-intent enqueue design is
+        # intentionally deferred). The finalizer's trace binding is also
+        # per-process (run_dir), so the intent could not be faithfully
+        # replayed against the same trace after a restart anyway.
         receipt = self._queue.enqueue_work(
             job_type="session_finalization",
             session_id=session_id,

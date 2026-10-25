@@ -6,6 +6,7 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -674,3 +675,88 @@ def test_plan_mode_listeners_fire_once_per_real_transition() -> None:
     assert seen == [("s1", True), ("s1", False), ("s2", True)]
     assert plan_mode.enabled("s1") is False
     assert plan_mode.enabled("s2") is True
+
+
+def _persisted_task_entry(**overrides: object) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "id": "b0000001",
+        "type": "local_bash",
+        "status": "running",
+        "description": "persisted task",
+        "cwd": "/tmp",
+        "output_file": "/tmp/.b0000001.log",
+        "command": "sleep 60",
+        "prompt": None,
+        "created_at": 10.0,
+        "started_at": 10.0,
+        "ended_at": None,
+        "return_code": None,
+        "metadata": {},
+        "env": None,
+        "argv": None,
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_tasks_json_startup_reconcile_marks_interrupted_records_failed(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "home" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    entries = [
+        _persisted_task_entry(id="b0000001", status="running"),
+        _persisted_task_entry(id="b0000002", status="pending", started_at=None),
+        _persisted_task_entry(
+            id="b0000003",
+            status="completed",
+            ended_at=13.0,
+            return_code=0,
+            metadata={"status_note": "verified"},
+        ),
+        _persisted_task_entry(id="b0000004", status="killed", ended_at=15.0),
+    ]
+    (tasks_dir / "tasks.json").write_text(json.dumps(entries), encoding="utf-8")
+
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
+
+    interrupted = services.tasks.get_task("b0000001")
+    pending = services.tasks.get_task("b0000002")
+    completed = services.tasks.get_task("b0000003")
+    killed = services.tasks.get_task("b0000004")
+    assert interrupted is not None and pending is not None
+    assert completed is not None and killed is not None
+    assert interrupted.status == "failed"
+    assert interrupted.ended_at is not None
+    assert interrupted.metadata["status_note"] == "Task interrupted: HomeMaster process restarted."
+    assert pending.status == "failed"
+    assert pending.metadata["status_note"] == "Task interrupted: HomeMaster process restarted."
+    # Terminal records keep their recorded end state untouched.
+    assert completed.status == "completed"
+    assert completed.return_code == 0
+    assert completed.ended_at == 13.0
+    assert completed.metadata["status_note"] == "verified"
+    assert killed.status == "killed"
+    assert killed.ended_at == 15.0
+
+    # The reconciled state is written back for crash inspection.
+    records = {
+        item["id"]: item
+        for item in json.loads((tasks_dir / "tasks.json").read_text(encoding="utf-8"))
+    }
+    assert records["b0000001"]["status"] == "failed"
+    assert records["b0000003"]["status"] == "completed"
+
+
+def test_tasks_json_corrupt_file_starts_empty_without_clobbering(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    tasks_dir = tmp_path / "home" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    (tasks_dir / "tasks.json").write_text("{not json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
+
+    assert services.tasks.list_tasks() == []
+    assert any("tasks.json" in record.getMessage() for record in caplog.records)
+    # The corrupt artifact is left in place for inspection, not overwritten.
+    assert (tasks_dir / "tasks.json").read_text(encoding="utf-8") == "{not json"

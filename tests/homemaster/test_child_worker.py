@@ -106,7 +106,6 @@ providers:
   items:
     - name: child
       api_format: anthropic
-      transport: raw_http
       base_url: {base_url}
       model: child-model
       api_keys: [test-key]

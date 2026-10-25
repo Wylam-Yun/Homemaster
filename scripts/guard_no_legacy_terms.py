@@ -72,6 +72,11 @@ SKIP_FILES = frozenset(
         "docs/architecture/memory-system.md",
         "docs/memory-user-guide.md",
         "docs/mindmemos-native-pipeline-integration-report-zh.md",
+        # Documents the real external MindMemOS `search_pipeline=` kwarg verbatim.
+        "architecture/interview/interview_guide.md",
+        # Historical A/B report citing real paths inside the external
+        # mindmemos package (`mindmemos/pipelines/dreaming/default.py`).
+        "docs/reports/dreaming-entity-merge-ab-2026-10-25.md",
         "docs/skills-and-config-user-guide.md",
         # Historical coworker records archived from repo root on 2026-08-27.
         "docs/reports/2026-08-27-coworker-demo-findings.md",

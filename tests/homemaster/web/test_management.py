@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from homemaster.agent.messages import UserMessage
-from homemaster.memory.management import (
+from homemaster.web.memory_views import (
     MemoryManagementService,
     MemoryNotFoundError,
     MemoryStats,
