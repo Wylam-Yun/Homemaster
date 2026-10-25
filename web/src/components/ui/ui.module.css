@@ -1,0 +1,24 @@
+/* Shared primitives for pages rebuilt in the console overhaul. */
+
+.pageHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); }
+.pageHeader h1 { margin: var(--space-1) 0; font-size: 1.35rem; }
+.eyebrow { margin: 0; color: var(--muted-2); font-size: var(--text-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.subtitle { margin: 0; max-width: 46rem; color: var(--muted); font-size: var(--text-md); line-height: 1.55; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+
+.button { border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-4); color: var(--text); background: var(--surface); font: inherit; font-size: var(--text-md); font-weight: 700; cursor: pointer; }
+.button:hover:not(:disabled) { background: var(--surface-hover); }
+.button:disabled { cursor: not-allowed; opacity: .5; }
+.buttonPrimary { border-color: transparent; color: #062118; background: var(--accent); }
+.buttonPrimary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.buttonDanger { border-color: transparent; color: #fff; background: var(--danger); }
+.buttonDanger:hover:not(:disabled) { background: var(--danger); filter: brightness(1.08); }
+.buttonGhost { border-color: var(--border); color: var(--muted); background: transparent; }
+.buttonGhost:hover:not(:disabled) { color: var(--text); }
+
+.badge { display: inline-flex; align-items: center; gap: var(--space-1); border-radius: var(--radius-sm); padding: 2px 8px; font-size: var(--text-xs); font-weight: 800; }
+.badgeAccent { background: rgb(99 230 190 / .15); color: var(--accent); }
+.badgeSuccess { background: rgb(94 230 168 / .15); color: var(--success); }
+.badgeWarning { background: rgb(242 198 109 / .16); color: var(--warning); }
+.badgeDanger { background: rgb(255 123 135 / .14); color: var(--danger); }
+.badgeMuted { background: var(--surface-2); color: var(--muted); }
