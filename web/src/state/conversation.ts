@@ -34,8 +34,8 @@ export type PendingQuestionState = {
 }
 
 export type TurnSegment =
-  | { kind: 'thinking'; text: string }
-  | { kind: 'answer'; text: string }
+  | { kind: 'thinking'; text: string; settled?: boolean }
+  | { kind: 'answer'; text: string; settled?: boolean }
   | { kind: 'tool'; toolCallId: string }
 
 export type TurnState = {
@@ -111,18 +111,28 @@ function emptyTurn(sessionId: string, requestId: string): TurnState {
 
 function appendDelta(segments: TurnSegment[], kind: 'thinking' | 'answer', text: string): TurnSegment[] {
   const last = segments.at(-1)
-  if (last?.kind === kind) {
+  if (last?.kind === kind && last.settled !== true) {
     return [...segments.slice(0, -1), { kind, text: last.text + text }]
   }
   return [...segments, { kind, text }]
 }
 
+/**
+ * A snapshot carries the canonical text for one round's new blocks, so it
+ * settles that round's streamed deltas: every unsettled same-kind segment is
+ * covered by the snapshot and collapses into a single settled segment at the
+ * earliest dropped position. Settled segments belong to earlier rounds and are
+ * never rewritten — a snapshot with no unsettled segment to settle appends a
+ * new one (reconnect replays deliver rounds in order).
+ */
 function applyTextSnapshot(segments: TurnSegment[], kind: 'thinking' | 'answer', text: string): TurnSegment[] {
-  const firstIndex = segments.findIndex(segment => segment.kind === kind)
-  if (firstIndex === -1) return [...segments, { kind, text }]
-  const kept = segments.filter(segment => segment.kind !== kind)
-  const before = segments.slice(0, firstIndex).filter(segment => segment.kind !== kind).length
-  return [...kept.slice(0, before), { kind, text }, ...kept.slice(before)]
+  const isUnsettled = (segment: TurnSegment): boolean =>
+    segment.kind === kind && segment.settled !== true
+  const firstIndex = segments.findIndex(isUnsettled)
+  if (firstIndex === -1) return [...segments, { kind, text, settled: true }]
+  const kept = segments.filter(segment => !isUnsettled(segment))
+  const before = segments.slice(0, firstIndex).filter(segment => !isUnsettled(segment)).length
+  return [...kept.slice(0, before), { kind, text, settled: true }, ...kept.slice(before)]
 }
 
 export function reduceConversation(state: ConversationState, action: ConversationAction): ConversationState {

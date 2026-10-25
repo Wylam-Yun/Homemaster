@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { initialConversationState, reduceConversation, reduceWebEvent } from './conversation'
+import { projectTurn } from './projection'
 import { isWebEvent, type WebEvent } from '../protocol/events'
 
 const event = (
@@ -233,6 +234,75 @@ describe('questions, ui mode and hydration', () => {
     })
     expect(state.uiModes['session-01']).toBe('plan')
     expect(Object.keys(state.turns)).toHaveLength(0)
+  })
+
+  it('keeps multi-round answers on their own sides of the tool group', () => {
+    // Regression: a later answer.snapshot must not hoist its text above the
+    // intervening tool segment or swallow the earlier round's answer.
+    let state = reduceWebEvent(initialConversationState, event('request.accepted', {}, ''))
+    state = reduceWebEvent(state, event('run.started'))
+    state = reduceWebEvent(state, event('thinking.delta', { text: 'think-1' }))
+    state = reduceWebEvent(state, event('answer.delta', { text: 'draft-1' }))
+    state = reduceWebEvent(state, event('tool.started', {
+      tool_call_id: 'call-01', name: 'search_files', arguments: { query: 'x' },
+    }))
+    // Round-1 canonical snapshot settles the streamed deltas in place.
+    state = reduceWebEvent(state, event('answer.snapshot', { text: 'draft-1' }))
+    state = reduceWebEvent(state, event('tool.completed', {
+      tool_call_id: 'call-01', name: 'search_files', output: 'found', artifacts: [],
+    }))
+    // Round-2 text streams and settles *after* the tool segment.
+    state = reduceWebEvent(state, event('answer.delta', { text: 'part-2' }))
+    state = reduceWebEvent(state, event('answer.snapshot', { text: 'part-2' }))
+    state = reduceWebEvent(state, event('run.completed', { status: 'succeeded' }))
+
+    const steps = projectTurn(state.turns['session-01:request-01']).steps
+    expect(steps.map(step => step.kind)).toEqual(['reasoning', 'answer', 'tool_group', 'answer'])
+    expect(steps[1]).toMatchObject({ text: 'draft-1' })
+    expect(steps[3]).toMatchObject({ text: 'part-2' })
+  })
+
+  it('appends snapshot-only rounds in arrival order without overwriting', () => {
+    // Reconnect replay delivers snapshots without deltas; each settles a new
+    // segment rather than replacing the previous round's text.
+    let state = reduceWebEvent(initialConversationState, event('answer.snapshot', { text: 'round-1' }))
+    state = reduceWebEvent(state, event('tool.started', {
+      tool_call_id: 'call-01', name: 'search_files', arguments: {},
+    }))
+    state = reduceWebEvent(state, event('tool.completed', {
+      tool_call_id: 'call-01', name: 'search_files', output: 'ok', artifacts: [],
+    }))
+    state = reduceWebEvent(state, event('answer.snapshot', { text: 'round-2' }))
+
+    const steps = projectTurn(state.turns['session-01:request-01']).steps
+    expect(steps.map(step => step.kind)).toEqual(['answer', 'tool_group', 'answer'])
+    expect(steps[0]).toMatchObject({ text: 'round-1' })
+    expect(steps[2]).toMatchObject({ text: 'round-2' })
+  })
+
+  it('starts a new segment for a straggler delta after a settled snapshot', () => {
+    let state = reduceWebEvent(initialConversationState, event('answer.snapshot', { text: 'canon' }))
+    state = reduceWebEvent(state, event('answer.delta', { text: 'tail' }))
+
+    const steps = projectTurn(state.turns['session-01:request-01']).steps
+    expect(steps.map(step => step.kind)).toEqual(['answer', 'answer'])
+    expect(steps[0]).toMatchObject({ text: 'canon' })
+    expect(steps[1]).toMatchObject({ text: 'tail' })
+  })
+
+  it('collapses interleaved unsettled segments into the snapshot position', () => {
+    // Interleaved deltas of the same round (e.g. thinking→answer→thinking)
+    // leave scattered partial segments; the canonical snapshot absorbs them
+    // all at the earliest dropped position.
+    let state = reduceWebEvent(initialConversationState, event('thinking.delta', { text: 't1' }))
+    state = reduceWebEvent(state, event('answer.delta', { text: 'a1' }))
+    state = reduceWebEvent(state, event('thinking.delta', { text: 't2' }))
+    state = reduceWebEvent(state, event('thinking.snapshot', { text: 'canon-t' }))
+
+    const steps = projectTurn(state.turns['session-01:request-01']).steps
+    expect(steps.map(step => step.kind)).toEqual(['reasoning', 'answer'])
+    expect(steps[0]).toMatchObject({ text: 'canon-t' })
+    expect(steps[1]).toMatchObject({ text: 'a1' })
   })
 
   it('uses run.completed final_reply only when no answer was streamed', () => {
