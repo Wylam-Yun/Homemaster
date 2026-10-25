@@ -376,7 +376,7 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
                   {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
                   {!modelsPanel.loading && modelsPanel.error === null && (
                     <>
-                      {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>离线兜底列表</span>}
+                      {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
                       {modelsPanel.models.length === 0
                         ? <span className={styles.muted}>无可用模型</span>
                         : modelsPanel.models.map(model => <span className={styles.modelChip} key={model}>{model}</span>)}
@@ -500,7 +500,7 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
               {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
               {!modelsPanel.loading && modelsPanel.error === null && (
                 <>
-                  {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>离线兜底列表</span>}
+                  {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
                   {modelsPanel.models.length === 0
                     ? <span className={styles.muted}>无可用模型</span>
                     : modelsPanel.models.map(model => (

@@ -10,7 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 
-import type { ProviderInfo, SessionStatusInfo } from '../../api/http'
+import type { ProviderInfo, ProviderModels, SessionStatusInfo } from '../../api/http'
 import type { UiMode, Usage } from '../../protocol/events'
 import type { ApprovalState, PendingQuestionState } from '../../state/conversation'
 import { useToastOptional } from '../toast'
@@ -60,6 +60,8 @@ export interface ComposerPanelProps {
   providers?: ProviderInfo[]
   modelValue?: ModelSelection
   onModelChange?(selection: ModelSelection): void
+  /** Lazy provider model enumeration for the picker's model dropdown. */
+  loadModels?(providerName: string): Promise<ProviderModels>
   /** 上下文用量环：最近回合 usage + session status 明细 + compact 按钮。 */
   usage?: Usage | null
   sessionStatus?: SessionStatusInfo | null
@@ -111,6 +113,7 @@ export function ComposerPanel({
   providers,
   modelValue,
   onModelChange,
+  loadModels,
   usage,
   sessionStatus,
   contextLimit,
@@ -539,6 +542,7 @@ export function ComposerPanel({
               value={modelValue ?? {}}
               disabled={disabled}
               onChange={selection => { onModelChange?.(selection) }}
+              loadModels={loadModels}
             />
           )}
           <span className={styles.toolbarSpacer} />

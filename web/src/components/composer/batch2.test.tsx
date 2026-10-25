@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ProviderInfo, SessionStatusInfo } from '../../api/http'
+import type { ProviderInfo, ProviderModels, SessionStatusInfo } from '../../api/http'
 import type { PendingQuestionState } from '../../state/conversation'
 import { ContextMeter, FALLBACK_CONTEXT_TOKENS } from './ContextMeter'
 import { ModeBadge } from './ModeBadge'
@@ -57,6 +57,63 @@ describe('ModelPicker', () => {
   it('keeps a stale provider selectable as an unavailable option', () => {
     render(<ModelPicker providers={PROVIDERS} value={{ provider_name: 'gone', model: 'x' }} onChange={vi.fn()} />)
     expect(screen.getByRole('option', { name: /gone（已不可用）/ })).toBeInTheDocument()
+  })
+
+  it('lazily enumerates live models for the selected provider and emits them on pick', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4', 'claude-opus-4.5'], source: 'live' })
+    const onChange = vi.fn()
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={onChange}
+        loadModels={loadModels}
+      />,
+    )
+
+    await waitFor(() => { expect(loadModels).toHaveBeenCalledWith('primary') })
+    const select = await screen.findByRole('combobox', { name: 'Model' })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'claude-opus-4.5' })).toBeInTheDocument()
+    })
+    // Configured model stays as the 默认 option; the live list adds the rest.
+    expect(select.querySelectorAll('option').length).toBeGreaterThanOrEqual(3)
+
+    fireEvent.change(select, { target: { value: 'claude-opus-4.5' } })
+    expect(onChange).toHaveBeenLastCalledWith({ provider_name: 'primary', model: 'claude-opus-4.5' })
+  })
+
+  it('caches enumeration per provider instead of refetching on rerender', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['m1'], source: 'live' })
+    const { rerender } = render(
+      <ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={vi.fn()} loadModels={loadModels} />,
+    )
+    await waitFor(() => { expect(loadModels).toHaveBeenCalledTimes(1) })
+    rerender(
+      <ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={vi.fn()} loadModels={loadModels} />,
+    )
+    await screen.findByRole('option', { name: 'm1' })
+    expect(loadModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a fallback enumeration as unavailable instead of listing template models', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4', 'template-x'], source: 'fallback' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByText(/在线枚举不可用/)
+    // Fallback models are misleading templates: only 默认 + 自定义… remain.
+    expect(screen.queryByRole('option', { name: 'template-x' })).toBeNull()
+    expect(screen.getByRole('option', { name: '自定义…' })).toBeInTheDocument()
   })
 })
 

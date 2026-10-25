@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type ArchiveStatus, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderProfile, type SessionStatusInfo, type SessionSummary, type SkillInfo, type UiMode } from './api/http'
+import { HomeMasterApi, HttpError, type ArchiveStatus, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderModels, type ProviderProfile, type SessionStatusInfo, type SessionSummary, type SkillInfo, type UiMode } from './api/http'
 import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type ModelSelection } from './components/composer/ComposerPanel'
@@ -27,6 +27,9 @@ import { initialConversationState, reduceConversation } from './state/conversati
 import { projectSessionTurns, type Turn } from './state/projection'
 
 const api = new HomeMasterApi()
+
+// Stable wrapper: ModelPicker caches per provider name and needs a stable ref.
+const loadProviderModels = (name: string): Promise<ProviderModels> => api.providerModels(name)
 
 type DisplayOptions = { recording: boolean; requestedSessionId: string | null }
 
@@ -1002,6 +1005,7 @@ function AppShell() {
             providers={providers}
             modelValue={modelSelection}
             onModelChange={persistModelSelection}
+            loadModels={loadProviderModels}
             usage={latestUsage}
             sessionStatus={sessionStatus}
             contextLimit={contextLimit}

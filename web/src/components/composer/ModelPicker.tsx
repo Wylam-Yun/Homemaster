@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
-import type { ProviderInfo } from '../../api/http'
+import type { ProviderInfo, ProviderModels } from '../../api/http'
 import styles from './ModelPicker.module.css'
 
 /**
  * Per-session provider/model pick, sent as SendMessageRequest.provider_name +
  * model. Follows cline's ModelPickerWithManualEntry shape: a provider dropdown
- * plus the configured model or a free-text "custom" model id.
+ * plus the configured model, live-enumerated provider models (when loadModels
+ * is supplied), or a free-text "custom" model id.
  */
 export type ModelSelection = {
   provider_name?: string
@@ -22,16 +23,25 @@ export function modelSelectionLabel(selection: ModelSelection, providers: Provid
   return model !== null && model !== '' ? `${selection.provider_name} · ${model}` : selection.provider_name
 }
 
+type EnumState = {
+  name: string
+  status: 'loading' | 'ready' | 'error'
+  models: ProviderModels | null
+}
+
 export function ModelPicker({
   providers,
   value,
   disabled = false,
   onChange,
+  loadModels,
 }: {
   providers: ProviderInfo[]
   value: ModelSelection
   disabled?: boolean
   onChange: (selection: ModelSelection) => void
+  /** Lazily enumerates models for a provider; cached per provider name. */
+  loadModels?: (providerName: string) => Promise<ProviderModels>
 }) {
   const providerId = useId()
   const modelId = useId()
@@ -40,6 +50,8 @@ export function ModelPicker({
   // selection keeps a model that no provider default covers.
   const [customOpen, setCustomOpen] = useState(false)
   const [customDraft, setCustomDraft] = useState('')
+  const [enumState, setEnumState] = useState<EnumState | null>(null)
+  const enumCacheRef = useRef(new Map<string, ProviderModels | 'error'>())
 
   const selected = providers.find(item => item.name === value.provider_name)
   const providerMissing = value.provider_name !== undefined
@@ -53,6 +65,35 @@ export function ModelPicker({
       setCustomOpen(false)
     }
   }, [providerMissing, selected, value.model])
+
+  // Lazy enumeration: fetch once per provider name, cache the result (incl.
+  // failures) so switching providers back and forth stays free.
+  useEffect(() => {
+    const name = value.provider_name
+    if (name === undefined || name === '' || loadModels === undefined) {
+      setEnumState(null)
+      return
+    }
+    const cached = enumCacheRef.current.get(name)
+    if (cached !== undefined) {
+      setEnumState(cached === 'error'
+        ? { name, status: 'error', models: null }
+        : { name, status: 'ready', models: cached })
+      return
+    }
+    let current = true
+    setEnumState({ name, status: 'loading', models: null })
+    void loadModels(name)
+      .then(models => {
+        enumCacheRef.current.set(name, models)
+        if (current) setEnumState({ name, status: 'ready', models })
+      })
+      .catch(() => {
+        enumCacheRef.current.set(name, 'error')
+        if (current) setEnumState({ name, status: 'error', models: null })
+      })
+    return () => { current = false }
+  }, [value.provider_name, loadModels])
 
   const pickProvider = (name: string): void => {
     setCustomOpen(false)
@@ -72,7 +113,11 @@ export function ModelPicker({
       return
     }
     setCustomOpen(false)
-    onChange({ provider_name: value.provider_name })
+    if (raw === '') {
+      onChange({ provider_name: value.provider_name })
+      return
+    }
+    onChange({ provider_name: value.provider_name, model: raw })
   }
 
   const commitCustom = (): void => {
@@ -86,6 +131,19 @@ export function ModelPicker({
   }
 
   const showModelControls = selected !== undefined || providerMissing || customOpen
+  // Only 'live' enumerations populate the dropdown — 'fallback' results are
+  // configured-model + template guesses and would mislead the pick.
+  const enumForProvider = enumState !== null && enumState.name === value.provider_name ? enumState : null
+  const liveModels = enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'live'
+    ? enumForProvider.models.models
+    : []
+  const modelSelectValue = customOpen
+    ? CUSTOM_VALUE
+    : value.model === undefined || value.model === '' || value.model === selected?.model
+      ? ''
+      : liveModels.includes(value.model)
+        ? value.model
+        : CUSTOM_VALUE
 
   return (
     <div className={styles.picker} aria-label="模型选择">
@@ -121,22 +179,31 @@ export function ModelPicker({
           <select
             id={modelId}
             className={styles.select}
-            value={
-              customOpen || (value.model !== undefined && value.model !== '' && value.model !== selected?.model)
-                ? CUSTOM_VALUE
-                : ''
-            }
+            value={modelSelectValue}
             disabled={disabled || selected === undefined}
             aria-label="Model"
             onChange={event => { pickModel(event.target.value) }}
           >
             <option value="">默认{selected?.model ? ` · ${selected.model}` : ''}</option>
-            {value.model !== undefined && value.model !== '' && value.model !== selected?.model && (
+            {liveModels
+              .filter(model => model !== selected?.model)
+              .map(model => <option key={model} value={model}>{model}</option>)}
+            {value.model !== undefined && value.model !== '' && value.model !== selected?.model
+              && !liveModels.includes(value.model) && (
               <option value={CUSTOM_VALUE}>{value.model}</option>
             )}
             <option value={CUSTOM_VALUE}>自定义…</option>
           </select>
         </label>
+      )}
+      {enumForProvider?.status === 'loading' && (
+        <span className={styles.hint}>枚举模型中…</span>
+      )}
+      {enumForProvider?.status === 'error' && (
+        <span className={styles.hint}>在线枚举失败，可手动输入 model id</span>
+      )}
+      {enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'fallback' && (
+        <span className={styles.hint}>在线枚举不可用，可手动输入 model id</span>
       )}
       {customOpen && (
         <input

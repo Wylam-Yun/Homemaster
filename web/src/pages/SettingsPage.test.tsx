@@ -129,7 +129,7 @@ describe('SettingsPage', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: '枚举可用模型' }))[0]!)
 
     expect(await screen.findByText('claude-haiku-4')).toBeInTheDocument()
-    expect(screen.queryByText('离线兜底列表')).not.toBeInTheDocument()
+    expect(screen.queryByText('在线枚举不可用，显示兜底列表')).not.toBeInTheDocument()
     expect(calls.some(call => call.key === 'GET /api/providers/primary/models')).toBe(true)
   })
 
@@ -141,7 +141,7 @@ describe('SettingsPage', () => {
     })
 
     fireEvent.click((await screen.findAllByRole('button', { name: '枚举可用模型' }))[1]!)
-    expect(await screen.findByText('离线兜底列表')).toBeInTheDocument()
+    expect(await screen.findByText('在线枚举不可用，显示兜底列表')).toBeInTheDocument()
   })
 
   it('deletes a provider only after the inline confirm', async () => {
