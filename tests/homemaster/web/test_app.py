@@ -566,6 +566,8 @@ def test_web_route_table_is_stable() -> None:
         ("/api/sessions/{session_id}/status", ("GET",)),
         ("/api/sessions/{session_id}/stream", ("GET",)),
         ("/api/skills", ("GET",)),
+        ("/api/skills/import", ("POST",)),
         ("/api/skills/resolve", ("POST",)),
+        ("/api/skills/{name}", ("DELETE",)),
     ]
     assert actual == expected

@@ -22,5 +22,12 @@
 .offBadge { padding: 3px 7px; border-radius: 6px; background: rgb(255 123 135 / .14); color: var(--danger); font-size: 11px; font-weight: 800; }
 .muteBadge { padding: 3px 7px; border-radius: 6px; background: rgb(242 198 109 / .14); color: var(--warning); font-size: 11px; font-weight: 800; }
 .description { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.headingActions { display: flex; gap: 10px; }
+.actions { display: flex; gap: 8px; }
+.danger, .confirm button { border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.danger { border-color: var(--danger); color: var(--danger); }
+.danger:hover { background: rgb(255 123 135 / .12); }
+.confirm { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--danger); border-radius: 10px; background: #32181d; color: #ffd9dd; font-size: 12px; }
+.confirm span { flex: 1; }
 .empty { grid-column: 1 / -1; padding: 58px 20px; border: 1px dashed var(--border-strong); border-radius: 14px; color: var(--muted); text-align: center; background: rgb(255 255 255 / .03); }
 @media (max-width: 800px) { .page { padding: 22px 16px 40px; } .list { grid-template-columns: 1fr; } }

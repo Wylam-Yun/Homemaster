@@ -61,6 +61,24 @@ class SkillResolveRequest(BaseModel):
     text: str = Field(min_length=1)
 
 
+class SkillImportFile(BaseModel):
+    """One file of an uploaded skill folder (path relative, POSIX-style)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=1_000_000)
+
+
+class SkillImportRequest(BaseModel):
+    """JSON folder upload: every file sits under one top-level directory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[SkillImportFile] = Field(min_length=1, max_length=200)
+    overwrite: bool = False
+
+
 class ItemChoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

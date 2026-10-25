@@ -442,6 +442,21 @@ export class HomeMasterApi {
     return this.request('/api/skills')
   }
 
+  /** Import a skill folder as JSON files; paths are relative like `dir/SKILL.md`. */
+  importSkill(
+    files: Array<{ path: string; content: string }>,
+    overwrite = false,
+  ): Promise<{ status: string; skill: SkillInfo }> {
+    return this.request('/api/skills/import', {
+      method: 'POST',
+      body: JSON.stringify({ files, overwrite }),
+    })
+  }
+
+  deleteSkill(name: string): Promise<void> {
+    return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
   meta(): Promise<MetaInfo> {
     return this.request('/api/meta')
   }
