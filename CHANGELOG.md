@@ -27,6 +27,13 @@
   checkout skipif); `pytest` default runs deselect `live_*` markers so a
   plain run no longer spends real API quota — opt in with `pytest -m
   live_api` etc.
+- Audit remediation phase 3 (structure + tooling): `create_web_app`
+  split from a 1258-line factory into `web/app.py` wiring plus
+  `web/routes/` per-domain modules behind a `WebAppContext` (route table
+  verified identical); `mypy` added to dev tooling with pragmatic config
+  and a documented 293-error baseline as the gradual-tightening plan;
+  first CI gate added (`.github/workflows/ci.yml`: ruff check + format,
+  pytest, web typecheck + vitest on push to main and PRs).
 - Removed stale `TODO.md`: its only item (debug `robot_manipulate`
   `invalid_tool_arguments`) was superseded by the V3.5 grounding and
   validation work — `invalid_tool_arguments` is now a classified typed

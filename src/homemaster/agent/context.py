@@ -169,7 +169,7 @@ class TaskStateSnapshotProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -204,7 +204,7 @@ class RuntimeBudgetStatusProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -241,7 +241,7 @@ class FailureSummaryProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -268,7 +268,7 @@ class ConversationProvider:
                 # is computed once per prepare on the projected view, so an
                 # O(history) scan here would be pure waste.
                 token_estimate=0,
-                render=lambda _mode, msgs=messages: msgs,
+                render=lambda _mode: messages,
             )
         ]
 
@@ -312,7 +312,7 @@ class AvailableSkillsProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
             )
         ]
 

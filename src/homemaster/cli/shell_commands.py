@@ -31,7 +31,7 @@ from homemaster.cli.keymap import KEY_HELP_LINES
 
 # An argument completer maps the current argument prefix to (value, meta) pairs.
 ArgCompleter = Callable[[str], Iterable[tuple[str, str]]]
-CommandHandler = Callable[["ShellContext", str], None]
+CommandHandler = Callable[["ShellContext", str], Any]
 
 # ``!cmd`` / ``{!cmd}`` guard rails: a local command is killed once it runs past
 # the wall-clock timeout or once its captured output exceeds either bound.

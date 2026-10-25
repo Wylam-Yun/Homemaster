@@ -85,7 +85,12 @@ homemaster = "homemaster.cli.app:app"
 # enter wheel Requires-Dist — the package itself is bundled via
 # packages.find below.
 [dependency-groups]
-dev = ["mindmemos"]
+dev = [
+    "mindmemos",
+    "mypy>=1.20,<2",
+    "types-croniter>=4.0",
+    "types-pyyaml>=6.0",
+]
 
 [tool.uv.sources]
 mindmemos = { path = "third_party/MindMemOS/src/mindmemos" }
@@ -186,3 +191,31 @@ select = ["E", "F", "I", "UP", "B"]
 # Browser schemas preserve locked provider descriptions; session embeds page-side JavaScript.
 "src/homemaster/browser/playwright_session.py" = ["E501"]
 "src/homemaster/tools/browser/**" = ["E501"]
+
+# Optional type checker — pragmatic baseline only. Core contracts are
+# intentionally Any-typed, so strict mode stays off; per-module strictness is
+# tightened later. Run: `uv run mypy` or `.venv/bin/python -m mypy`.
+[tool.mypy]
+packages = ["homemaster"]
+mypy_path = "src"
+python_version = "3.11"
+# Vendored / generated trees are not first-party sources.
+exclude = "(src/agentscope/|third_party/|src/homemaster/browser/vendor/|src/homemaster/browser/generated/)"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+
+# Baseline opt-outs: subtrees dominated by external-boundary friction (THOR
+# controller objects, MindMemOS client payloads, Playwright JS bridge) stay
+# unchecked until they are tightened per-module — re-enable by deleting the
+# module pattern below.
+[[tool.mypy.overrides]]
+module = [
+  "homemaster.alfworld.benchmark.*",
+  "homemaster.memory",
+  "homemaster.memory.*",
+  "homemaster.browser",
+  "homemaster.browser.*",
+  "homemaster.tools.browser.*",
+]
+ignore_errors = true

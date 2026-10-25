@@ -140,7 +140,7 @@ class RoboCasaBenchmarkRunner:
             worker = self._ensure_worker(episode_dir)
             adapter = (
                 self._adapter_factory(self.config)
-                if self._custom_adapter_factory
+                if self._adapter_factory is not None
                 else RoboCasaEnvAdapter(worker=worker)
             )
             reconfigured = adapter.ensure_cell(

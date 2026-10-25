@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 _HANDLE_PREFIX = "hm-artifact:"
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
@@ -234,7 +234,7 @@ class ToolOutputStore:
         return path
 
     @staticmethod
-    def _read_metadata(path: Path) -> dict[str, object]:
+    def _read_metadata(path: Path) -> dict[str, Any]:
         if path.is_symlink():
             raise ArtifactStoreError("artifact metadata must not be a symlink")
         try:

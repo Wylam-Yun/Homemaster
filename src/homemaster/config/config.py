@@ -1129,7 +1129,7 @@ def _config_leaf_paths(value: Any, prefix: str = "") -> list[str]:
         return paths
     if not isinstance(value, dict):
         return [prefix] if prefix else []
-    paths: list[str] = []
+    paths = []
     for key, child in value.items():
         child_prefix = f"{prefix}.{key}" if prefix else str(key)
         paths.extend(_config_leaf_paths(child, child_prefix))

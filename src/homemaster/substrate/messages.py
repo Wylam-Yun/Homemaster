@@ -164,7 +164,7 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
             out.append(Msg(role="user", name=_USER_NAME, content=blocks, metadata=metadata))
             current_reply = None
         elif isinstance(message, AssistantMessage):
-            blocks: list = []
+            blocks = []
             if message.reasoning_content:
                 blocks.append(ThinkingBlock(thinking=message.reasoning_content))
             for blk in message.content:
