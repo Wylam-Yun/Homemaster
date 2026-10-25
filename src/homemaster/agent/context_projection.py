@@ -1,4 +1,4 @@
-"""Provider-only projection for tool availability in model context."""
+"""Provider-side tool-context projection seam for model context."""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ def project_model_tool_context(
     *,
     tools: Sequence[Mapping[str, object]] | None,
 ) -> list[Message]:
-    """Keep V3.1 semantic targets and stable refs in provider-visible history."""
+    """Return provider-visible messages unchanged (intentional pass-through).
+
+    This is a deliberate seam, not a real projection: the V3.5/V3.7 plans
+    keep a single hook between provider history collection and dispatch so
+    a future tool-context projection plugs in without touching call sites.
+    ``tools`` is accepted for signature stability and ignored.
+    """
 
     del tools
     return list(messages)

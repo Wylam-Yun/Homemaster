@@ -273,8 +273,8 @@ class _GroupVerifier:
 
 def build_feishu_group_tools(
     operations: FeishuGroupOperations,
-) -> tuple[RegisteredTool, RegisteredTool]:
-    return tuple(_group_tool(operations, action) for action in ("create", "rename"))  # type: ignore[return-value]
+) -> tuple[RegisteredTool, ...]:
+    return tuple(_group_tool(operations, action) for action in ("create", "rename"))
 
 
 def _group_tool(operations: FeishuGroupOperations, action: str) -> RegisteredTool:

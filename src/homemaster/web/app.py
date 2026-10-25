@@ -557,7 +557,11 @@ def create_web_app(
                         provider_name=body.provider_name,
                         model_override=body.model,
                         permission_subject=_WEB_PERMISSION_SUBJECT,
-                        run_policy=RunPolicy(max_tool_iterations=100),
+                        run_policy=RunPolicy(
+                            max_tool_iterations=(
+                                config.runtime.max_tool_iterations if config is not None else None
+                            ),
+                        ),
                         metadata={"web_request_id": body.request_id},
                         dependencies={"ask_user_prompt": ask_user_prompt},
                     ),
@@ -568,9 +572,7 @@ def create_web_app(
             finally:
                 # A run's questions are only live while the run is; end or
                 # cancellation drops them and broadcasts one terminal event each.
-                for record in await pending_questions.cancel_request(
-                    session_id, body.request_id
-                ):
+                for record in await pending_questions.cancel_request(session_id, body.request_id):
                     await hub.publish(
                         WebEvent(
                             type="question.cancelled",
@@ -734,9 +736,7 @@ def create_web_app(
         skills: list[dict[str, object]] = []
         for skill in registry.list_skills():
             provenance = registry.provenance_for(skill)
-            raw_source = (
-                provenance[-1].source if provenance else getattr(skill, "source", "")
-            )
+            raw_source = provenance[-1].source if provenance else getattr(skill, "source", "")
             skills.append(
                 {
                     "name": skill.name,
@@ -1249,8 +1249,7 @@ def create_web_app(
             )
         return {
             "grants": [
-                _grant_to_dict(grant, store.grant_display(grant.source_item_id))
-                for grant in grants
+                _grant_to_dict(grant, store.grant_display(grant.source_item_id)) for grant in grants
             ],
             "next_cursor": next_cursor,
         }
@@ -1386,9 +1385,7 @@ def _provider_selection_error(
     if provider_name is None and model is None:
         return None
     items = getattr(getattr(config, "providers", None), "items", None) or ()
-    chat_providers = [
-        provider for provider in items if getattr(provider, "kind", None) == "chat"
-    ]
+    chat_providers = [provider for provider in items if getattr(provider, "kind", None) == "chat"]
     if provider_name is not None and not any(
         provider.name.casefold() == provider_name.casefold() for provider in chat_providers
     ):
@@ -1414,10 +1411,7 @@ def _provider_selection_error(
                 retryable=False,
             )
         (matched,) = matches.values()
-        if (
-            provider_name is not None
-            and matched.name.casefold() != provider_name.casefold()
-        ):
+        if provider_name is not None and matched.name.casefold() != provider_name.casefold():
             return _error(
                 422,
                 "unknown_model",
@@ -1520,10 +1514,7 @@ def _resolution_to_dict(resolution: Any) -> dict[str, Any]:
         "request_status": resolution.request_status,
         "execution_started": resolution.execution_started,
         "persisted_grant_ids": list(resolution.persisted_grant_ids),
-        "items": [
-            {"item_id": item.item_id, "choice": item.choice}
-            for item in resolution.items
-        ],
+        "items": [{"item_id": item.item_id, "choice": item.choice} for item in resolution.items],
     }
 
 
@@ -1556,9 +1547,7 @@ def _approval_to_dict(stored: Any) -> dict[str, Any]:
     }
 
 
-def _grant_to_dict(
-    grant: Any, display: tuple[str, str, str] | None = None
-) -> dict[str, Any]:
+def _grant_to_dict(grant: Any, display: tuple[str, str, str] | None = None) -> dict[str, Any]:
     return {
         "grant_id": grant.grant_id,
         "environment_id": grant.environment_id,

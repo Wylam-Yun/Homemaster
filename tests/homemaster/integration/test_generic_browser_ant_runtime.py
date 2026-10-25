@@ -37,7 +37,10 @@ from homemaster.providers.attempts import ProviderAttemptRecord
 from homemaster.providers.types import TransportDelta
 
 ANT_ORIGIN = os.environ.get("HOMEMASTER_ANT_ORIGIN")
-pytestmark = pytest.mark.skipif(not ANT_ORIGIN, reason="HOMEMASTER_ANT_ORIGIN is not set")
+pytestmark = [
+    pytest.mark.live_api,
+    pytest.mark.skipif(not ANT_ORIGIN, reason="HOMEMASTER_ANT_ORIGIN is not set"),
+]
 
 VALUES = {
     "TenantId": "tenant-phase1",

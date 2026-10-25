@@ -35,7 +35,7 @@ from homemaster.agent.normalized import RunContext
 from homemaster.agent.runtime_contracts import (
     GenericRunResult,
     StopCondition,
-    _cancelled,
+    is_cancelled,
 )
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
@@ -512,7 +512,7 @@ class AsAgentRuntime:
         final_msg: Any = None
         try:
             while True:
-                if _cancelled(interrupt, cancellation_token):
+                if is_cancelled(interrupt, cancellation_token):
                     await stream.aclose()
                     return await self._cancel_result(
                         session,
@@ -560,10 +560,7 @@ class AsAgentRuntime:
                 raise propagatable from None
             error_text = "agentscope reply exceeded the run deadline"
             if mirror_error is not None:
-                error_text = (
-                    f"{error_text}; session mirror failed: "
-                    f"{_flatten_error(mirror_error)}"
-                )
+                error_text = f"{error_text}; session mirror failed: {_flatten_error(mirror_error)}"
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -604,10 +601,7 @@ class AsAgentRuntime:
             )
             error_text = _flatten_error(exc)
             if mirror_error is not None:
-                error_text = (
-                    f"{error_text}; session mirror failed: "
-                    f"{_flatten_error(mirror_error)}"
-                )
+                error_text = f"{error_text}; session mirror failed: {_flatten_error(mirror_error)}"
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -855,8 +849,7 @@ class AsAgentRuntime:
                 result_text = "\n".join(
                     str(getattr(block, "text", "") or "")
                     for block in (block_output or [])
-                    if getattr(block, "type", None) == "text"
-                    and getattr(block, "text", None)
+                    if getattr(block, "type", None) == "text" and getattr(block, "text", None)
                 )
             await emit(
                 "tool.call_failed" if is_error else "tool.call_completed",
@@ -990,11 +983,7 @@ class AsAgentRuntime:
             # ``max_consecutive_truncated_responses`` rounds instead of
             # re-requesting the same oversized generation until timeout.
             output_cap = _model_output_cap(self._model)
-            if (
-                output_cap
-                and item.output_tokens >= output_cap
-                and handle.round_tool_calls == 0
-            ):
+            if output_cap and item.output_tokens >= output_cap and handle.round_tool_calls == 0:
                 handle.consecutive_truncated_stalls += 1
             else:
                 handle.consecutive_truncated_stalls = 0
@@ -1003,10 +992,7 @@ class AsAgentRuntime:
                 "max_consecutive_truncated_responses",
                 2,
             )
-            if (
-                max_stalls > 0
-                and handle.consecutive_truncated_stalls >= max_stalls
-            ):
+            if max_stalls > 0 and handle.consecutive_truncated_stalls >= max_stalls:
                 await self._close_dangling_tool_calls(handle, emit)
                 await stream.aclose()
                 await emit(
@@ -1230,9 +1216,7 @@ class AsAgentRuntime:
             if block.id in existing_result_ids:
                 continue
             block.state = ToolCallState.FINISHED
-            real = getattr(handle.scope, "late_tool_results", {}).pop(
-                block.id, None
-            )
+            real = getattr(handle.scope, "late_tool_results", {}).pop(block.id, None)
             real_chunk = None
             if real is not None:
                 try:
@@ -1254,10 +1238,7 @@ class AsAgentRuntime:
                 # backend_attempted=True) but aclose() hit before call_tool
                 # could yield the terminal ToolResponse — persist and emit it
                 # instead of the synthetic "not attempted" placeholder.
-                real_hm = dict(
-                    (getattr(real_chunk, "metadata", None) or {}).get("hm")
-                    or {}
-                )
+                real_hm = dict((getattr(real_chunk, "metadata", None) or {}).get("hm") or {})
                 last_msg.content.append(
                     ToolResultBlock(
                         id=block.id,
@@ -1345,9 +1326,9 @@ class AsAgentRuntime:
             elif engine_state is not None:
                 self._sync_session(session, engine_state)
         except BaseException as exc:
-            if _find_propagatable(
-                exc, self._propagate_exceptions
-            ) is None and not isinstance(exc, MessageConversionError):
+            if _find_propagatable(exc, self._propagate_exceptions) is None and not isinstance(
+                exc, MessageConversionError
+            ):
                 raise
             if isinstance(exc, MessageConversionError):
                 _logger.warning(

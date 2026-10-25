@@ -56,8 +56,7 @@ class _Chunk:
 
 def _remote_protocol_error() -> httpx.RemoteProtocolError:
     return httpx.RemoteProtocolError(
-        "peer closed connection without sending complete message body "
-        "(incomplete chunked read)",
+        "peer closed connection without sending complete message body (incomplete chunked read)",
         request=httpx.Request("POST", "https://provider.example/v1/messages"),
     )
 
@@ -74,9 +73,7 @@ async def _stream_of(items: list[Any]) -> Any:
 
 def _stack(
     sink: ListProviderAttemptSink,
-) -> tuple[
-    _FakeHandle, ProviderRetryMiddleware, ProviderObservabilityMiddleware
-]:
+) -> tuple[_FakeHandle, ProviderRetryMiddleware, ProviderObservabilityMiddleware]:
     handle = _FakeHandle()
     observability = ProviderObservabilityMiddleware(handle=handle, attempt_sink=sink)
     retry = ProviderRetryMiddleware(handle=handle, attempt_sink=sink)
@@ -96,9 +93,7 @@ async def test_mid_stream_transport_error_retries_while_reasoning_only() -> None
         calls.append(len(calls))
         if len(calls) == 1:
             return await _stream_of([_Chunk((_Block("thinking"),)), _remote_protocol_error()])
-        return await _stream_of(
-            [_Chunk((_Block("text"),)), _Chunk((), is_last=True)]
-        )
+        return await _stream_of([_Chunk((_Block("text"),)), _Chunk((), is_last=True)])
 
     async def next_handler() -> Any:
         return await observability.on_model_call(None, {}, model_call)
@@ -136,18 +131,14 @@ async def test_in_flight_text_delta_does_not_commit() -> None:
     async def model_call() -> Any:
         calls.append(len(calls))
         if len(calls) == 1:
-            return await _stream_of(
-                [_Chunk((_Block("text"),)), _remote_protocol_error()]
-            )
-        return await _stream_of(
-            [_Chunk((_Block("text"),)), _Chunk((), is_last=True)]
-        )
+            return await _stream_of([_Chunk((_Block("text"),)), _remote_protocol_error()])
+        return await _stream_of([_Chunk((_Block("text"),)), _Chunk((), is_last=True)])
 
     async def next_handler() -> Any:
         return await observability.on_model_call(None, {}, model_call)
 
     result = await retry.on_model_call(None, {"messages": []}, next_handler)
-    emitted = [chunk async for chunk in result]
+    _ = [chunk async for chunk in result]
 
     assert len(calls) == 2
     assert any(e[0] == "transport.request_retrying" for e in handle.events)
@@ -174,9 +165,7 @@ async def test_mid_stream_tool_call_args_still_pre_commit() -> None:
                     _Chunk((_Block("tool_call", id="call-a"),)),
                     httpx.ReadTimeout(
                         "mid-args stall",
-                        request=httpx.Request(
-                            "POST", "https://provider.example/v1/messages"
-                        ),
+                        request=httpx.Request("POST", "https://provider.example/v1/messages"),
                     ),
                 ]
             )
@@ -191,7 +180,7 @@ async def test_mid_stream_tool_call_args_still_pre_commit() -> None:
         return await observability.on_model_call(None, {}, model_call)
 
     result = await retry.on_model_call(None, {"messages": []}, next_handler)
-    emitted = [chunk async for chunk in result]
+    _ = [chunk async for chunk in result]
 
     assert len(calls) == 2
     assert any(e[0] == "transport.request_retrying" for e in handle.events)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import threading
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
@@ -13,6 +15,8 @@ from typing import Any
 
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.stream_events import StreamEvent
+
+logger = logging.getLogger(__name__)
 
 _CLOSED = object()
 
@@ -43,14 +47,21 @@ class EventBus:
         *,
         capacity: int = 256,
         public_projector: PublicEventProjector | None = None,
+        history_limit: int = 10_000,
     ) -> None:
         if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity < 1:
             raise ValueError("event bus capacity must be a positive integer")
+        if (
+            isinstance(history_limit, bool)
+            or not isinstance(history_limit, int)
+            or history_limit < 1
+        ):
+            raise ValueError("event bus history limit must be a positive integer")
         if public_projector is not None and not callable(public_projector):
             raise TypeError("public event projector must be callable or None")
         self._capacity = capacity
         self._public_projector = public_projector
-        self._events: list[RuntimeEvent] = []
+        self._events: deque[RuntimeEvent] = deque(maxlen=history_limit)
         self._subscribers: list[Callable[[RuntimeEvent], Any]] = []
         self._streams: set[_StreamChannel] = set()
         self._producer_tasks: set[asyncio.Task[None]] = set()
@@ -205,9 +216,7 @@ class EventBus:
                         waiters,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
-                    if put_task not in done and (
-                        close_task in done or stream_close_task in done
-                    ):
+                    if put_task not in done and (close_task in done or stream_close_task in done):
                         raise EventBusClosedError("event stream closed during publish")
                     await put_task
                 finally:
@@ -248,6 +257,11 @@ class EventBus:
             try:
                 projected = projector(event)
             except Exception:
+                logger.warning(
+                    "public event projection failed for event type %s",
+                    event.type,
+                    exc_info=True,
+                )
                 continue
             if projected is not None:
                 yield projected

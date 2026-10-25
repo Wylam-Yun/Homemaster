@@ -9,8 +9,7 @@ location; it remains a draft until reviewed. Other archived versions are not act
 3. `README.md` / `docs/architecture/` -- current capabilities and architecture.
 
 Each `V<x.y>/` directory holds the plans, specs, review dispositions, and locked baseline
-evidence for that delivery. They are kept as immutable history (see
-`2026-08-27-retire-coworker-subsystem.md` for the preservation policy) and are skipped by the
+evidence for that delivery. They are kept as immutable history and are skipped by the
 legacy-terms guard. Standalone topic plans live directly under `plan/`.
 
 | Version | Date | Focus |
@@ -33,15 +32,22 @@ legacy-terms guard. Standalone topic plans live directly under `plan/`.
 | V2.9 | 2026-08-20 | Feishu CLI-equivalent confirmation |
 | V3.0 | 2026-08-24 | Ops Monitor agent change execution |
 | V3.1 | 2026-08-26 | V3.1 browser tools (OpenCLI 1.8.7 vendor, capability matrix) |
+| V3.2 | 2026-09-02 | Reproducible core and ALFWorld decoupling (setup/bundle, managed-local Neo4j) |
+| V3.3 | 2026-09-08 | ALFWorld trajectory memory |
+| V3.4 | 2026-09-09 | Household resource permissions (object x action, destination areas) |
+| V3.5 | 2026-09-18 | Architecture convergence: single composition, canonical Tool contract, isolated worker |
+| V3.6 | 2026-09-18 | Canonical schema-episode contract, trajectory schema memory |
+| V3.7 | 2026-10-01 | AgentScope migration (phased decisions and designs) |
 
 Standalone plans:
 
-- `2026-08-27-retire-coworker-subsystem.md` -- complete retirement of the Coworker/Case02
-  subsystem; the supported browser architecture is the V3.1 Browser Gateway.
-- `2026-08-27-retire-v19-alfworld-release-certification.md` -- retirement of the V1.8 ten-trial
-  inventory and V1.9 fixed release-certification layer; current ALFWorld runtime remains supported.
-- `alfworld-mindmem-integration-plan.md`, `alfworld-mindmemos-portable-benchmark-plan.md`,
-  `locomo-full-pipeline-pilot-plan.md`, `native-mindmemos-search-types-implementation-plan.md`,
-  `portable-memory-runtime-implementation-plan.md`, `unified-session-finalization-plan.md`,
-  `interactive-cli-confirmation-implementation-plan.md` -- cross-version topic plans, all
-  delivered; see `CHANGELOG.md` for the corresponding entries.
+- `2026-09-08-alfworld-benchmark-hanghan-pitfalls.md` -- ALFWorld benchmark environment
+  pitfalls on the Hanghan GPU machine (postmortem notes).
+- `2026-10-06-web-first-ux-and-install.md` -- web-first UX and distributable install plan
+  (W4/W5 UI interaction workflow elevated to first-class).
+- `2026-10-06-web-first-ux-review-disposition.md` -- independent-review disposition for the
+  web-first UX plan.
+- `2026-10-06-p3-ui-batch1-impl.md` -- P3 UI batch-1 implementation spec derived from the
+  web-first UX plan (W4/W5).
+- `2026-10-14-robocasa-integration-impl.md` -- RoboCasa benchmark integration design via an
+  isolated RPent worker.

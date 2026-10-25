@@ -18,14 +18,14 @@ from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 
 
+@pytest.mark.live_alfworld
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_schema_episode_alfworld_single_episode() -> None:
     if os.environ.get("HOMEMASTER_RUN_REAL_SCHEMA_EPISODE_ALFWORLD") != "1":
         pytest.skip("set HOMEMASTER_RUN_REAL_SCHEMA_EPISODE_ALFWORLD=1 for real ALFWorld gate")
 
-    alfworld_root = Path(
-        os.environ.get("ALFWORLD_ROOT", "/home/haodong2/weilin/red_bird/alfworld")
-    )
+    alfworld_root = Path(os.environ.get("ALFWORLD_ROOT", "/home/haodong2/weilin/red_bird/alfworld"))
     alfworld_config = Path(
         os.environ.get("ALFWORLD_CONFIG", str(alfworld_root / "configs" / "base_config.yaml"))
     )
@@ -64,9 +64,7 @@ async def test_real_schema_episode_alfworld_single_episode() -> None:
     assert reset.state is not None
     state = reset.state
 
-    config = load_config(
-        os.environ.get("HOMEMASTER_REAL_TEST_CONFIG", str(provider_config))
-    )
+    config = load_config(os.environ.get("HOMEMASTER_REAL_TEST_CONFIG", str(provider_config)))
     neo4j = ManagedNeo4jRuntime(config.memory)
     store = EmbeddedMindMemOS(config)
     nonce = "alfworld-schema-" + uuid.uuid4().hex[:12]

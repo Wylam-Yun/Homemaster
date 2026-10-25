@@ -86,7 +86,7 @@ class ManagedQdrantRuntime:
         process_stopper: ProcessStopper | None = None,
         process_killer: ProcessKiller | None = None,
         listener_pid: ListenerPid | None = None,
-        binary_checker: "Callable[[int, Path], bool] | None" = None,
+        binary_checker: Callable[[int, Path], bool] | None = None,
         poll_interval_seconds: float = 0.2,
     ) -> None:
         if config.qdrant.mode != "managed_local":
@@ -139,9 +139,7 @@ class ManagedQdrantRuntime:
                     # service came up — its recorded pid is still alive, so
                     # wait for it rather than spawning a competitor. Keep the
                     # owner file on timeout: it is the only record of that pid.
-                    await self._wait_until_listening(
-                        timeout=self._qdrant.start_timeout_seconds
-                    )
+                    await self._wait_until_listening(timeout=self._qdrant.start_timeout_seconds)
                     state = await self._probe_port()
             if state == _ABSENT:
                 self._owner_path.unlink(missing_ok=True)
@@ -200,9 +198,7 @@ class ManagedQdrantRuntime:
                         # listener when the port owner provably runs the
                         # configured binary, else attach lease-only.
                         adopted = self._listener_pid(self._qdrant.rest_port)
-                        if adopted is not None and self._pid_is_our_binary(
-                            adopted, binary
-                        ):
+                        if adopted is not None and self._pid_is_our_binary(adopted, binary):
                             self._write_owner(
                                 state="owned",
                                 owner_token=identity,
@@ -243,9 +239,7 @@ class ManagedQdrantRuntime:
                         # adopt the listener only when the port owner provably
                         # runs the configured binary.
                         adopted = self._listener_pid(self._qdrant.rest_port)
-                        if adopted is not None and self._pid_is_our_binary(
-                            adopted, binary
-                        ):
+                        if adopted is not None and self._pid_is_our_binary(adopted, binary):
                             token = str(owner["owner_token"])
                             await self._claim_sentinel(token)
                             self._write_owner(
@@ -302,9 +296,7 @@ class ManagedQdrantRuntime:
                 if owner is not None and await self._owns_current_service(owner):
                     pid = owner.get("pid")
                     if isinstance(pid, int):
-                        await self._stop_service(
-                            pid, str(owner.get("process_start") or "unknown")
-                        )
+                        await self._stop_service(pid, str(owner.get("process_start") or "unknown"))
                 self._owner_path.unlink(missing_ok=True)
             self._started = False
         if self._spawned is not None:
@@ -314,9 +306,7 @@ class ManagedQdrantRuntime:
             proc = self._spawned
             self._spawned = None
             if proc.poll() is None:
-                self._reaper_task = asyncio.ensure_future(
-                    asyncio.to_thread(proc.wait)
-                )
+                self._reaper_task = asyncio.ensure_future(asyncio.to_thread(proc.wait))
             else:
                 proc.wait()
 
@@ -329,17 +319,11 @@ class ManagedQdrantRuntime:
                 "managed_local Qdrant requires memory.qdrant.home pointing at "
                 "the qdrant installation directory or binary"
             )
-        candidates = (
-            [home]
-            if home.is_file()
-            else [home / "qdrant", home / "bin" / "qdrant"]
-        )
+        candidates = [home] if home.is_file() else [home / "qdrant", home / "bin" / "qdrant"]
         for candidate in candidates:
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
-        raise ManagedQdrantError(
-            f"Qdrant executable is missing under memory.qdrant.home: {home}"
-        )
+        raise ManagedQdrantError(f"Qdrant executable is missing under memory.qdrant.home: {home}")
 
     def _prepare_runtime_root(self) -> None:
         self._clients_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -393,7 +377,7 @@ class ManagedQdrantRuntime:
 
     # -- spawn / stop ---------------------------------------------------------------
 
-    def _spawn(self, binary: Path) -> "subprocess.Popen[bytes]":
+    def _spawn(self, binary: Path) -> subprocess.Popen[bytes]:
         if self._spawner is not None:
             return self._spawner()
         env = dict(os.environ)
@@ -428,7 +412,7 @@ class ManagedQdrantRuntime:
 
     async def _wait_until_ready_or_dead(
         self,
-        proc: "subprocess.Popen[bytes]",
+        proc: subprocess.Popen[bytes],
         *,
         timeout: float,
     ) -> None:
@@ -438,15 +422,13 @@ class ManagedQdrantRuntime:
             returncode = proc.poll()
             if returncode is not None:
                 raise ManagedQdrantError(
-                    f"Qdrant exited during startup with code {returncode}: "
-                    + self._stderr_tail()
+                    f"Qdrant exited during startup with code {returncode}: " + self._stderr_tail()
                 )
             if await self._probe_port() == _QDRANT:
                 return
             if loop.time() >= deadline:
                 raise ManagedQdrantError(
-                    f"Qdrant did not become ready within {timeout:g}s: "
-                    + self._stderr_tail()
+                    f"Qdrant did not become ready within {timeout:g}s: " + self._stderr_tail()
                 )
             await asyncio.sleep(self._poll_interval_seconds)
 
@@ -472,12 +454,10 @@ class ManagedQdrantRuntime:
             if await self._probe_port() == _ABSENT:
                 return
             if loop.time() >= deadline:
-                raise ManagedQdrantError(
-                    f"Qdrant did not stop within {timeout:g}s"
-                )
+                raise ManagedQdrantError(f"Qdrant did not stop within {timeout:g}s")
             await asyncio.sleep(self._poll_interval_seconds)
 
-    async def _terminate_spawned(self, proc: "subprocess.Popen[bytes]") -> None:
+    async def _terminate_spawned(self, proc: subprocess.Popen[bytes]) -> None:
         try:
             if proc.poll() is None:
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -485,9 +465,7 @@ class ManagedQdrantRuntime:
         except (OSError, ProcessLookupError):
             pass
 
-    async def _stop_service(
-        self, pid: int, process_start: str
-    ) -> None:
+    async def _stop_service(self, pid: int, process_start: str) -> None:
         if self._process_stopper is not None:
             await self._process_stopper(pid)
             await self._wait_for_absent(timeout=self._qdrant.stop_timeout_seconds)
@@ -592,9 +570,7 @@ class ManagedQdrantRuntime:
         """Return the owner token when the served storage is verifiably ours."""
         return self._identity_from_sentinel(await self._read_sentinel())
 
-    def _identity_from_sentinel(
-        self, sentinel: Mapping[str, Any] | None
-    ) -> str | None:
+    def _identity_from_sentinel(self, sentinel: Mapping[str, Any] | None) -> str | None:
         if sentinel is None:
             return None
         if sentinel.get("runtime_root") != str(self._runtime_root):
@@ -618,13 +594,10 @@ class ManagedQdrantRuntime:
             if create.status_code not in (200, 409):
                 # Some versions answer 400 for "collection already exists" —
                 # confirm existence before failing the claim.
-                exists = await client.get(
-                    f"/collections/{_SENTINEL_COLLECTION}"
-                )
+                exists = await client.get(f"/collections/{_SENTINEL_COLLECTION}")
                 if exists.status_code != 200:
                     raise ManagedQdrantError(
-                        "could not create ownership sentinel: "
-                        f"HTTP {create.status_code}"
+                        f"could not create ownership sentinel: HTTP {create.status_code}"
                     )
             upsert = await client.put(
                 f"/collections/{_SENTINEL_COLLECTION}/points",
@@ -691,10 +664,7 @@ class ManagedQdrantRuntime:
         if await self._probe_port() != _QDRANT:
             return False
         service_identity = await self._service_identity()
-        return (
-            service_identity is not None
-            and owner.get("service_identity") == service_identity
-        )
+        return service_identity is not None and owner.get("service_identity") == service_identity
 
     def _owner_matches_config(self, owner: Mapping[str, Any]) -> bool:
         return (

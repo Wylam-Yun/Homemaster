@@ -98,7 +98,7 @@ flowchart LR
 | `agent/` | AgentRuntime、context 组装与 provider turn |
 | `tools/` | BaseTool、universal Registry、权限检查与统一执行链 |
 | `domain/` | Home 机器人领域工具与目标 grounding |
-| `skills/` | SkillSpec / SkillLoader / SkillRegistry 与 builtin `SKILL.md` |
+| `skills/` | SkillDefinition / SkillLoader / SkillRegistry 与 builtin `SKILL.md` |
 | `memory/` | 分层记忆、MindMemOS pipeline 与召回基准 |
 | `mcp/` | MCP 配置/客户端、Registry adapter 与 audit |
 | `permissions/` | typed 配置、capability policy 与路径/命令规则 |
@@ -175,6 +175,11 @@ Provider 配置只从 YAML 真理源读取。首次配置时复制脱敏模板�
 cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/homemaster.yaml
 ```
+
+浏览器模式另有 `config/homemaster.browser.yaml.example` 模板（复制为
+`config/homemaster.browser.yaml`，同样 chmod 600）。注意两份样例的命名不对称：主模板是
+`homemaster.example.yaml`（`.example` 中缀），浏览器模板是 `homemaster.browser.yaml.example`
+（`.example` 后缀）；文件名按现状保留，引用时以实际文件名为准。
 
 ### 3. 初始化本机运行目录
 
@@ -305,6 +310,8 @@ WebSocket 连接同一个 server，因此同一会话可以在终端和浏览器
 | `homemaster memory migrate --config ...` | 迁移旧版 `~/.homemaster/memories` 文件记忆 |
 | `homemaster gateway --config ...` | 启动飞书 Gateway（前台进程，需手动保活） |
 | `homemaster benchmark-alfworld ...` | ALFWorld benchmark 入口 |
+| `homemaster benchmark-alfworld-taskset ...` | ALFWorld 长任务链 benchmark（`--taskset-config`/`--alfworld-root`/`--alfworld-config` 必填，每个 taskset 一个持久 scene） |
+| `homemaster benchmark-robocasa ...` | RoboCasa benchmark 入口（隔离 RPent worker；`--rpent-root`/`--task-manifest` 必填，`--memory-mode` 默认 disabled） |
 | `homemaster benchmark-locomo ...` | LoCoMo 全应用记忆功能试跑入口 |
 
 一次性输出三种格式：`text` 实时写入 stdout、`json` 结束后输出单文档、`stream-json` 逐行
@@ -536,8 +543,8 @@ uv run homemaster benchmark-locomo \
   --memory-data-root /tmp/homemaster/locomo-memory-run
 ```
 
-每次试跑应使用新的 `--memory-data-root`，避免复用旧 Qdrant 数据或与另一个进程争用本地锁。完整设计和验收字段见
-[LoCoMo 全流程试跑方案](plan/locomo-full-pipeline-pilot-plan.md)。
+每次试跑应使用新的 `--memory-data-root`，避免复用旧 Qdrant 数据或与另一个进程争用本地锁。Runner 实现与验收字段见
+`src/homemaster/benchmarking/locomo/`（原全流程试跑方案文档未随版本归档，已不在 `plan/` 中）。
 
 ## 可观测性
 
@@ -557,6 +564,11 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
   Browser V3.1 已通过通用 DOM/ARIA fixture 与 Ant Design Pro 工作流门；真实业务成功仍需独立后端终态。
 
 ## 文档
+
+仓库文档分四个目录：`docs/` 是正式文档（用户指南、`architecture/` 架构不变量、`reports/`
+验收与进展报告）；`plan/` 是各版本实施档案与锁定证据（`V<x.y>/` 目录加顶层专题文件）；
+`architecture/` 放当前分层约束文档与 `interview/` 一次性面试材料（与 `docs/architecture/`
+的分工见其 README）；`story/` 是叙事式项目报告（Markdown 与渲染版 HTML）。
 
 | 文档 | 内容 |
 | --- | --- |

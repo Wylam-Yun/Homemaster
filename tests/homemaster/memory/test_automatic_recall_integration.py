@@ -19,14 +19,13 @@ from homemaster.memory.models import FactRecord
 from homemaster.memory.serialization import serialize_record
 
 
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_automatic_recall_smoke_benchmark() -> None:
     if os.environ.get("HOMEMASTER_RUN_REAL_AUTOMATIC_RECALL") != "1":
         pytest.skip("set HOMEMASTER_RUN_REAL_AUTOMATIC_RECALL=1 for real external smoke")
 
-    config = load_config(
-        os.environ.get("HOMEMASTER_REAL_TEST_CONFIG", "config/homemaster.yaml")
-    )
+    config = load_config(os.environ.get("HOMEMASTER_REAL_TEST_CONFIG", "config/homemaster.yaml"))
     neo4j = ManagedNeo4jRuntime(config.memory)
     store = EmbeddedMindMemOS(config)
     nonce = "v25-auto-recall-" + uuid.uuid4().hex[:12]
@@ -343,10 +342,6 @@ async def _active_ids(store, context, memory_ids: list[str], memory_type: str) -
     matches: list[str] = []
     for memory_id in memory_ids:
         raw = await store.get_raw(memory_id, context)
-        if (
-            raw is not None
-            and raw.mem_type == memory_type
-            and raw.status == "active"
-        ):
+        if raw is not None and raw.mem_type == memory_type and raw.status == "active":
             matches.append(memory_id)
     return matches

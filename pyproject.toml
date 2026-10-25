@@ -42,7 +42,6 @@ dependencies = [
   "pypdf",
   "python-datauri",
   "python-frontmatter",
-  "python-socketio",
   "requests>=2.32",
   "shortuuid",
   "tree_sitter",
@@ -74,9 +73,6 @@ dev = [
 browser = [
   "playwright>=1.45,<2.0",
 ]
-mcp = [
-    "mcp>=1.0,<2",
-]
 gateway = [
   "lark-oapi>=1.7.1,<2",
 ]
@@ -101,9 +97,10 @@ build-backend = "setuptools.build_meta:__legacy__"
 [tool.setuptools.packages.find]
 where = ["src", "third_party/MindMemOS/src/mindmemos"]
 include = ["homemaster*", "mindmemos*", "agentscope*"]
-exclude = [
-  "homemaster.cli.benchmark_alfworld",
-]
+# NOTE: homemaster.cli.benchmark_alfworld is a module inside the cli package, so
+# it ships in the wheel regardless (packages.find only matches packages). Its
+# benchmark command lazily fails when workers/ is absent from the install —
+# that is expected for wheel consumers.
 
 [tool.setuptools]
 license-files = ["THIRD_PARTY_NOTICES.md"]
@@ -164,7 +161,7 @@ testpaths = ["tests"]
 markers = [
   "live_api: runs tests that call real external APIs",
   "live_alfworld: runs tests that require an installed ALFWorld dataset/environment",
-  "live_mcp: runs tests that require live MCP servers or transports",
+  "live_memory: runs tests that require live memory services (Neo4j/Qdrant/MindMemOS)",
   "stress: runs extended concurrency, backpressure, and leak tests",
 ]
 

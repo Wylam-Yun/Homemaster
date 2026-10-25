@@ -73,30 +73,38 @@ class MessagesLogSink:
         if role is None or not content:
             return
         with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({
-                "role": role,
-                "content": content,
-                "run_id": event.run_id,
-                "session_id": event.session_id,
-                "timestamp": event.timestamp,
-            }, ensure_ascii=False) + "\n")
+            handle.write(
+                json.dumps(
+                    {
+                        "role": role,
+                        "content": content,
+                        "run_id": event.run_id,
+                        "session_id": event.session_id,
+                        "timestamp": event.timestamp,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
     @property
     def events(self) -> list[RuntimeEvent]:
         return []
 
 
-_CONSOLE_EVENT_TYPES: frozenset[str] = frozenset({
-    "runtime.turn_failed",
-    "runtime.budget_exhausted",
-    "transport.request_failed",
-    "assistant.thinking",
-    "assistant.reply",
-    "context.compaction",
-    "tool.call_started",
-    "tool.call_completed",
-    "tool.call_failed",
-})
+_CONSOLE_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "runtime.turn_failed",
+        "runtime.budget_exhausted",
+        "transport.request_failed",
+        "assistant.thinking",
+        "assistant.reply",
+        "context.compaction",
+        "tool.call_started",
+        "tool.call_completed",
+        "tool.call_failed",
+    }
+)
 
 
 class ConsoleEventSink:
@@ -117,6 +125,7 @@ class ConsoleEventSink:
     def _get_console(self) -> Any:
         if self._console is None:
             from rich.console import Console
+
             self._console = Console(file=sys.stderr, highlight=False, markup=False)
         return self._console
 
@@ -175,9 +184,7 @@ class ConsoleEventSink:
             return f"{prefix}[运行失败] 达到最大工具迭代次数"
         if event.type == "transport.request_failed":
             error = (
-                event.payload.get("error")
-                or event.payload.get("error_type")
-                or "request failed"
+                event.payload.get("error") or event.payload.get("error_type") or "request failed"
             )
             return f"{prefix}[模型请求失败] {error}"
         if event.type.endswith("_failed"):
@@ -218,13 +225,6 @@ class FanoutEventSink:
         if self._sinks:
             return self._sinks[0].events
         return []
-
-
-def _event_to_dict(event: RuntimeEvent) -> dict[str, Any]:
-    """Serialize RuntimeEvent to dict with all fields and bounded payload metadata."""
-    entry = asdict(event)
-    entry["payload"] = bounded_event_payload(event.payload)
-    return entry
 
 
 def _event_to_trace_dict(event: RuntimeEvent) -> dict[str, Any]:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -46,6 +47,8 @@ from homemaster.cli.shell_commands import (
     interpolate_bang_output,
     run_local_command,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _shell_version() -> str:
@@ -184,10 +187,21 @@ def _request_mode_toggle(ctx: RemoteShellContext) -> None:
     except RuntimeError:
         running = None
     if running is not None:
-        running.create_task(flip())
+        task = running.create_task(flip())
+        task.add_done_callback(_log_mode_toggle_failure)
     elif loop is not None and loop.is_running():
         # The key handler ran on a foreign thread — hop to the shell loop.
         asyncio.run_coroutine_threadsafe(flip(), loop)
+
+
+def _log_mode_toggle_failure(task: asyncio.Task[None]) -> None:
+    """Record fire-and-forget mode-toggle failures beyond handled ServerErrors."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is None or isinstance(exc, ServerError):
+        return
+    logger.warning("mode toggle task failed", exc_info=exc)
 
 
 async def _seed_pending(ctx: RemoteShellContext) -> None:
@@ -212,9 +226,7 @@ async def _event_pump(ctx: RemoteShellContext, renderer: EventRenderer) -> None:
         await _pump_events(ctx, renderer)
     finally:
         if ctx.exit_reason is None:
-            ctx.echo(
-                "[server connection closed — reconnect with `homemaster shell`]"
-            )
+            ctx.echo("[server connection closed — reconnect with `homemaster shell`]")
             ctx.turn_done.set()  # release a prompt blocked in _wait_turn
 
 
@@ -360,9 +372,7 @@ async def _prompt_loop(ctx: RemoteShellContext, renderer: EventRenderer) -> int:
             except ServerError:
                 resolved = {"kind": "plain"}
             if isinstance(resolved, dict) and resolved.get("kind") == "skill":
-                ctx.echo(
-                    f"skill /{resolved.get('name')}: resolved server-side"
-                )
+                ctx.echo(f"skill /{resolved.get('name')}: resolved server-side")
             else:
                 name = utterance[1:].partition(" ")[0].strip()
                 unknown_remote_hint(name, ctx)
