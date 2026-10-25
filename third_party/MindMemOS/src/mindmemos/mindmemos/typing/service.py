@@ -425,13 +425,19 @@ class DreamingPipelineInput(BaseModel):
 class DreamingActionReceipt(BaseModel):
     """One externally verifiable dreaming mutation receipt."""
 
-    action: Literal["create", "update", "merge", "archive", "link"]
+    action: Literal["create", "update", "merge", "archive", "link", "validation"]
     target_memory_ids: list[str] = Field(default_factory=list)
     result_memory_ids: list[str] = Field(default_factory=list)
     status: ServiceResultStatus
     reason: str | None = None
     error: str | None = None
     relationship: str | None = None
+    target_entity_id: str | None = None
+    """Entity node that lost the merge (archived), for entity canonicalization receipts."""
+    result_entity_id: str | None = None
+    """Canonical entity node that survived the merge."""
+    dry_run: bool = False
+    """When true, the receipt is a suggestion only — no mutation was applied."""
 
 
 class DreamingPipelineResult(BaseModel):

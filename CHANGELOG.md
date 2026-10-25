@@ -1,5 +1,30 @@
 # Unreleased
 
+- Dreaming Phase-0 entity canonicalization: `_cluster_hot_memories` now
+  inserts an entity-normalization phase between the seed→entity→neighbor
+  query and noise filtering. Same-referent entities fragmented by
+  non-deterministic extraction (e.g. `cabinet-42`/`probe-cabinet-42`)
+  previously split duplicate memories into separate clusters, escaping
+  per-cluster `content_hash` dedup. Phase-0 generates candidate pairs in
+  the hot region via name/vector similarity (entity_type is arbitration
+  evidence only — it is extraction noise, e.g. `cabinet-42` typed as
+  `date`), lets the consolidation LLM arbitrate referent identity with
+  memory-content evidence, then re-points the loser's MENTIONS edges to
+  the canonical entity and archives it with a `merged_into:` receipt.
+  `entity_merge_dry_run` emits auditable suggestions
+  (ok/distinct/no_verdict) without mutating. Verified by an isolated
+  three-way A/B against real memory data: control reproduced the blind
+  spot, shadow run proposed the merge with zero mutations, execution run
+  collapsed the cross-cluster duplicate 2→1. Controlled by
+  `algo_config.dreaming.entity_canonicalization_enabled` (default off).
+
+- Write-time entity merge decision enabled: `enable_entity_merge_decision`
+  flipped on in HomeMaster's MindMemOS wiring so schema-add resolves a
+  new entity against the vector-ANN top-15 candidate pool with an LLM
+  verdict before creating a duplicate node. The flat-add/enrichment path
+  (trajectories, probes) still has deterministic uuid5-only dedup —
+  fragmentation from that path is left to dreaming Phase-0.
+
 - Memory-content self-referential bloat fix: `task_procedure`
   compilation no longer copies tool results verbatim into stored
   records — `mindmemos_*` results project to reference fields

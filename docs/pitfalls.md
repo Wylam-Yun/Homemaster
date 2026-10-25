@@ -1,3 +1,67 @@
+## 2026-10-25 - "复制 store 目录"隔离不了 Neo4j：managed_local 的图是全局共享的
+
+- 症状：A/B 三份 `cp -r` 的 memory store 启动时先后报
+  `Neo4j is already running (pid:…)` 和
+  `store_lock …/.local/share/homemaster/neo4j/data/databases`——
+  拷来的 `runtime/run/neo4j.pid` 指到活着的原库实例，且三组都往同一个
+  共享数据目录写。
+- 根因：旧版 `ManagedNeo4jRuntime._prepare_runtime_root` 生成的 runtime
+  conf **没有 `server.directories.*` 行** → data/run 回退到
+  NEO4J_HOME 相对路径（`.runtime/neo4j` 又是指向
+  `~/.local/share/homemaster/neo4j` 的 symlink）→ 全机所有 store 共用
+  同一个 `neo4j` 库。store 目录下的 `runtime/data` 只是
+  `_initialize_new_database` mkdir 出的空壳。真正按 store 隔离的只有
+  Qdrant（本地文件模式）。
+- 修法/教训：给拷贝的 runtime conf 显式钉 `server.directories.data/
+  logs/run` 到各自 runtime 下即可隔离（pid 文件随 run 目录走），
+  neo4j.home 继续指共享安装（只读部分无碍）。基线数据用应用层
+  Cypher 导出→导入搬（共享库有别人的活跃进程，不能停不能 wipe，
+  `neo4j-admin dump` 又要离线）。教训：**"数据在 store 目录里"是
+  假设不是事实**——多实例实验前先确认每个外部组件的真实数据位置，
+  尤其 conf 是旧版本生成、后来代码又改了默认行为的。
+- Ref: `src/homemaster/memory/managed_neo4j.py`、`robocasa-runs/ab-work/`
+  （`graph_io.py` 快照/恢复、`ab_boot.py`）、
+  `docs/reports/dreaming-entity-merge-ab-2026-10-25.md`
+
+## 2026-10-25 - dreaming 种子静默失效：add_record `consolidation_status=done` 随库拷贝
+
+- 症状：三组 A/B 的 `dream(seed_add_record_ids=…)` 全部
+  `no consolidation scope found`、零 action，无论 phase-0 开关。
+- 根因：探针 add_record 早在共享库那轮就被标 `done`；拷贝 qdrant
+  继承了 done → `_pending_consolidation_add_record_ids` 把种子滤光 →
+  `seed_memory_ids` 空 → step2 实体查询前就 return。Phase-0 代码
+  根本没被执行——"no scope"既可能是真没簇也可能是种子被滤，两个
+  原因在结果上无法区分。
+- 修法/教训：实验复跑前先检查种子 add_record 的
+  `consolidation_status`/`consolidated_at`/`consolidation_run_id`
+  并在拷贝 store 里重置（`delete_payload`）。教训：对"有水位标记的
+  输入"做受控实验时，**快照数据要把水位也当数据一起重置**，否则
+  跑的是空输入。
+- Ref: `dream_ab.py`（种子解析）、`_pending_consolidation_add_record_ids`
+
+## 2026-10-25 - 实体抽取噪声会毒化"按 type 过滤"的候选生成
+
+- 症状：第一轮 B′/B 的 Phase-0 输出零候选——`cabinet-42` 被 extractor
+  标成 `entity_type:"date"`（"-42" 像日期），与 `probe-cabinet-42`
+  （`"other"`）type 不等被硬过滤。
+- 根因：候选用"同 entity_type"当硬门槛，但 type 本身就是 LLM 抽取的
+  噪声产物——用一种抽取噪声过滤另一种抽取噪声是自毁。
+- 修法/教训：候选生成只看 name_sim/vector_sim；type 降级为仲裁
+  上下文证据（跨 type 命中在 receipt 里标 `name_sim_xtype` 腿）。
+  教训：**凡输入来自 LLM 抽取的字段，都不可作硬过滤器**，只能作
+  排序/证据特征。
+- Ref: `_entity_merge_candidates`、`docs/reports/dreaming-entity-merge-ab-2026-10-25.md`
+
+## 2026-10-25 - 远端 `/tmp` 在根分区：磁盘写满会炸在 app 启动早期
+
+- 症状：远端重跑时 `OSError: No space left on device:
+  '/tmp/homemaster/runs/…'`，scp 写 `/tmp` 也失败；`df` 显示 `/` 100%。
+- 修法/教训：远端大实验把 `runtime.runtime_root`/`debug_root`/
+  `results_root` 以及脚本、日志、快照全部放数据盘（`/data1`）；
+  `/tmp` 只留零时小文件。教训：**远端长跑前先 `df` 看挂载**，
+  "刚才还能写"不代表现在能写——别的进程也会吃同一分区。
+- Ref: `config.py` `RuntimeGuardConfig`、ab yaml `runtime:` 段
+
 ## 2026-10-17 - 记忆自指递归膨胀：`mindmemos_search` result 原文写进新记忆
 
 - 症状：RoboCasa composite 跑批时 `memory.add.entity` embedding 调用 787 次

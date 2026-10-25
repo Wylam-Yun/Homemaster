@@ -28,6 +28,7 @@ from .EN.add.search_field_generation import (
 from .EN.add.vanilla import EXTRACTION_SYSTEM_PROMPT
 from .EN.add.vanilla_entity import EXTRACTION_SYSTEM_PROMPT_ENTITY
 from .EN.dreaming.action_planning import ACTION_PLANNING_PROMPT
+from .EN.dreaming.entity_merge import ENTITY_MERGE_PROMPT
 from .EN.dreaming.relation_detection import RELATION_DETECTION_PROMPT
 from .EN.retrieve.agentic_retrieve import (
     GLOBAL_PROPERTY_RERANK_PROMPT,
@@ -211,6 +212,7 @@ __all__ = [
     "DUPLICATE_NAME_RESOLUTION_PROMPT",
     "DUPLICATE_NAME_RESOLUTION_PROMPT_ZH",
     "ENTITY_GENERATION_PROMPT",
+    "ENTITY_MERGE_PROMPT",
     "EXTRACTION_SYSTEM_PROMPT",
     "EXTRACTION_SYSTEM_PROMPT_ENTITY",
     "EXTRACTION_SYSTEM_PROMPT_ENTITY_ZH",

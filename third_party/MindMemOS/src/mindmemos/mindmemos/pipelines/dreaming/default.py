@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from ...components.activity import RecentActivityCollector
 from ...components.dreaming.action_planning import action_planning_parser
+from ...components.dreaming.entity_merge import entity_merge_parser
 from ...components.dreaming.relation_detection import (
     DetectedMemoryIssueGroup,
     relation_detection_parser,
@@ -26,6 +27,7 @@ from ...infra.kafka import get_producer
 from ...llm import EmbedClient, LLMClient, get_embed_client, get_llm_client
 from ...logging import get_logger, traced
 from ...prompts.EN.dreaming.action_planning import ACTION_PLANNING_PROMPT
+from ...prompts.EN.dreaming.entity_merge import ENTITY_MERGE_PROMPT
 from ...prompts.EN.dreaming.relation_detection import RELATION_DETECTION_PROMPT
 from ...typing import (
     MemoryDbDeleteCommand,
@@ -94,6 +96,7 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         self._sparse_encoder = sparse_encoder or SparseVectorEncoder(cfg)
         self._activity_collector = activity_collector
         self._consistency = consistency or _default_consistency()
+        self._entity_merge_receipts: list[DreamingActionReceipt] = []
 
     # -- public API ----------------------------------------------------------
 
@@ -123,6 +126,7 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
     ) -> DreamingPipelineResult:
         run_id = str(uuid4())
 
+        self._entity_merge_receipts.clear()
         clusters = await self._cluster_hot_memories(context, seed_add_record_ids=seed_add_record_ids)
         if self._cfg.max_scopes_per_run is not None:
             clusters = clusters[: self._cfg.max_scopes_per_run]
@@ -159,12 +163,13 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
             )
             return DreamingPipelineResult(
                 status="ok",
-                outcome="no_action",
+                outcome="no_action" if not self._entity_merge_receipts else "actions",
                 message="no consolidation scope found",
                 reviewed_add_record_ids=locked_ids,
                 completed_add_record_ids=locked_ids,
+                actions=list(self._entity_merge_receipts),
             )
-        receipts: list[DreamingActionReceipt] = []
+        receipts: list[DreamingActionReceipt] = list(self._entity_merge_receipts)
         errors: list[str] = []
         reviewed_add_record_ids: set[str] = set()
         completed_add_record_ids: set[str] = set()
@@ -390,6 +395,9 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         if not rows:
             return []
 
+        if self._cfg.entity_canonicalization_enabled:
+            rows = await self._canonicalize_scope_entities(context, rows)
+
         # Step 3: filter noise entities (too many associated memories)
         entity_clusters: list[dict] = []
         for row in rows:
@@ -480,6 +488,328 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
             result.append((scope, memories))
 
         return result
+
+    # -- entity canonicalization (phase 0) -----------------------------------
+
+    async def _canonicalize_scope_entities(self, context, rows: list[dict]) -> list[dict]:
+        """Merge fragmented entities before clustering.
+
+        Entities extracted under different names for the same referent split
+        duplicate memories into separate clusters, escaping per-cluster dedup.
+        This phase finds same-type entity pairs with high name/vector
+        similarity, lets the consolidation LLM arbitrate referent identity,
+        then re-points the loser's MENTIONS edges to the canonical node and
+        archives it.  Rows are rewritten in memory so downstream clustering
+        sees the post-merge topology without re-querying the graph.
+        """
+
+        entities = [row for row in rows if row.get("entity_id")]
+        candidates = self._entity_merge_candidates(entities)
+        if self._cfg.entity_merge_vector_similarity is not None:
+            candidates = await self._augment_with_vector_candidates(context, entities, candidates)
+        if not candidates:
+            return rows
+        candidates = candidates[: max(1, int(self._cfg.entity_merge_max_pairs or 0))]
+
+        sample_entity_ids = sorted(
+            {str(e["entity_id"]) for a, b, _score, _leg in candidates for e in (a, b)}
+        )
+        samples = await self._fetch_entity_memory_samples(context, sample_entity_ids)
+        verdicts = await self._call_entity_merge_llm(
+            self._build_entity_merge_context(candidates, samples)
+        )
+        if not verdicts:
+            return rows
+
+        merged_rows = {str(row["entity_id"]): dict(row) for row in rows}
+        parent: dict[str, str] = {}
+
+        def canonical(entity_id: str) -> str:
+            while entity_id in parent:
+                entity_id = parent[entity_id]
+            return entity_id
+
+        verdicted: set[int] = set()
+        for verdict in verdicts:
+            index = int(getattr(verdict, "pair_index", 0) or 0) - 1
+            if index < 0 or index >= len(candidates):
+                continue
+            verdicted.add(index)
+            a, b, _score, leg = candidates[index]
+            if not getattr(verdict, "same_entity", False):
+                if self._cfg.entity_merge_dry_run:
+                    self._entity_merge_receipts.append(
+                        DreamingActionReceipt(
+                            action="merge",
+                            status="ok",
+                            reason=(
+                                f"distinct: {a.get('entity_name')}<->{b.get('entity_name')} "
+                                f"[{verdict.confidence}, {leg}] {verdict.reason}"
+                            ),
+                            relationship="entity_merge",
+                            target_entity_id=str(b.get("entity_id") or ""),
+                            result_entity_id=str(a.get("entity_id") or ""),
+                            dry_run=True,
+                        )
+                    )
+                continue
+            winner_id, loser_id = self._pick_merge_canonical(a, b, verdict)
+            winner_id = canonical(str(winner_id))
+            loser_id = canonical(str(loser_id))
+            if winner_id == loser_id or winner_id not in merged_rows or loser_id not in merged_rows:
+                continue
+            winner = merged_rows[winner_id]
+            loser = merged_rows[loser_id]
+            reason = (
+                f"{loser.get('entity_name')}->{winner.get('entity_name')} "
+                f"[{verdict.confidence}, {leg}] {verdict.reason}"
+            )
+            if self._cfg.entity_merge_dry_run:
+                self._entity_merge_receipts.append(
+                    DreamingActionReceipt(
+                        action="merge",
+                        status="ok",
+                        reason=reason,
+                        relationship="entity_merge",
+                        target_entity_id=loser_id,
+                        result_entity_id=winner_id,
+                        dry_run=True,
+                    )
+                )
+                continue
+            try:
+                await self._execute_entity_merge(context, winner_id, loser_id)
+            except Exception as exc:
+                self._entity_merge_receipts.append(
+                    DreamingActionReceipt(
+                        action="merge",
+                        status="error",
+                        error=str(exc),
+                        reason=reason,
+                        relationship="entity_merge",
+                        target_entity_id=loser_id,
+                        result_entity_id=winner_id,
+                    )
+                )
+                continue
+            parent[loser_id] = winner_id
+            merged_rows.pop(loser_id)
+            winner["memory_ids"] = sorted(
+                {str(mid) for mid in winner.get("memory_ids") or []}
+                | {str(mid) for mid in loser.get("memory_ids") or []}
+            )
+            self._entity_merge_receipts.append(
+                DreamingActionReceipt(
+                    action="merge",
+                    status="ok",
+                    reason=reason,
+                    relationship="entity_merge",
+                    target_entity_id=loser_id,
+                    result_entity_id=winner_id,
+                )
+            )
+        if self._cfg.entity_merge_dry_run:
+            for index, (a, b, score, leg) in enumerate(candidates):
+                if index in verdicted:
+                    continue
+                self._entity_merge_receipts.append(
+                    DreamingActionReceipt(
+                        action="merge",
+                        status="ok",
+                        reason=(
+                            f"no_verdict: {a.get('entity_name')}<->{b.get('entity_name')} "
+                            f"[{leg}={score:.3f}] missing from LLM response"
+                        ),
+                        relationship="entity_merge",
+                        target_entity_id=str(b.get("entity_id") or ""),
+                        result_entity_id=str(a.get("entity_id") or ""),
+                        dry_run=True,
+                    )
+                )
+        return list(merged_rows.values())
+
+    def _pick_merge_canonical(self, a: dict, b: dict, verdict) -> tuple[str, str]:
+        """Return (winner_id, loser_id); LLM pick wins, else more mentions, else smallest id."""
+
+        a_id, b_id = str(a.get("entity_id") or ""), str(b.get("entity_id") or "")
+        choice = str(getattr(verdict, "canonical_entity_id", "") or "")
+        if choice == a_id:
+            return a_id, b_id
+        if choice == b_id:
+            return b_id, a_id
+        a_n, b_n = len(a.get("memory_ids") or []), len(b.get("memory_ids") or [])
+        if a_n != b_n:
+            return (a_id, b_id) if a_n > b_n else (b_id, a_id)
+        return (a_id, b_id) if a_id <= b_id else (b_id, a_id)
+
+    def _entity_merge_candidates(self, entities: list[dict]) -> list[tuple[dict, dict, float, str]]:
+        # entity_type is extraction noise (e.g. "cabinet-42" typed as "date"),
+        # so it stays arbitration evidence instead of a hard candidate filter.
+        threshold = float(self._cfg.entity_merge_name_similarity or 0.0)
+        pairs: list[tuple[dict, dict, float, str]] = []
+        for i in range(len(entities)):
+            for j in range(i + 1, len(entities)):
+                a, b = entities[i], entities[j]
+                sim = self._entity_name_similarity(a.get("entity_name"), b.get("entity_name"))
+                if sim >= threshold:
+                    leg = "name_sim" if (a.get("entity_type") or "") == (b.get("entity_type") or "") else "name_sim_xtype"
+                    pairs.append((a, b, sim, leg))
+        pairs.sort(key=lambda p: p[2], reverse=True)
+        return pairs
+
+    @staticmethod
+    def _entity_name_similarity(a: str | None, b: str | None) -> float:
+        if not a or not b:
+            return 0.0
+
+        def norm(value: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", value.lower())).strip()
+
+        na, nb = norm(a), norm(b)
+        if not na or not nb:
+            return 0.0
+        if na == nb or na.replace(" ", "") == nb.replace(" ", ""):
+            return 1.0
+        ta, tb = set(na.split()), set(nb.split())
+        if not ta or not tb:
+            return 0.0
+        return len(ta & tb) / len(ta | tb)
+
+    async def _augment_with_vector_candidates(
+        self,
+        context,
+        entities: list[dict],
+        candidates: list[tuple[dict, dict, float, str]],
+    ) -> list[tuple[dict, dict, float, str]]:
+        qdrant = getattr(getattr(self.db_reader, "_clients", None), "qdrant", None)
+        get_entity = getattr(qdrant, "get_entity", None)
+        if get_entity is None:
+            return candidates
+
+        async def _dense(entity_id: str):
+            try:
+                record = await get_entity(context.project_id, entity_id, with_vectors=True)
+            except Exception:
+                return entity_id, None
+            vectors = (record.vectors or {}) if record else {}
+            dense = vectors.get("semantic")
+            if dense is None:
+                dense = next((v for v in vectors.values() if isinstance(v, list)), None)
+            return entity_id, dense
+
+        vector_map = dict(
+            await asyncio.gather(*[_dense(str(e["entity_id"])) for e in entities])
+        )
+        seen = {frozenset((str(a["entity_id"]), str(b["entity_id"]))) for a, b, _s, _l in candidates}
+        threshold = float(self._cfg.entity_merge_vector_similarity)
+        for i in range(len(entities)):
+            for j in range(i + 1, len(entities)):
+                a, b = entities[i], entities[j]
+                key = frozenset((str(a["entity_id"]), str(b["entity_id"])))
+                if key in seen:
+                    continue
+                va, vb = vector_map.get(str(a["entity_id"])), vector_map.get(str(b["entity_id"]))
+                if not va or not vb or len(va) != len(vb):
+                    continue
+                denom = (sum(x * x for x in va) ** 0.5) * (sum(y * y for y in vb) ** 0.5)
+                sim = sum(x * y for x, y in zip(va, vb)) / denom if denom else 0.0
+                if sim >= threshold:
+                    candidates.append((a, b, sim, "vec_sim"))
+                    seen.add(key)
+        candidates.sort(key=lambda p: p[2], reverse=True)
+        return candidates
+
+    async def _fetch_entity_memory_samples(self, context, entity_ids: list[str]) -> dict[str, list[str]]:
+        rows = await self.db_reader._clients.neo4j.run_read(
+            "MATCH (m:Memory)-[:MENTIONS]->(e:Entity {project_id: $project_id}) "
+            "WHERE e.entity_id IN $entity_ids AND coalesce(m.status, 'active') = 'active' "
+            "RETURN e.entity_id AS entity_id, m.content AS content "
+            "ORDER BY coalesce(m.update_at, m.created_at) DESC",
+            project_id=context.project_id,
+            entity_ids=list(entity_ids),
+        )
+        samples: dict[str, list[str]] = {}
+        limit = max(1, int(self._cfg.entity_merge_sample_memories or 1))
+        for row in rows:
+            bucket = samples.setdefault(str(row["entity_id"]), [])
+            if len(bucket) < limit:
+                bucket.append(str(row.get("content") or "")[:400])
+        return samples
+
+    def _build_entity_merge_context(
+        self,
+        candidates: list[tuple[dict, dict, float, str]],
+        samples: dict[str, list[str]],
+    ) -> str:
+        lines = [
+            "Candidate entity pairs for referent-identity arbitration.",
+            "Decide for each pair whether A and B denote the SAME underlying entity.",
+            "",
+        ]
+        for index, (a, b, score, leg) in enumerate(candidates, 1):
+            lines.append(f"[{index}] entity_type: {a.get('entity_type') or 'unknown'}  similarity_hint: {leg}={score:.3f}")
+            for tag, entity in (("A", a), ("B", b)):
+                lines.append(
+                    f"  {tag}) name: {entity.get('entity_name')!r}  entity_id: {entity.get('entity_id')}"
+                )
+                for snippet in samples.get(str(entity["entity_id"]), []):
+                    lines.append(f"      memory: {snippet}")
+            lines.append("")
+        return "\n".join(lines)
+
+    async def _call_entity_merge_llm(self, context_str: str):
+        kwargs: dict[str, Any] = {}
+        if self._cfg.consolidation_model:
+            kwargs["model"] = self._cfg.consolidation_model
+        result = await self._llm_client.chat(
+            task="dreaming_entity_merge",
+            messages=[
+                {"role": "system", "content": ENTITY_MERGE_PROMPT},
+                {"role": "user", "content": context_str},
+            ],
+            format_parser=entity_merge_parser,
+            **kwargs,
+        )
+        parsed = result.parsed
+        if parsed is not None and hasattr(parsed, "verdicts"):
+            return list(parsed.verdicts)
+        return []
+
+    async def _execute_entity_merge(self, context, winner_id: str, loser_id: str) -> None:
+        """Re-point all MENTIONS edges loser→winner, then archive the loser node."""
+
+        neo4j = self.db_reader._clients.neo4j
+        run_write = getattr(neo4j, "_run_write", None)
+        if run_write is None:
+            raise RuntimeError("neo4j write path unavailable for entity merge")
+        await run_write(
+            "MATCH (m:Memory)-[r:MENTIONS]->(loser:Entity {project_id: $project_id, entity_id: $loser_id}) "
+            "MATCH (winner:Entity {project_id: $project_id, entity_id: $winner_id}) "
+            "MERGE (m)-[r2:MENTIONS]->(winner) "
+            "SET r2 += properties(r) "
+            "DELETE r",
+            project_id=context.project_id,
+            loser_id=loser_id,
+            winner_id=winner_id,
+        )
+        await run_write(
+            "MATCH (loser:Entity {project_id: $project_id, entity_id: $loser_id}) "
+            "SET loser.status = 'archived', loser.delete_reason = $reason",
+            project_id=context.project_id,
+            loser_id=loser_id,
+            reason=f"merged_into:{winner_id}",
+        )
+        remaining = await neo4j.run_read(
+            "MATCH (:Memory)-[:MENTIONS]->(e:Entity {project_id: $project_id, entity_id: $loser_id}) "
+            "RETURN count(*) AS remaining",
+            project_id=context.project_id,
+            loser_id=loser_id,
+        )
+        leftover = int(remaining[0].get("remaining") or 0) if remaining else 0
+        if leftover:
+            raise RuntimeError(
+                f"entity merge left {leftover} MENTIONS edges on {loser_id}"
+            )
 
     async def _pending_consolidation_add_record_ids(
         self,

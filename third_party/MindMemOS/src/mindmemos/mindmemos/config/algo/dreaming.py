@@ -42,5 +42,29 @@ class DreamingConfig:
     scopes.  Larger batches reduce round trips but consume more transaction
     memory.  Reduce for large graphs (e.g. 262k contexts)."""
 
+    entity_canonicalization_enabled: bool = field(default=False)
+    """When enabled, hot-scope entities are deduplicated before clustering:
+    same-type entity pairs with high name/vector similarity are arbitrated by
+    the consolidation LLM and, when confirmed to share one referent, merged
+    (MENTIONS edges re-pointed to the canonical node, loser archived)."""
+
+    entity_merge_dry_run: bool = field(default=False)
+    """Emit merge suggestion receipts without mutating the graph.  Used to
+    audit arbitration precision before enabling real merges."""
+
+    entity_merge_name_similarity: float = field(default=0.5)
+    """Minimum token-level Jaccard similarity between normalized entity names
+    for a pair to become an LLM arbitration candidate."""
+
+    entity_merge_vector_similarity: float | None = field(default=None)
+    """Optional cosine threshold on entity embeddings that independently
+    qualifies a candidate pair.  ``None`` disables the vector leg."""
+
+    entity_merge_max_pairs: int = field(default=32)
+    """Maximum candidate pairs sent to LLM arbitration per dreaming run."""
+
+    entity_merge_sample_memories: int = field(default=3)
+    """Memory content snippets sampled per entity as arbitration evidence."""
+
 
 __all__ = ["DreamingConfig"]

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from mindmemos.components.dreaming.entity_merge import EntityMergeVerdict, entity_merge_parser
 from mindmemos.config import DreamingConfig, TextProcessingConfig
 from mindmemos.infra.db import QdrantRecord
 from mindmemos.pipelines.dreaming.default import ConsolidationScope, DefaultDreamingPipeline
@@ -559,3 +560,300 @@ async def test_dreaming_link_actions_cannot_reference_new_memories():
     assert {rel.relation_type for rel in plan.relationships if rel.target.node_id in {"m1", "m2"}} == {
         "dreaming_evidence"
     }
+
+
+# -- entity canonicalization (phase 0) ---------------------------------------
+
+
+class MergeReader(FakeReader):
+    """Fake reader whose entity expansion returns per-test rows and whose
+    neo4j namespace also records write queries."""
+
+    def __init__(self, memories, entity_rows):
+        super().__init__(memories)
+        self.entity_rows = entity_rows
+        self.write_calls: list[tuple[str, dict]] = []
+        self._clients.neo4j._run_write = self._run_neo4j_write
+
+    async def _run_neo4j_read(self, query: str, **params):
+        self.neo4j_read_calls.append((query, params))
+        if "entity_ids" in params:
+            return [
+                {"entity_id": eid, "content": f"sample content for {eid}"}
+                for eid in params["entity_ids"]
+            ]
+        if "count(*) AS remaining" in query:
+            return [{"remaining": 0}]
+        return list(self.entity_rows)
+
+    async def _run_neo4j_write(self, query: str, **params):
+        self.write_calls.append((query, params))
+
+
+def merge_pipeline(
+    *,
+    memories: list[MemoryView],
+    entity_rows: list[dict],
+    verdicts: list[EntityMergeVerdict],
+    action: ConsolidationAction | None = None,
+    **cfg_overrides,
+) -> tuple[DefaultDreamingPipeline, MergeReader, FakeWriter]:
+    reader = MergeReader(memories, entity_rows)
+    writer = FakeWriter()
+    pipe = DefaultDreamingPipeline(
+        dreaming_config=DreamingConfig(
+            lookback_days=7,
+            max_scopes_per_run=5,
+            max_seed_memories=20,
+            max_memories_per_scope=20,
+            min_scope_updates=1,
+            min_cluster_size=2,
+            entity_canonicalization_enabled=True,
+            **cfg_overrides,
+        ),
+        text_config=TextProcessingConfig(),
+        llm_client=FakeLLM(action or ConsolidationAction()),
+        embed_client=FakeEmbed(),
+        activity_collector=FakeActivityCollector(memories),
+        db_reader=reader,
+        db_writer=writer,
+        consistency="fast",
+    )
+
+    async def fixed_verdicts(_context_str):
+        return list(verdicts)
+
+    pipe._call_entity_merge_llm = fixed_verdicts
+    return pipe, reader, writer
+
+
+def dup_pair() -> tuple[list[MemoryView], list[dict]]:
+    memories = [
+        memory("m1", content="same fact", content_hash="h1", created_offset=2),
+        memory("m2", content="same fact", content_hash="h1", created_offset=1),
+    ]
+    rows = [
+        {"entity_id": "e-shelf", "entity_name": "shelf", "entity_type": "location",
+         "memory_ids": ["m1"]},
+        {"entity_id": "e-shelf1", "entity_name": "shelf 1", "entity_type": "location",
+         "memory_ids": ["m2"]},
+    ]
+    return memories, rows
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_unifies_cluster_and_exact_dedup_fires():
+    memories, rows = dup_pair()
+    verdicts = [
+        EntityMergeVerdict(
+            pair_index=1,
+            same_entity=True,
+            canonical_entity_id="e-shelf",
+            confidence="high",
+            reason="same shelf",
+        )
+    ]
+    pipe, reader, writer = merge_pipeline(
+        memories=memories, entity_rows=rows, verdicts=verdicts
+    )
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    assert result.status == "ok"
+    merge_queries = [q for q, _p in reader.write_calls]
+    assert any("MERGE (m)-[r2:MENTIONS]->(winner)" in q for q in merge_queries)
+    assert any("loser.status = 'archived'" in q for q in merge_queries)
+    merge_receipts = [r for r in result.actions if r.relationship == "entity_merge"]
+    assert len(merge_receipts) == 1
+    assert merge_receipts[0].target_entity_id == "e-shelf1"
+    assert merge_receipts[0].result_entity_id == "e-shelf"
+    assert writer.deleted == [("m1", "duplicate_of:m2")]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_verdict_reject_leaves_topology_untouched():
+    memories, rows = dup_pair()
+    verdicts = [
+        EntityMergeVerdict(pair_index=1, same_entity=False, confidence="high", reason="different")
+    ]
+    pipe, reader, writer = merge_pipeline(
+        memories=memories, entity_rows=rows, verdicts=verdicts
+    )
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    assert reader.write_calls == []
+    assert not any(r.relationship == "entity_merge" for r in result.actions)
+    assert writer.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_dry_run_emits_receipt_without_mutation():
+    memories, rows = dup_pair()
+    verdicts = [
+        EntityMergeVerdict(
+            pair_index=1, same_entity=True, canonical_entity_id="e-shelf", reason="same shelf"
+        )
+    ]
+    pipe, reader, writer = merge_pipeline(
+        memories=memories,
+        entity_rows=rows,
+        verdicts=verdicts,
+        entity_merge_dry_run=True,
+    )
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    merge_receipts = [r for r in result.actions if r.relationship == "entity_merge"]
+    assert len(merge_receipts) == 1
+    assert merge_receipts[0].dry_run is True
+    assert merge_receipts[0].status == "ok"
+    assert reader.write_calls == []
+    assert writer.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_entity_canonicalization_disabled_by_default():
+    memories, rows = dup_pair()
+    reader = MergeReader(memories, rows)
+    writer = FakeWriter()
+    pipe = DefaultDreamingPipeline(
+        dreaming_config=DreamingConfig(lookback_days=7, min_cluster_size=2),
+        text_config=TextProcessingConfig(),
+        llm_client=FakeLLM(ConsolidationAction()),
+        embed_client=FakeEmbed(),
+        activity_collector=FakeActivityCollector(memories),
+        db_reader=reader,
+        db_writer=writer,
+        consistency="fast",
+    )
+    called = False
+
+    async def spy(_context_str):
+        nonlocal called
+        called = True
+        return []
+
+    pipe._call_entity_merge_llm = spy
+    await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_pair_cap_limits_candidates():
+    memories = [
+        memory("m1", content="a", content_hash="h1"),
+        memory("m2", content="b", content_hash="h2"),
+        memory("m3", content="c", content_hash="h3"),
+        memory("m4", content="d", content_hash="h4"),
+    ]
+    rows = [
+        {"entity_id": "e1", "entity_name": "shelf", "entity_type": "location", "memory_ids": ["m1"]},
+        {"entity_id": "e2", "entity_name": "shelf 1", "entity_type": "location", "memory_ids": ["m2"]},
+        {"entity_id": "e3", "entity_name": "cabinet", "entity_type": "location", "memory_ids": ["m3"]},
+        {"entity_id": "e4", "entity_name": "cabinet 1", "entity_type": "location", "memory_ids": ["m4"]},
+    ]
+    pipe, _reader, _writer = merge_pipeline(
+        memories=memories, entity_rows=rows, verdicts=[], entity_merge_max_pairs=1
+    )
+    seen_context: list[str] = []
+
+    async def capture(ctx_str):
+        seen_context.append(ctx_str)
+        return []
+
+    pipe._call_entity_merge_llm = capture
+    await pipe._cluster_hot_memories(ctx())
+
+    assert len(seen_context) == 1
+    assert seen_context[0].count("entity_type: location") == 1
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_cross_type_pair_reaches_arbitration_and_audits():
+    # Extraction types are noisy ("cabinet-42" typed as "date"); a high
+    # name-similarity pair must still reach the LLM across types.
+    memories, _rows = dup_pair()
+    rows = [
+        {"entity_id": "e-c42", "entity_name": "cabinet-42", "entity_type": "date",
+         "memory_ids": ["m1"]},
+        {"entity_id": "e-pc42", "entity_name": "probe-cabinet-42", "entity_type": "other",
+         "memory_ids": ["m2"]},
+    ]
+    verdicts = [
+        EntityMergeVerdict(
+            pair_index=1,
+            same_entity=True,
+            canonical_entity_id="e-c42",
+            confidence="medium",
+            reason="same cabinet",
+        )
+    ]
+    pipe, reader, _writer = merge_pipeline(
+        memories=memories,
+        entity_rows=rows,
+        verdicts=verdicts,
+        entity_merge_dry_run=True,
+    )
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    merge_receipts = [r for r in result.actions if r.relationship == "entity_merge"]
+    assert len(merge_receipts) == 1
+    assert merge_receipts[0].dry_run is True
+    assert merge_receipts[0].status == "ok"
+    assert "name_sim_xtype" in merge_receipts[0].reason
+    assert reader.write_calls == []
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_dry_run_reports_distinct_and_missing_verdicts():
+    memories = [
+        memory("m1", content="a", content_hash="h1"),
+        memory("m2", content="b", content_hash="h2"),
+        memory("m3", content="c", content_hash="h3"),
+        memory("m4", content="d", content_hash="h4"),
+    ]
+    rows = [
+        {"entity_id": "e1", "entity_name": "shelf", "entity_type": "location", "memory_ids": ["m1"]},
+        {"entity_id": "e2", "entity_name": "shelf 1", "entity_type": "location", "memory_ids": ["m2"]},
+        {"entity_id": "e3", "entity_name": "cabinet", "entity_type": "location", "memory_ids": ["m3"]},
+        {"entity_id": "e4", "entity_name": "cabinet 9", "entity_type": "date", "memory_ids": ["m4"]},
+    ]
+    # Two candidates: (shelf,shelf1) same-type and (cabinet,cabinet9) cross-type.
+    # LLM only answers pair 1 with a "distinct" verdict; pair 2 gets none.
+    verdicts = [
+        EntityMergeVerdict(pair_index=1, same_entity=False, confidence="high", reason="numbered")
+    ]
+    pipe, _reader, _writer = merge_pipeline(
+        memories=memories,
+        entity_rows=rows,
+        verdicts=verdicts,
+        entity_merge_dry_run=True,
+    )
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    merge_receipts = [r for r in result.actions if r.relationship == "entity_merge"]
+    prefixes = sorted((r.reason or "").split(":")[0] for r in merge_receipts)
+    assert prefixes == ["distinct", "no_verdict"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_skips_different_types_and_instances():
+    from mindmemos.pipelines.dreaming.default import DefaultDreamingPipeline as _P
+
+    assert _P._entity_name_similarity("shelf", "shelf 1") == 0.5
+    assert _P._entity_name_similarity("counter top 1", "countertop 1") == 1.0
+    assert _P._entity_name_similarity("observation-1", "observation-2") < 0.5
+    assert _P._entity_name_similarity("cabinet-42", "probe-cabinet-42") >= 0.5
+
+
+def test_entity_merge_parser_round_trip():
+    parsed = entity_merge_parser(
+        '{"verdicts":[{"pair_index":2,"same_entity":true,'
+        '"canonical_entity_id":"e1","confidence":"high","reason":"same"}]}'
+    )
+    assert parsed.verdicts[0].pair_index == 2
+    assert parsed.verdicts[0].canonical_entity_id == "e1"

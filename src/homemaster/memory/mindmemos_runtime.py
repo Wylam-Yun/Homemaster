@@ -183,7 +183,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                             "enable_schema_selection": False,
                             "episode_search_fields_augment": False,
                         },
-                        "merge": {"enable_entity_merge_decision": False},
+                        "merge": {"enable_entity_merge_decision": True},
                         "drain": {
                             # Provider account concurrency ceilings reject
                             # extraction bursts (Anthropic: "current: 6,

@@ -83,7 +83,7 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert mapped.database.neo4j.username == "homemaster"
     assert mapped.database.neo4j.password == "neo4j-test-password"
     assert mapped.database.neo4j.database == "memory"
-    assert mapped.algo_config.add.schema.merge.enable_entity_merge_decision is False
+    assert mapped.algo_config.add.schema.merge.enable_entity_merge_decision is True
     drain = mapped.algo_config.add.schema.drain
     assert drain.episode_retry_backoff_base == 15.0
     assert drain.episode_retry_backoff_max == 120.0
