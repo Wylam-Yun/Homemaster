@@ -545,7 +545,7 @@ describe('App P0 routing and wiring', () => {
     expect(window.location.hash).toBe('#/settings')
 
     fireEvent.click(screen.getByRole('button', { name: '会话列表' }))
-    expect(await screen.findByRole('heading', { name: '全部会话' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '会话管理' })).toBeVisible()
     fireEvent.click(screen.getByRole('link', { name: '打开会话 first request title' }))
     await waitFor(() => { expect(window.location.hash).toBe('#/chat/session-01') })
     expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
@@ -581,7 +581,7 @@ describe('App P0 routing and wiring', () => {
 
     await waitFor(() => { expect(api().deleteSession).toHaveBeenCalledWith('session-01') })
     await waitFor(() => { expect(window.location.hash).toBe('#/sessions') })
-    expect(await screen.findByRole('heading', { name: '全部会话' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '会话管理' })).toBeVisible()
     expect(await screen.findByText('还没有会话')).toBeInTheDocument()
   })
 

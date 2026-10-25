@@ -911,7 +911,7 @@ function AppShell() {
         <div className="local-note"><span>●</span> Loopback only{meta !== null ? ` · v${meta.version}` : ''}</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? 'Provider' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '全部会话' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? 'Provider' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '会话管理' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
         {route.kind === 'permissions' ? (
           <PermissionsPage api={api} refreshSignal={grantsSignal} />
         ) : route.kind === 'memory' ? (
@@ -941,6 +941,16 @@ function AppShell() {
             formatTime={formatRelativeTime}
             archiveStates={archiveStates}
             archiveBadgeText={archiveBadgeText}
+            renamingId={renamingId}
+            renameDraft={renameDraft}
+            onRenameDraft={setRenameDraft}
+            onStartRename={startRename}
+            onCommitRename={commitRename}
+            onCancelRename={() => { setRenamingId(null) }}
+            onArchive={session => { void archiveSession(session) }}
+            onDelete={session => { void removeSession(session) }}
+            archivingIds={archivingIds}
+            canArchive={meta !== null && meta.memory_mode === 'full'}
           />
         ) : <>
           <section className="conversation" aria-live="polite" ref={follow.containerRef}>
