@@ -9,6 +9,7 @@ import {
   type ProviderTestResult,
 } from '../api/http'
 import { useToast } from '../components/toast'
+import { PageHeader } from '../components/ui/PageHeader'
 import { Link } from '../router'
 import { ProviderTestResultCard } from './ProviderTestResult'
 import styles from './SettingsPage.module.css'
@@ -292,16 +293,17 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
 
   return (
     <section className={styles.page} aria-labelledby="settings-page-title">
-      <div className={styles.headingRow}>
-        <div>
-          <p className={styles.eyebrow}>设置</p>
-          <h1 id="settings-page-title">Provider 设置</h1>
-          <p>管理 chat / embedding provider。保存即时生效，无需重启。</p>
-        </div>
-        <button type="button" className={styles.primary} onClick={openNew} disabled={form !== null}>
-          ＋ 新增 provider
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Provider"
+        title="Provider 设置"
+        titleId="settings-page-title"
+        subtitle="管理 chat / embedding provider。保存即时生效，无需重启。"
+        actions={
+          <button type="button" className={styles.primary} onClick={openNew} disabled={form !== null}>
+            ＋ 新增 provider
+          </button>
+        }
+      />
 
       {listError !== null && (
         <div className={styles.error} role="alert">

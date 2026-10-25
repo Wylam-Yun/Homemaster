@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { HttpError, type SkillInfo, type SkillIssueInfo } from '../api/http'
 import { useToast } from '../components/toast'
+import { PageHeader } from '../components/ui/PageHeader'
 import styles from './SkillsPage.module.css'
 
 /** Structural subset of HomeMasterApi this page consumes (contract: /api/skills*). */
@@ -99,13 +100,12 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
 
   return (
     <section className={styles.page} aria-labelledby="skills-page-title">
-      <div className={styles.headingRow}>
-        <div>
-          <p className={styles.eyebrow}>能力</p>
-          <h1 id="skills-page-title">技能</h1>
-          <p>管理技能目录：导入一个包含 SKILL.md 的文件夹到用户技能目录，或删除用户来源的技能。带 <code>/命令</code> 的技能可在输入框里用斜杠唤起。</p>
-        </div>
-        <div className={styles.headingActions}>
+      <PageHeader
+        eyebrow="能力"
+        title="技能"
+        titleId="skills-page-title"
+        subtitle={<>管理技能目录：导入一个包含 SKILL.md 的文件夹到用户技能目录，或删除用户来源的技能。带 <code>/命令</code> 的技能可在输入框里用斜杠唤起。</>}
+        actions={<>
           <input
             ref={fileInputRef}
             type="file"
@@ -130,8 +130,8 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
           <button type="button" className={styles.refresh} onClick={() => { void refresh() }} disabled={loading}>
             {loading ? '加载中…' : '刷新'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {error !== null && (
         <div className={styles.error} role="alert">
