@@ -234,6 +234,7 @@ def _skill_registry() -> SkillRegistry:
             source="user",
             command_name="research",
             user_invocable=False,
+            base_dir="/u/research",
         ),
         provenance=SkillProvenance(source="user", path=Path("/u"), root=Path("/u")),
     )
@@ -252,7 +253,9 @@ def _skill_registry() -> SkillRegistry:
 
 def test_list_skills_returns_readable_sources_and_enabled_flag() -> None:
     application = _P03Application(services={"skill_registry": _skill_registry()})
-    app = _app(application)
+    # deletable requires base_dir inside a configured user skill root.
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=(Path("/u"),)))
+    app = _app(application, config=config)
 
     with TestClient(app) as client:
         response = client.get("/api/skills")

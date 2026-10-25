@@ -44,6 +44,17 @@ def _registry_error() -> Response:
     )
 
 
+def _is_deletable_skill(registry: object, skill: object, user_roots: list[Path]) -> bool:
+    """Single predicate shared by the list ``deletable`` flag and DELETE."""
+
+    base_dir_raw = getattr(skill, "base_dir", None)
+    provenance = registry.provenance_for(skill)
+    if base_dir_raw is None or not provenance or provenance[-1].source != "user":
+        return False
+    base_dir = Path(base_dir_raw).resolve()
+    return any(base_dir.is_relative_to(root) for root in user_roots)
+
+
 def register(app: FastAPI, ctx: WebAppContext) -> None:
     application = ctx.application
 
@@ -68,6 +79,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=True,
             )
         skills: list[dict[str, object]] = []
+        user_roots = [directory.resolve() for directory in _user_skill_dirs(ctx)]
         for skill in registry.list_skills():
             provenance = registry.provenance_for(skill)
             raw_source = provenance[-1].source if provenance else getattr(skill, "source", "")
@@ -81,9 +93,8 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                     # Per-skill enablement is a P1 feature (skills.enabled.json);
                     # every registered skill is invocable today.
                     "enabled": True,
-                    # Deletion is limited to the configured user skill root;
-                    # the raw provenance decides, not the display label.
-                    "deletable": raw_source == "user",
+                    # Same predicate DELETE enforces — the flag must not lie.
+                    "deletable": _is_deletable_skill(registry, skill, user_roots),
                 }
             )
         return {
@@ -232,16 +243,37 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=False,
             )
 
-        def _write() -> None:
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir)
-            for rel, content in entries:
-                target = dest_dir.joinpath(*rel.parts[1:]).resolve()
-                target.relative_to(dest_dir)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
+        staging_dir = dest_dir.with_name(f".{top}.import-staging")
 
-        await asyncio.to_thread(_write)
+        def _write() -> None:
+            # Stage first so a mid-write failure cannot destroy the old copy;
+            # the existing directory is only removed once staging is complete.
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+            staging_dir.mkdir(parents=True)
+            try:
+                for rel, content in entries:
+                    target = staging_dir.joinpath(*rel.parts[1:]).resolve()
+                    target.relative_to(staging_dir)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content, encoding="utf-8")
+                if dest_dir.exists():
+                    shutil.rmtree(dest_dir)
+                staging_dir.rename(dest_dir)
+            except Exception:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                raise
+
+        try:
+            await asyncio.to_thread(_write)
+        except OSError:
+            logger.exception("skill_import_write_failed")
+            return _error(
+                500,
+                "skill_import_io",
+                "The skill could not be written to the user skill directory.",
+                retryable=True,
+            )
         try:
             await asyncio.to_thread(registry.refresh)
         except Exception:
@@ -307,12 +339,8 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "The skill does not exist.",
                 retryable=False,
             )
-        provenance = registry.provenance_for(skill)
-        if (
-            skill.base_dir is None
-            or not provenance
-            or provenance[-1].source != "user"
-        ):
+        user_roots = [directory.resolve() for directory in _user_skill_dirs(ctx)]
+        if not _is_deletable_skill(registry, skill, user_roots):
             return _error(
                 403,
                 "skill_protected",
@@ -320,15 +348,16 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=False,
             )
         base_dir = Path(skill.base_dir).resolve()
-        user_roots = [directory.resolve() for directory in _user_skill_dirs(ctx)]
-        if not any(base_dir.is_relative_to(root) for root in user_roots):
+        try:
+            await asyncio.to_thread(shutil.rmtree, base_dir)
+        except OSError:
+            logger.exception("skill_delete_failed")
             return _error(
-                403,
-                "skill_protected",
-                "The skill directory is outside the user skill roots.",
-                retryable=False,
+                500,
+                "skill_delete_io",
+                "The skill directory could not be removed.",
+                retryable=True,
             )
-        await asyncio.to_thread(shutil.rmtree, base_dir)
         try:
             await asyncio.to_thread(registry.refresh)
         except Exception:
@@ -339,6 +368,19 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "The skill was deleted but the registry could not be refreshed.",
                 retryable=True,
             )
+        # A shadowed copy in another user skill root resurrects on refresh —
+        # tell the caller instead of silently reappearing.
+        resurrected = registry.get(name)
+        if resurrected is not None:
+            return {
+                "deleted": True,
+                "name": name,
+                "resurrected": True,
+                "message": (
+                    "Another skill with the same name still loads from a "
+                    "different user skill directory."
+                ),
+            }
         return Response(status_code=204)
 
 

@@ -412,6 +412,34 @@ async def test_send_message_rejects_unknown_ambiguous_or_conflicting_model() -> 
     assert application.run_requests == []
 
 
+@pytest.mark.asyncio
+async def test_send_message_accepts_literal_model_with_explicit_provider() -> None:
+    """provider_name + an unconfigured model id is a per-message literal override."""
+
+    application = _W2Application()
+    app = _app(application, config=_config())
+
+    async with asgi_client(app) as client:
+        session_id = (await client.post("/api/sessions")).json()["session_id"]
+        async with client.stream(session_id) as events:
+            accepted = await client.post(
+                f"/api/sessions/{session_id}/messages",
+                json={
+                    "request_id": "req-literal",
+                    "text": "hello",
+                    "provider_name": "main",
+                    "model": "claude-opus-4.5",
+                },
+            )
+            assert accepted.status_code == 202
+            while (await events.receive_json())["type"] != "run.completed":
+                pass
+
+    (request,) = application.run_requests
+    assert request.provider_name == "main"
+    assert request.model_override == "claude-opus-4.5"
+
+
 def test_status_reports_runtime_fields_and_ui_mode() -> None:
     application = _W2Application()
     plan_mode = application.settings.application_services["plan_mode"]

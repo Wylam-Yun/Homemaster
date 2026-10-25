@@ -125,19 +125,24 @@ class MemoryGraph:
     entities: tuple[MemoryGraphEntity, ...]
     edges: tuple[MemoryGraphEdge, ...]
     sessions: tuple[MemoryGraphSession, ...]
+    edges_truncated: bool = False
 
 
 # Nodes carry Qdrant payload fields (mem_type/session_id/update_at live only
 # there); Neo4j Memory nodes only hold content/status, so edges are all the
 # graph store can authoritatively contribute here.
-_GRAPH_EDGES_QUERY = """
-MATCH (m:Memory {project_id:$pid})-[r]->(n)
+# Fetch one row past the cap so truncation is detectable instead of silent.
+_GRAPH_EDGES_LIMIT = 2000
+_GRAPH_EDGES_QUERY = f"""
+MATCH (m:Memory {{project_id:$pid}})-[r]->(n)
 WHERE type(r) IN ['MENTIONS','EXTRACTED_FROM','RELATES_TO','DERIVED_FROM']
   AND n.project_id = $pid
 RETURN m.memory_id AS src, type(r) AS rel,
        coalesce(n.memory_id, n.entity_id, n.source_id) AS dst,
-       labels(n)[0] AS dst_label, n.entity_name AS entity_name
-LIMIT 2000
+       CASE WHEN 'Entity' IN labels(n) THEN 'Entity' ELSE labels(n)[0] END
+         AS dst_label,
+       n.entity_name AS entity_name
+LIMIT {_GRAPH_EDGES_LIMIT + 1}
 """
 
 _PREVIEW_LIMIT = 160
@@ -194,6 +199,7 @@ class MemoryManagementService:
             for row in raw_rows
         )
         edge_rows = await store.run_read(_GRAPH_EDGES_QUERY, pid=context.project_id)
+        edges_truncated = len(edge_rows) > _GRAPH_EDGES_LIMIT
         edges = tuple(
             MemoryGraphEdge(
                 src=str(row.get("src") or ""),
@@ -204,7 +210,7 @@ class MemoryManagementService:
                 if isinstance(row.get("entity_name"), str)
                 else None,
             )
-            for row in edge_rows
+            for row in edge_rows[: _GRAPH_EDGES_LIMIT]
             if row.get("src") and row.get("dst")
         )
         entity_map: dict[str, str] = {}
@@ -219,7 +225,13 @@ class MemoryManagementService:
             MemoryGraphSession(session_id=sid, title=self._title_for_session(sid))
             for sid in sorted({n.session_id for n in nodes if n.session_id is not None})
         )
-        return MemoryGraph(nodes=nodes, entities=entities, edges=edges, sessions=sessions)
+        return MemoryGraph(
+            nodes=nodes,
+            entities=entities,
+            edges=edges,
+            sessions=sessions,
+            edges_truncated=edges_truncated,
+        )
 
     def _group_snapshot(self, items: tuple[ManagedMemory, ...]) -> MemorySnapshot:
         grouped: dict[str | None, list[ManagedMemory]] = defaultdict(list)

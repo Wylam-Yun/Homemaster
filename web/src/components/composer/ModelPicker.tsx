@@ -52,6 +52,7 @@ export function ModelPicker({
   const [customDraft, setCustomDraft] = useState('')
   const [enumState, setEnumState] = useState<EnumState | null>(null)
   const enumCacheRef = useRef(new Map<string, ProviderModels | 'error'>())
+  const [enumRetry, setEnumRetry] = useState(0)
 
   const selected = providers.find(item => item.name === value.provider_name)
   const providerMissing = value.provider_name !== undefined
@@ -67,7 +68,8 @@ export function ModelPicker({
   }, [providerMissing, selected, value.model])
 
   // Lazy enumeration: fetch once per provider name, cache the result (incl.
-  // failures) so switching providers back and forth stays free.
+  // failures) so switching providers back and forth stays free. enumRetry
+  // invalidates the cache entry for the selected provider on "重试".
   useEffect(() => {
     const name = value.provider_name
     if (name === undefined || name === '' || loadModels === undefined) {
@@ -93,7 +95,14 @@ export function ModelPicker({
         if (current) setEnumState({ name, status: 'error', models: null })
       })
     return () => { current = false }
-  }, [value.provider_name, loadModels])
+  }, [value.provider_name, loadModels, enumRetry])
+
+  const retryEnumeration = (): void => {
+    if (value.provider_name !== undefined && value.provider_name !== '') {
+      enumCacheRef.current.delete(value.provider_name)
+    }
+    setEnumRetry(count => count + 1)
+  }
 
   const pickProvider = (name: string): void => {
     setCustomOpen(false)
@@ -137,13 +146,13 @@ export function ModelPicker({
   const liveModels = enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'live'
     ? enumForProvider.models.models
     : []
+  // A stale/custom model renders as its own option value (never CUSTOM_VALUE)
+  // so it cannot collide with the "自定义…" editor entry.
   const modelSelectValue = customOpen
     ? CUSTOM_VALUE
     : value.model === undefined || value.model === '' || value.model === selected?.model
       ? ''
-      : liveModels.includes(value.model)
-        ? value.model
-        : CUSTOM_VALUE
+      : value.model
 
   return (
     <div className={styles.picker} aria-label="模型选择">
@@ -169,7 +178,7 @@ export function ModelPicker({
             </option>
           ))}
           {providerMissing && (
-            <option value={value.provider_name}>{value.provider_name}（已不可用）</option>
+            <option value={value.provider_name} disabled>{value.provider_name}（已不可用）</option>
           )}
         </select>
       </label>
@@ -190,7 +199,7 @@ export function ModelPicker({
               .map(model => <option key={model} value={model}>{model}</option>)}
             {value.model !== undefined && value.model !== '' && value.model !== selected?.model
               && !liveModels.includes(value.model) && (
-              <option value={CUSTOM_VALUE}>{value.model}</option>
+              <option value={value.model}>{value.model}</option>
             )}
             <option value={CUSTOM_VALUE}>自定义…</option>
           </select>
@@ -200,7 +209,17 @@ export function ModelPicker({
         <span className={styles.hint}>枚举模型中…</span>
       )}
       {enumForProvider?.status === 'error' && (
-        <span className={styles.hint}>在线枚举失败，可手动输入 model id</span>
+        <span className={styles.hint}>
+          在线枚举失败，可手动输入 model id
+          <button
+            type="button"
+            className={styles.retryButton}
+            disabled={disabled}
+            onClick={retryEnumeration}
+          >
+            重试
+          </button>
+        </span>
       )}
       {enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'fallback' && (
         <span className={styles.hint}>在线枚举不可用，可手动输入 model id</span>

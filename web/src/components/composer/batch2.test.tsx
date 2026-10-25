@@ -54,9 +54,52 @@ describe('ModelPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith({ provider_name: 'primary', model: 'claude-opus-4.5' })
   })
 
-  it('keeps a stale provider selectable as an unavailable option', () => {
+  it('keeps a stale provider visible but disabled as an unavailable option', () => {
     render(<ModelPicker providers={PROVIDERS} value={{ provider_name: 'gone', model: 'x' }} onChange={vi.fn()} />)
-    expect(screen.getByRole('option', { name: /gone（已不可用）/ })).toBeInTheDocument()
+    const option = screen.getByRole('option', { name: /gone（已不可用）/ })
+    expect(option).toBeInTheDocument()
+    expect(option).toBeDisabled()
+  })
+
+  it('retries a failed model enumeration on demand', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValue({ name: 'primary', models: ['claude-opus-4.5'], source: 'live' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByText(/在线枚举失败/)
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    await screen.findByRole('option', { name: 'claude-opus-4.5' })
+    expect(loadModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a stale custom model as its own option instead of duplicating 自定义…', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4'], source: 'live' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary', model: 'claude-opus-4.5' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByRole('option', { name: 'claude-opus-4.5' })
+    const select = screen.getByRole('combobox', { name: 'Model' })
+    // Exactly one option carries the editor sentinel value.
+    const sentinels = Array.from(select.querySelectorAll('option'))
+      .filter(option => option.value === '__custom__')
+    expect(sentinels).toHaveLength(1)
+    expect(sentinels[0].textContent).toBe('自定义…')
   })
 
   it('lazily enumerates live models for the selected provider and emits them on pick', async () => {

@@ -148,6 +148,25 @@ def test_skill_model_override_rejects_explicit_provider_conflict() -> None:
         )
 
 
+def test_literal_model_override_clones_profile_with_new_model() -> None:
+    """provider_name + unconfigured model → literal per-message model id."""
+
+    profile = _resolve_chat_provider(
+        _model_override_config(),
+        RunRequest(
+            text="web pick",
+            provider_name="primary",
+            model_override="some-new-model",
+        ),
+    )
+
+    assert profile.name == "primary"
+    assert profile.model == "some-new-model"
+    # The stored profile keeps its configured model — the override is a clone.
+    stored = _model_override_config().get_provider("primary", kind="chat")
+    assert stored.model == "model-a"
+
+
 def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch) -> None:
     constructor_calls = 0
 

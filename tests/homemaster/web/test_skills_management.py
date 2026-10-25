@@ -55,6 +55,16 @@ def _app_for(user_root: Path, registry: SkillRegistry):
     )
 
 
+def _app_for_roots(user_roots: tuple[Path, ...], registry: SkillRegistry):
+    application = _P03Application(services={"skill_registry": registry})
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=user_roots))
+    return create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+
+
 def _import_payload(top: str = "housekeeping", **overrides) -> dict:
     payload = {
         "files": [
@@ -255,3 +265,32 @@ def test_delete_rejects_builtin_and_explicit_skills(tmp_path) -> None:
         missing = client.delete("/api/skills/nope")
         assert missing.status_code == 404
         assert missing.json()["code"] == "skill_not_found"
+
+
+def test_delete_reports_resurrection_when_shadowed_copy_remains(tmp_path) -> None:
+    """Deleting the winning copy exposes a shadowed same-name skill → 200 note."""
+
+    root_a = tmp_path / "skills-a"
+    root_b = tmp_path / "skills-b"
+    for root in (root_a, root_b):
+        target = root / "housekeeping"
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text(_SKILL_MD, encoding="utf-8")
+
+    def discover() -> SkillRegistry:
+        return load_skill_registry(cwd=None, user_dirs=(root_a, root_b))
+
+    registry = discover()
+    registry.set_refresher(discover)
+    app = _app_for_roots((root_a, root_b), registry)
+
+    with TestClient(app) as client:
+        response = client.delete("/api/skills/housekeeping")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["resurrected"] is True
+        # Exactly one shadowed directory was removed; the other revives the name.
+        remaining = [root for root in (root_a, root_b) if (root / "housekeeping").exists()]
+        assert len(remaining) == 1
+        assert registry.get("housekeeping") is not None

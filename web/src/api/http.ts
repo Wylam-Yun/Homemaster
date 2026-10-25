@@ -179,6 +179,7 @@ export type MemoryGraph = {
   entities: { entity_id: string; name: string }[]
   edges: MemoryGraphEdge[]
   sessions: { session_id: string; title: string }[]
+  edges_truncated?: boolean
 }
 
 export type UiMode = 'plan' | 'act'
@@ -453,7 +454,7 @@ export class HomeMasterApi {
     })
   }
 
-  deleteSkill(name: string): Promise<void> {
+  deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }> {
     return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 

@@ -12,7 +12,7 @@ export type SkillsApi = {
     files: Array<{ path: string; content: string }>,
     overwrite?: boolean,
   ): Promise<{ status: string; skill: SkillInfo }>
-  deleteSkill(name: string): Promise<void>
+  deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }>
 }
 
 async function collectFiles(list: FileList | File[]): Promise<Array<{ path: string; content: string }>> {
@@ -84,9 +84,16 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
   const remove = useCallback(async (skill: SkillInfo) => {
     setDeleting(true)
     try {
-      await api.deleteSkill(skill.name)
+      const result = await api.deleteSkill(skill.name)
       setConfirmDelete(null)
-      toast.show({ title: `已删除技能「${skill.name}」` })
+      if (result.resurrected === true) {
+        toast.show({
+          title: `已删除技能「${skill.name}」`,
+          description: result.message ?? '同名技能仍从其他用户技能目录加载。',
+        })
+      } else {
+        toast.show({ title: `已删除技能「${skill.name}」` })
+      }
       await refresh()
     } catch (cause) {
       toast.show({
@@ -167,7 +174,6 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
               )}
               <span className={styles.badges}>
                 <span className={styles.sourceBadge}>{skill.source}</span>
-                {!skill.enabled && <span className={styles.offBadge}>已停用</span>}
                 {!skill.user_invocable && <span className={styles.muteBadge}>不可直接调用</span>}
               </span>
             </div>

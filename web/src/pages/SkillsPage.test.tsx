@@ -22,7 +22,7 @@ function fetchRouter(routes: Record<string, { status?: number; body: unknown }>)
 const SKILLS = {
   skills: [
     { name: 'cleanup', command_name: 'cleanup', description: '整理会话上下文并压缩历史', source: 'bundled', user_invocable: true, enabled: true, deletable: false },
-    { name: 'audit-log', command_name: 'audit', description: '导出审计日志', source: 'user', user_invocable: true, enabled: false, deletable: true },
+    { name: 'audit-log', command_name: 'audit', description: '导出审计日志', source: 'user', user_invocable: true, enabled: true, deletable: true },
     { name: 'internal-probe', command_name: null, description: '内部探测，不可直接调用', source: 'project', user_invocable: false, enabled: true, deletable: false },
   ],
 }
@@ -47,7 +47,6 @@ describe('SkillsPage', () => {
     expect(screen.getByText('/cleanup')).toBeInTheDocument()
     expect(screen.getByText('bundled')).toBeInTheDocument()
     expect(screen.getByText('audit-log')).toBeInTheDocument()
-    expect(screen.getByText('已停用')).toBeInTheDocument()
     expect(screen.getByText('internal-probe')).toBeInTheDocument()
     expect(screen.getByText('不可直接调用')).toBeInTheDocument()
   })

@@ -91,6 +91,13 @@ vi.mock('./api/http', () => ({
     listGrants = vi.fn().mockResolvedValue({ grants: [], next_cursor: null })
     revokeGrant = vi.fn().mockResolvedValue(null)
     memoryHistory = vi.fn().mockResolvedValue({ memory_id: 'memory-01', versions: [] })
+    memoryGraph = vi.fn().mockResolvedValue({
+      nodes: [],
+      entities: [],
+      edges: [],
+      sessions: [],
+      edges_truncated: false,
+    })
     archiveSession = vi.fn().mockResolvedValue({ session_id: 'session-01', job_id: 'job-01', status: 'accepted' })
     archiveStatus = vi.fn().mockResolvedValue({ session_id: 'session-01', state: 'completed', job_id: 'job-01', extracted_count: 2 })
     archiveStatuses = vi.fn().mockResolvedValue({ sessions: { 'session-01': { state: 'completed', job_id: 'job-01', extracted_count: 2 } } })

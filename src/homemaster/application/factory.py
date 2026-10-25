@@ -222,18 +222,23 @@ def _resolve_chat_provider(config: HomeMasterConfig, request: RunRequest) -> Any
         and (profile.name.casefold() == target or profile.model.casefold() == target)
     ]
     unique = {profile.name.casefold(): profile for profile in matches}
-    if len(unique) != 1:
-        raise ValueError(
-            f"skill model {request.model_override!r} must map to exactly one "
-            "configured chat provider"
-        )
-    profile = next(iter(unique.values()))
-    if (
-        request.provider_name is not None
-        and profile.name.casefold() != request.provider_name.casefold()
-    ):
-        raise ValueError("skill model override conflicts with the explicitly selected provider")
-    return profile
+    if len(unique) == 1:
+        profile = next(iter(unique.values()))
+        if (
+            request.provider_name is not None
+            and profile.name.casefold() != request.provider_name.casefold()
+        ):
+            raise ValueError("skill model override conflicts with the explicitly selected provider")
+        return profile
+    if len(unique) == 0 and request.provider_name is not None:
+        # Literal per-message model id: the explicit provider's endpoint is
+        # reused with the requested model instead of the configured one.
+        profile = config.get_provider(request.provider_name, kind="chat")
+        return profile.model_copy(update={"model": request.model_override})
+    raise ValueError(
+        f"skill model {request.model_override!r} must map to exactly one "
+        "configured chat provider"
+    )
 
 
 __all__ = ["create_application"]

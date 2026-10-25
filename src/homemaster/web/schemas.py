@@ -225,6 +225,7 @@ class MemoryGraphResponse(BaseModel):
     entities: tuple[MemoryGraphEntityResponse, ...]
     edges: tuple[MemoryGraphEdgeResponse, ...]
     sessions: tuple[MemoryGraphSessionResponse, ...]
+    edges_truncated: bool = False
 
     @classmethod
     def from_domain(cls, graph: Any) -> MemoryGraphResponse:

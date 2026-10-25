@@ -92,7 +92,18 @@ def _provider_selection_error(
             if provider.name.casefold() == target
             or str(getattr(provider, "model", "")).casefold() == target
         }
-        if len(matches) != 1:
+        if len(matches) > 1:
+            return _error(
+                422,
+                "unknown_model",
+                "The model must match exactly one configured chat provider.",
+                retryable=False,
+            )
+        if len(matches) == 0:
+            # With an explicit provider the model is a literal per-message
+            # override; without one it must still select a provider.
+            if provider_name is not None:
+                return None
             return _error(
                 422,
                 "unknown_model",

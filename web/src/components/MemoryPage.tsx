@@ -159,6 +159,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
       entities: graph.entities.filter(entity => entityKeep.has(entity.entity_id)),
       edges: graph.edges.filter(edge => keep.has(edge.src) && (keep.has(edge.dst) || entityKeep.has(edge.dst))),
       sessions: graph.sessions,
+      edges_truncated: graph.edges_truncated,
     }
   }, [graph, typeFilter])
 
@@ -320,6 +321,9 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
                 <span className={styles.legendItem}><span style={{ background: 'var(--muted-2)' }} />实体</span>
               </div>
               <span className={styles.graphHint}>圆点=记忆 · 小点=实体 · 拖动平移 · 滚轮缩放 · 点击查看详情</span>
+              {filteredGraph.edges_truncated === true && (
+                <span className={styles.graphHint}>关系过多，仅显示部分连线</span>
+              )}
             </div>
             <MemoryGraph
               graph={filteredGraph}
