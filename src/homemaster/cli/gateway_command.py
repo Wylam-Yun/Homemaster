@@ -34,9 +34,7 @@ async def serve_gateway(
     # in-process runs must not install their own process-wide SIGINT handler.
     config = config.model_copy(
         update={
-            "observability": config.observability.model_copy(
-                update={"interrupt_enabled": False}
-            )
+            "observability": config.observability.model_copy(update={"interrupt_enabled": False})
         }
     )
     bundle = compose_application(

@@ -15,21 +15,30 @@ def test_thor_translator_maps_core_actions() -> None:
     assert translator.observe(mode="inventory") == "inventory"
     assert translator.observe(mode="examine", target="apple 1") == "examine apple 1"
     assert translator.navigate(target_receptacle="countertop 1") == "go to countertop 1"
-    assert translator.manipulate(
-        action="take",
-        object="apple 1",
-        source_receptacle="countertop 1",
-    ) == "take apple 1 from countertop 1"
-    assert translator.manipulate(
-        action="put",
-        object="apple 1",
-        target_receptacle="diningtable 1",
-    ) == "move apple 1 to diningtable 1"
-    assert translator.manipulate(
-        action="heat",
-        object="mug 1",
-        tool_receptacle="microwave 1",
-    ) == "heat mug 1 with microwave 1"
+    assert (
+        translator.manipulate(
+            action="take",
+            object="apple 1",
+            source_receptacle="countertop 1",
+        )
+        == "take apple 1 from countertop 1"
+    )
+    assert (
+        translator.manipulate(
+            action="put",
+            object="apple 1",
+            target_receptacle="diningtable 1",
+        )
+        == "move apple 1 to diningtable 1"
+    )
+    assert (
+        translator.manipulate(
+            action="heat",
+            object="mug 1",
+            tool_receptacle="microwave 1",
+        )
+        == "heat mug 1 with microwave 1"
+    )
 
 
 def test_translator_rejects_missing_conditional_arguments() -> None:
@@ -54,10 +63,7 @@ def test_public_action_schema_contains_thor_put_template() -> None:
         "required": ["target"],
         "command_template": "go to {target}",
     }
-    put_actions = [
-        item for item in schema["manipulation_actions"]
-        if item["action"] == "put"
-    ]
+    put_actions = [item for item in schema["manipulation_actions"] if item["action"] == "put"]
 
     assert put_actions[0]["command_template"] == "move {object} to {target_receptacle}"
 
@@ -66,10 +72,7 @@ def test_public_action_schema_warns_about_abstract_state_change_actions() -> Non
     translator = create_translator("AlfredThorEnv")
 
     schema = translator.public_action_schema()
-    actions = {
-        item["action"]: item
-        for item in schema["manipulation_actions"]
-    }
+    actions = {item["action"]: item for item in schema["manipulation_actions"]}
 
     assert "holding the object" in actions["heat"]["notes"]
     assert "Do not open, put into, close, or use the microwave" in actions["heat"]["notes"]

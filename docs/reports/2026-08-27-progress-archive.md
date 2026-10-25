@@ -299,8 +299,10 @@
 - A clean checkout of `OpenHarness@9b2efd795c6aa09f88b0c257d269a9e518da6ae7` exists at
   `/tmp/homemaster-v20-openharness-9b2efd7` for this session. The generated V2.0 manifest locks 39
   default tools, 130 static reachable source files, eight bundled Skill Markdown files and 15 upstream
-  test files. Regenerate/check it with
-  `uv run python scripts/v20/generate_upstream_port_manifest.py --upstream /tmp/homemaster-v20-openharness-9b2efd7 [--check]`.
+  test files. The live V2.0 generator was deleted after archiving (its absence is asserted by
+  `tests/homemaster/test_no_openharness_package.py`); the manifest stays immutable at
+  `plan/V2.0/archive/upstream-port-manifest.json`. The surviving port-manifest validator is
+  `scripts/v19_release/validate_upstream_port_manifest.py` (V1.9 manifest schema).
 - Root-cause baseline: HomeMaster's former `SkillSpec` required `tool_names`, so the real Codex
   `skill-creator/SKILL.md` was rejected despite existing unit tests passing. Home profile initially had
   12 tools, not the upstream 39. New RED tests captured both failures before product changes.

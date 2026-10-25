@@ -24,12 +24,15 @@ def test_store_partitions_raw_bytes_and_enforces_exact_acl(tmp_path) -> None:
 
     assert stored.handle.startswith("hm-artifact:")
     assert all(value not in stored.handle for value in ("tenant-a", "session-a", "run-a"))
-    assert store.read(
-        stored.handle,
-        tenant_id="tenant-a",
-        session_id="session-a",
-        run_id="run-a",
-    ) == b"raw-secret-output"
+    assert (
+        store.read(
+            stored.handle,
+            tenant_id="tenant-a",
+            session_id="session-a",
+            run_id="run-a",
+        )
+        == b"raw-secret-output"
+    )
     for wrong in (
         {"tenant_id": "tenant-b", "session_id": "session-a", "run_id": "run-a"},
         {"tenant_id": "tenant-a", "session_id": "session-b", "run_id": "run-a"},

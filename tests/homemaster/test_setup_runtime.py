@@ -370,9 +370,7 @@ def test_generated_config_clears_demo_browser_gateway(tmp_path: Path) -> None:
         environ=_env(tmp_path),
     )
     assert code == 0
-    payload = yaml.safe_load(
-        (tmp_path / ".homemaster" / "config.yaml").read_text(encoding="utf-8")
-    )
+    payload = yaml.safe_load((tmp_path / ".homemaster" / "config.yaml").read_text(encoding="utf-8"))
     assert payload["browser_gateway"]["start_url"] is None
 
 
@@ -384,13 +382,9 @@ def test_package_spec_derives_origin_from_direct_url(
             assert name == "direct_url.json"
             return '{"url": "file:///tmp/homemaster-3.2.0-py3-none-any.whl"}'
 
-    monkeypatch.setattr(
-        setup.importlib.metadata, "distribution", lambda name: _Dist()
-    )
+    monkeypatch.setattr(setup.importlib.metadata, "distribution", lambda name: _Dist())
     spec = setup._package_spec({}, full=True, with_browser=False)
-    assert spec == (
-        "homemaster[memory] @ file:///tmp/homemaster-3.2.0-py3-none-any.whl"
-    )
+    assert spec == ("homemaster[memory] @ file:///tmp/homemaster-3.2.0-py3-none-any.whl")
 
 
 def test_package_spec_falls_back_to_bare_name_when_origin_unknown(
@@ -400,9 +394,7 @@ def test_package_spec_falls_back_to_bare_name_when_origin_unknown(
         def read_text(self, name: str) -> None:
             return None
 
-    monkeypatch.setattr(
-        setup.importlib.metadata, "distribution", lambda name: _Dist()
-    )
+    monkeypatch.setattr(setup.importlib.metadata, "distribution", lambda name: _Dist())
     assert setup._package_spec({}, full=False, with_browser=False) == "homemaster"
 
 

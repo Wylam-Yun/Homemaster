@@ -18,8 +18,6 @@ _SRC = _REPO_ROOT / "src"
 if (_SRC / "homemaster").is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-import os  # noqa: E402  (kept: tests monkeypatch assets.os.uname)
-
 from homemaster.setup_runtime import (  # noqa: E402
     _current_platform,
     _sha256,
@@ -27,7 +25,7 @@ from homemaster.setup_runtime import (  # noqa: E402
     ensure_neo4j,
 )
 
-__all__ = ["_current_platform", "_sha256", "ensure_java", "ensure_neo4j", "os"]
+__all__ = ["_current_platform", "_sha256", "ensure_java", "ensure_neo4j"]
 
 
 if __name__ == "__main__":
@@ -40,5 +38,11 @@ if __name__ == "__main__":
     parser.add_argument("--offline-bundle", type=Path)
     args = parser.parse_args()
     if args.java_destination:
-        ensure_java(args.repo_root.resolve(), args.java_destination.resolve(), offline_bundle=args.offline_bundle)
-    ensure_neo4j(args.repo_root.resolve(), args.destination.resolve(), offline_bundle=args.offline_bundle)
+        ensure_java(
+            args.repo_root.resolve(),
+            args.java_destination.resolve(),
+            offline_bundle=args.offline_bundle,
+        )
+    ensure_neo4j(
+        args.repo_root.resolve(), args.destination.resolve(), offline_bundle=args.offline_bundle
+    )

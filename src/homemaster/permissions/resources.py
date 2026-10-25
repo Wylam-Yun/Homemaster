@@ -50,9 +50,7 @@ class PhysicalDeviceAdapter(Protocol):
         """Resolve the exact resources of one call without side effects."""
         ...  # pragma: no cover
 
-    async def execute(
-        self, binding_ref: str, context: ToolExecutionContext
-    ) -> ToolExecutionResult:
+    async def execute(self, binding_ref: str, context: ToolExecutionContext) -> ToolExecutionResult:
         """Execute one previously prepared binding."""
         ...  # pragma: no cover
 
@@ -69,9 +67,7 @@ class PhysicalDeviceAdapter(Protocol):
 
 @lru_cache(maxsize=1)
 def _directory() -> dict[str, Any]:
-    data_path = (
-        importlib_resources.files(__package__).joinpath("actions.yaml")
-    )
+    data_path = importlib_resources.files(__package__).joinpath("actions.yaml")
     try:
         raw = yaml.safe_load(data_path.read_bytes())
     except FileNotFoundError as exc:
@@ -133,8 +129,7 @@ def resolve_action(name: Any) -> str:
             "to one concrete action first"
         )
     raise ValueError(
-        f"unknown physical action {name!r}; "
-        f"expected one of {sorted(directory['actions'])}"
+        f"unknown physical action {name!r}; expected one of {sorted(directory['actions'])}"
     )
 
 

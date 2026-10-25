@@ -25,6 +25,9 @@ from typing import Any
 from homemaster.artifacts import ToolOutputArtifactResolver
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
 from homemaster.channels.contracts import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalResolveStatus,
     ChannelDeliveryContext,
     ChannelEventKind,
     ChannelIdentity,
@@ -35,12 +38,7 @@ from homemaster.channels.contracts import (
 )
 from homemaster.channels.impl.base import BaseChannel
 from homemaster.config.config import FeishuChannelConfig
-from homemaster.gateway.auth import AuthenticatedPrincipal
-from homemaster.gateway.confirmation import (
-    ApprovalDecision,
-    ApprovalRequest,
-    ApprovalResolveStatus,
-)
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 _DOMAIN_URLS = {
     "feishu": "https://open.feishu.cn",
@@ -65,6 +63,8 @@ _TRUSTED_OWNER_CAPABILITIES = (
     "channel.feishu.group.create",
     "channel.feishu.group.rename",
 )
+
+
 def _emit_feishu_audit(
     action: str,
     target: str,

@@ -64,14 +64,16 @@ def setup(backend: Backend):
     release = asyncio.Event()
     executor = Executor(entered, release)
     registry = ToolRegistry()
-    registry.register(FunctionTool(
-        name="robot_move",
-        description="Move the robot.",
-        input_schema={"type": "object"},
-        execute=executor.execute,
-        concurrency_policy="resource_key",
-        resource_key="home:backend",
-    ))
+    registry.register(
+        FunctionTool(
+            name="robot_move",
+            description="Move the robot.",
+            input_schema={"type": "object"},
+            execute=executor.execute,
+            concurrency_policy="resource_key",
+            resource_key="home:backend",
+        )
+    )
     manager = DeviceLeaseManager()
     pipeline = ToolExecutor(registry, resource_manager=manager)
 

@@ -139,11 +139,7 @@ class WebRunRegistry:
 
         async with self._lock:
             record = self._active_by_session.get(session_id)
-            if (
-                record is None
-                or record.request_id != request_id
-                or record.run_id is not None
-            ):
+            if record is None or record.request_id != request_id or record.run_id is not None:
                 return False
             self._active_by_session.pop(session_id, None)
             return True
@@ -160,11 +156,7 @@ class WebRunRegistry:
 
         async with self._lock:
             record = self._active_by_session.get(session_id)
-            if (
-                record is None
-                or record.request_id != request_id
-                or not record.task.done()
-            ):
+            if record is None or record.request_id != request_id or not record.task.done():
                 return None
             self._active_by_session.pop(session_id, None)
             if record.run_id is not None:
@@ -176,9 +168,7 @@ class WebRunRegistry:
             raise RunCorrelationError("runtime.turn_started requires a run_id")
         record = self._active_by_session.get(event.session_id)
         if record is None:
-            raise RunCorrelationError(
-                f"session has no pending Web request: {event.session_id}"
-            )
+            raise RunCorrelationError(f"session has no pending Web request: {event.session_id}")
         existing = self._started_by_run.get(event.run_id)
         if existing is not None and existing is not record:
             raise RunCorrelationError("run_id is already owned by another request")

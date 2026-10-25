@@ -1,5 +1,55 @@
 # Unreleased
 
+- Repository audit remediation: `.gitignore` rules anchored to the repo
+  root, vendored `dist/` bundles the runtime serves are checked in, dead
+  code removed, and documentation repaired — dead links retargeted
+  (`plan/locomo-full-pipeline-pilot-plan.md` no longer exists; the LoCoMo
+  runner lives in `src/homemaster/benchmarking/locomo/`), the CLI table now
+  lists `benchmark-alfworld-taskset`/`benchmark-robocasa`, `plan/README.md`
+  indexes only files that exist, the duplicated `Unreleased` headings are
+  merged into one top section, and stale script paths are corrected.
+- Audit remediation phase 2 (layering + test hygiene): broke the
+  channels↔gateway package cycle by moving `AuthenticatedPrincipal` into
+  `tools/contracts.py` and the channel-renderer approval DTOs
+  (`ApprovalDecision`/`ApprovalRequest`/`ApprovalResolveStatus`) into
+  `channels/contracts.py`; moved `memory/management.py` to
+  `web/memory_views.py` (removes memory→alfworld/experience edges);
+  `composition/base.py` no longer imports cli/alfworld at module level;
+  MindMemOS `MemoryRequestContext` construction unified behind
+  `build_mindmemos_request_context`. Registered the `memory.work.*`
+  event types in `KNOWN_EVENT_TYPES`, audited the three `robocasa_*`
+  deps keys, cleared `guard_no_legacy_terms` violations, deleted dead
+  session helpers (`resume_session`/`find_latest_session_snapshot`),
+  reconciled `tasks.json` on startup (interrupted records now marked
+  failed), and replaced the private asyncio.Task attribute hack in
+  gateway runtime with the existing identities map. Environment-dependent
+  tests now skip cleanly (playwright/lark_oapi import-guards, OpenHarness
+  checkout skipif); `pytest` default runs deselect `live_*` markers so a
+  plain run no longer spends real API quota — opt in with `pytest -m
+  live_api` etc.
+- Audit remediation phase 3 (structure + tooling): `create_web_app`
+  split from a 1258-line factory into `web/app.py` wiring plus
+  `web/routes/` per-domain modules behind a `WebAppContext` (route table
+  verified identical); `mypy` added to dev tooling with pragmatic config
+  and a documented 293-error baseline as the gradual-tightening plan;
+  first CI gate added (`.github/workflows/ci.yml`: ruff check + format,
+  pytest, web typecheck + vitest on push to main and PRs).
+- Post-review fixes on the same branch: restored the 100-iteration bound
+  for alfworld web runs (now clamped in `AlfworldGatewayApplication.run`
+  when the caller carries no explicit cap); semantic-judge
+  `min_confidence` coercion moved inside the config-validation block and
+  unexpected request errors log only the exception type (no URL leak);
+  `tasks.json` reconcile now tolerates byte-corrupt files and non-numeric
+  record fields instead of crashing manager init; `.gitignore` restored
+  unanchored `tmp/`/`report/`/`log/` patterns (nested evidence dirs stay
+  ignored) while `/dist/` and `/build/` remain root-anchored; added
+  `src/homemaster/py.typed` and a web route-table snapshot test.
+- Removed stale `TODO.md`: its only item (debug `robot_manipulate`
+  `invalid_tool_arguments`) was superseded by the V3.5 grounding and
+  validation work — `invalid_tool_arguments` is now a classified typed
+  outcome with model-visible feedback, and the permission adapter pins
+  each label to exactly one backend object id before execution.
+
 - Dreaming Phase-0 entity canonicalization: `_cluster_hot_memories` now
   inserts an entity-normalization phase between the seed→entity→neighbor
   query and noise filtering. Same-referent entities fragmented by
@@ -1396,6 +1446,26 @@
   V3.5 tests pass; real action-SIGINT cleanup passes, while close-SIGINT remains an
   open shutdown gate.
 
+- V3.5 worker now grounds duplicate ALFWorld objects through trial/Oracle identities, freezes
+  deterministic off-screen THOR poses, and verifies real `take/use` terminal state; provider-backed
+  formal CLI evidence reaches `won=true` with clean worker shutdown. Added live worker/CLI evidence
+  and regression coverage for the grounding path.
+
+- V3.2 阶段一将 Neo4j 部署边界收窄为 HomeMaster 管理的本地 loopback 服务，拒绝 external/远程 URI，并让
+  doctor 对 provider secret 做统一脱敏、拒绝禁用记忆配置、移除旧 Mac/bm25s 检查；失败诊断改用受限唯一目录。
+- 收紧 wheel 的 OpenCLI 资源清单，移除完整 `node_modules`；构建审计仍单独报告待处理的 ALFWorld Python 模块。
+- 增加构建期过滤钩子，确保通用 wheel 不携带 ALFWorld Python 模块；ALFWorld 代码仍保留在源码树供后续阶段迁移。
+- 将 ALFWorld 工具 import 延迟到显式 benchmark 环境，保证通用 wheel 在缺少 ALFWorld 依赖时仍可导入普通工具注册表。
+- 新增 `scripts/setup.sh` 与 `scripts/build_runtime_bundle.sh`，提供受校验的 managed_local 配置生成、运行时绑定和
+  离线源码/wheel bundle 入口；缺失锁定资产时显式失败。
+- 修复 setup 在已有 `.venv` 时的幂等重跑，复用现有虚拟环境而不覆盖配置或数据。
+- 修复已有合法 `.runtime/memory` 绑定在 setup 重跑时被误判为冲突，改为校验并复用目标目录。
+
+- Doctor provider resolution now honors `runtime_defaults.default_*`
+  names: previously it probed the hardcoded `Mimo`/`MemoryEmbedding`
+  names, so a valid config with a differently-named default provider
+  reported FAIL while the application itself worked.
+
 # Changelog
 
 ## 2026-09-24 - V3.5 隔离 Worker 与 HomeWorld 外部终态
@@ -1443,7 +1513,7 @@
 
 - 同步当前工作区：更新权限设计、ALFWorld 与记忆相关实现和测试，整理计划及审查文档；保存当前开发进展，便于后续继续实施。按用户要求提交全部现有修改，本次提交前未额外运行检查或测试，运行验证范围以各任务已有记录为准。
 
-## Unreleased
+## 旧格式归档（V1.8–V3.5 条目）
 
 ### V3.5 canonical tool migration checkpoint
 
@@ -2581,24 +2651,3 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
   Neo4j、LLM、Embedding 与 operation recorder。
 - `mindmemos_search` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
   记录 fail closed，使自动沉淀经验能在新进程中被真实 LLM 召回。
-# Unreleased
-
-- V3.5 worker now grounds duplicate ALFWorld objects through trial/Oracle identities, freezes
-  deterministic off-screen THOR poses, and verifies real `take/use` terminal state; provider-backed
-  formal CLI evidence reaches `won=true` with clean worker shutdown. Added live worker/CLI evidence
-  and regression coverage for the grounding path.
-
-- V3.2 阶段一将 Neo4j 部署边界收窄为 HomeMaster 管理的本地 loopback 服务，拒绝 external/远程 URI，并让
-  doctor 对 provider secret 做统一脱敏、拒绝禁用记忆配置、移除旧 Mac/bm25s 检查；失败诊断改用受限唯一目录。
-- 收紧 wheel 的 OpenCLI 资源清单，移除完整 `node_modules`；构建审计仍单独报告待处理的 ALFWorld Python 模块。
-- 增加构建期过滤钩子，确保通用 wheel 不携带 ALFWorld Python 模块；ALFWorld 代码仍保留在源码树供后续阶段迁移。
-- 将 ALFWorld 工具 import 延迟到显式 benchmark 环境，保证通用 wheel 在缺少 ALFWorld 依赖时仍可导入普通工具注册表。
-- 新增 `scripts/setup.sh` 与 `scripts/build_runtime_bundle.sh`，提供受校验的 managed_local 配置生成、运行时绑定和
-  离线源码/wheel bundle 入口；缺失锁定资产时显式失败。
-- 修复 setup 在已有 `.venv` 时的幂等重跑，复用现有虚拟环境而不覆盖配置或数据。
-- 修复已有合法 `.runtime/memory` 绑定在 setup 重跑时被误判为冲突，改为校验并复用目标目录。
-
-- Doctor provider resolution now honors `runtime_defaults.default_*`
-  names: previously it probed the hardcoded `Mimo`/`MemoryEmbedding`
-  names, so a valid config with a differently-named default provider
-  reported FAIL while the application itself worked.

@@ -14,8 +14,8 @@ from homemaster.channels.contracts import (
     InboundMessage,
 )
 from homemaster.channels.router import AttachmentPolicy, ChannelRouter
-from homemaster.gateway.auth import AuthenticatedPrincipal
 from homemaster.gateway.browser import BrowserGatewayApplication
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 
 class _Application:

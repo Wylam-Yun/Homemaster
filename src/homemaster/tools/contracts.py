@@ -268,6 +268,36 @@ class PermissionSubject:
         object.__setattr__(self, "capabilities", capabilities)
 
 
+@dataclass(frozen=True)
+class AuthenticatedPrincipal:
+    """Credential-bound principal resolved at a channel trust boundary.
+
+    Lives in the leaf contract module so channels can depend on the type
+    without importing the gateway package (channels → tools direction only;
+    ``homemaster.gateway.auth`` re-exports it for backward compatibility).
+    """
+
+    tenant_id: str
+    principal_id: str
+    channel: str
+    roles: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        subject = self.to_permission_subject()
+        object.__setattr__(self, "roles", subject.roles)
+        object.__setattr__(self, "capabilities", subject.capabilities)
+
+    def to_permission_subject(self) -> PermissionSubject:
+        return PermissionSubject(
+            subject_id=self.principal_id,
+            channel=self.channel,
+            roles=self.roles,
+            tenant_id=self.tenant_id,
+            capabilities=self.capabilities,
+        )
+
+
 @runtime_checkable
 class CancellationHandle(Protocol):
     @property

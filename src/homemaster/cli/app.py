@@ -63,9 +63,7 @@ _SERVER_ENV = "HOMEMASTER_SERVER"
 
 def _reject_local_only(flag: str, local: bool) -> None:
     if not local:
-        raise typer.BadParameter(
-            f"{flag} only works with {_LOCAL_ONLY} (in-process compose)"
-        )
+        raise typer.BadParameter(f"{flag} only works with {_LOCAL_ONLY} (in-process compose)")
 
 
 @app.command("child-worker", hidden=True)
@@ -253,9 +251,7 @@ def main_callback(
     if (print_prompt is not None or dry_run) and (
         host != "127.0.0.1" or port != 8000 or no_browser
     ):
-        raise typer.BadParameter(
-            "--host/--port/--no-browser only apply to bare 'homemaster' serve"
-        )
+        raise typer.BadParameter("--host/--port/--no-browser only apply to bare 'homemaster' serve")
     try:
         if dry_run:
             _run_dry_run(
@@ -655,8 +651,7 @@ def setup_command(
         Path | None,
         typer.Option(
             "--config",
-            help="Managed config path "
-            "(default: repo config or $HOMEMASTER_HOME/config.yaml).",
+            help="Managed config path (default: repo config or $HOMEMASTER_HOME/config.yaml).",
         ),
     ] = None,
 ) -> None:
@@ -1062,17 +1057,13 @@ def benchmark_robocasa_command(
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"cells: {len(summary.cells)}")
         typer.echo(f"success_rate: {summary.success_rate:.3f}")
-        typer.echo(
-            f"task_weighted_success_rate: {summary.task_weighted_success_rate:.3f}"
-        )
+        typer.echo(f"task_weighted_success_rate: {summary.task_weighted_success_rate:.3f}")
         typer.echo(f"scored_cells: {metrics['scored_cells']}")
         typer.echo(f"infrastructure_errors: {metrics['infrastructure_errors']}")
         typer.echo(f"provider_failures: {metrics['provider_failures']}")
         typer.echo(f"runtime_failures: {metrics['runtime_failures']}")
         typer.echo(f"cancelled_cells: {metrics['cancelled_cells']}")
-        typer.echo(
-            f"evaluation_valid_coverage: {float(metrics['evaluation_valid_coverage']):.3f}"
-        )
+        typer.echo(f"evaluation_valid_coverage: {float(metrics['evaluation_valid_coverage']):.3f}")
         typer.echo(f"trace_root: {summary.config['run_dir']}")
     except Exception as exc:
         render_error_and_exit(exc)

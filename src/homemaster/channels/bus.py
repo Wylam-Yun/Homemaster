@@ -34,8 +34,8 @@ class _BoundedQueue(Generic[T]):
         self.capacity = capacity
         self.per_tenant_capacity = per_tenant_capacity
         self.per_session_capacity = per_session_capacity
-        self._is_progress = is_progress
-        self._coalesce_key = coalesce_key
+        self._is_progress: Callable[[T], bool] = is_progress
+        self._coalesce_key: Callable[[T], object | None] = coalesce_key
         self._items: deque[T] = deque()
         self._counts: Counter[tuple[str, str]] = Counter()
         self._tenant_counts: Counter[str] = Counter()

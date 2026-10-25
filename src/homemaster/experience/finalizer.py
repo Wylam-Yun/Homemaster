@@ -231,9 +231,7 @@ class SessionFinalizer:
                 continue
             session_id = job.get("session_id")
             if not isinstance(session_id, str) or not session_id:
-                logger.warning(
-                    "skipping finalization job without session_id: %s", job_dir.name
-                )
+                logger.warning("skipping finalization job without session_id: %s", job_dir.name)
                 continue
             if not (job_dir / "episode.json").exists():
                 logger.warning(
@@ -780,17 +778,14 @@ class SessionFinalizer:
         return job, job_path, episode
 
     def _new_context(self, *, session_id: str, request_id: str) -> Any:
-        from mindmemos.typing import MemoryRequestContext
+        from homemaster.memory.automatic_recall import (
+            build_mindmemos_request_context,
+        )
 
-        return MemoryRequestContext(
+        return build_mindmemos_request_context(
             request_id=request_id,
-            account_id=self._memory_tenant_id,
-            project_id=self._memory_tenant_id,
-            api_key_uuid="embedded-local",
-            user_id=self._memory_tenant_id,
-            app_id="homemaster",
+            tenant_id=self._memory_tenant_id,
             session_id=session_id,
-            agent_id="homemaster",
         )
 
     @staticmethod

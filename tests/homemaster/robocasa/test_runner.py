@@ -195,9 +195,7 @@ class SkillTransport:
             self._remaining -= 1
             yield TransportDelta(
                 type="transport.delta",
-                tool_call_delta=ToolCall(
-                    id=f"skill_{index}", name="robocasa_skill", arguments={}
-                ),
+                tool_call_delta=ToolCall(id=f"skill_{index}", name="robocasa_skill", arguments={}),
             )
             yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
         else:
@@ -222,9 +220,7 @@ def test_runner_run_dir_does_not_double_nest_robocasa(tmp_path: Path) -> None:
     directly at the robocasa trace dir keep a single level."""
     manifest = _manifest(tmp_path, ["OpenDrawer"], seeds=[1])
     nested = RoboCasaBenchmarkRunner(
-        config=dataclasses.replace(
-            _config(tmp_path, manifest), trace_root=tmp_path / "robocasa"
-        )
+        config=dataclasses.replace(_config(tmp_path, manifest), trace_root=tmp_path / "robocasa")
     )
     assert nested.run_dir == tmp_path / "robocasa" / nested.run_id
     plain = RoboCasaBenchmarkRunner(config=_config(tmp_path, manifest))

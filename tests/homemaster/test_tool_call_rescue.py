@@ -16,7 +16,9 @@ from typing import Any
 
 import pytest
 
+from agentscope._utils._common import _json_loads_with_repair
 from agentscope.credential import OpenAICredential
+from agentscope.exception import ToolJSONDecodeError
 from agentscope.message import TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.model._utils import (
@@ -26,14 +28,10 @@ from agentscope.model._utils import (
     _schema_properties_by_tool_name,
     _tool_call_input_is_empty,
 )
-from agentscope._utils._common import _json_loads_with_repair
-from agentscope.exception import ToolJSONDecodeError
 
 
 def _xml_call(name: str, **params: Any) -> str:
-    inner = "".join(
-        f"<parameter={key}>{value}</parameter>" for key, value in params.items()
-    )
+    inner = "".join(f"<parameter={key}>{value}</parameter>" for key, value in params.items())
     return f"<tool_call><function={name}>{inner}</function></tool_call>"
 
 

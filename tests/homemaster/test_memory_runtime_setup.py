@@ -212,12 +212,12 @@ def test_launcher_uses_bound_python_and_config_from_unrelated_cwd(tmp_path: Path
     fake_python = _executable(
         tmp_path / "fake-python",
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
-        "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then exit 0; fi\n"
-        f"printf '%s\\n' \"{{\\\"cwd\\\":\\\"$PWD\\\",\\\"config\\\":"
-        f"\\\"$HOMEMASTER_CONFIG_PATH\\\",\\\"pythonpath\\\":\\\"$PYTHONPATH\\\","
-        f"\\\"repo_root\\\":\\\"$HOMEMASTER_REPO_ROOT\\\","
-        f"\\\"args\\\":\\\"$*\\\"}}\" > {capture}\n",
+        'if [ "$1" = "-c" ]; then exit 0; fi\n'
+        'if [ "$2" = "scripts/setup_memory_runtime.py" ]; then exit 0; fi\n'
+        f'printf \'%s\\n\' "{{\\"cwd\\":\\"$PWD\\",\\"config\\":'
+        f'\\"$HOMEMASTER_CONFIG_PATH\\",\\"pythonpath\\":\\"$PYTHONPATH\\",'
+        f'\\"repo_root\\":\\"$HOMEMASTER_REPO_ROOT\\",'
+        f'\\"args\\":\\"$*\\"}}" > {capture}\n',
     )
     fake_venv = tmp_path / "fake-venv"
     fake_venv.joinpath("bin").mkdir(parents=True)
@@ -260,12 +260,12 @@ def test_launcher_keeps_runtime_preflight_out_of_machine_readable_stdout(
     fake_python = _executable(
         tmp_path / "fake-python",
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
-        "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then\n"
-        "  printf '{\"status\":\"ready\"}\\n'\n"
+        'if [ "$1" = "-c" ]; then exit 0; fi\n'
+        'if [ "$2" = "scripts/setup_memory_runtime.py" ]; then\n'
+        '  printf \'{"status":"ready"}\\n\'\n'
         "  exit 0\n"
         "fi\n"
-        "printf '{\"checks\":[],\"live\":false}\\n'\n",
+        'printf \'{"checks":[],"live":false}\\n\'\n',
     )
     fake_venv = tmp_path / "fake-venv"
     fake_venv.joinpath("bin").mkdir(parents=True)
@@ -300,9 +300,9 @@ def test_alfworld_launcher_keeps_worker_environment_isolated(
     formal_python = _executable(
         tmp_path / "formal-python",
         "#!/bin/sh\n"
-        f"printf '%s\\n' \"{{\\\"pythonpath\\\":\\\"$PYTHONPATH\\\","
-        f"\\\"repo_root\\\":\\\"$HOMEMASTER_REPO_ROOT\\\","
-        f"\\\"args\\\":\\\"$*\\\"}}\" > {capture}\n",
+        f'printf \'%s\\n\' "{{\\"pythonpath\\":\\"$PYTHONPATH\\",'
+        f'\\"repo_root\\":\\"$HOMEMASTER_REPO_ROOT\\",'
+        f'\\"args\\":\\"$*\\"}}" > {capture}\n',
     )
     formal_venv = tmp_path / "formal-venv"
     formal_venv.joinpath("bin").mkdir(parents=True)

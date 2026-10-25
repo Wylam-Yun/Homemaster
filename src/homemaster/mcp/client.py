@@ -277,9 +277,7 @@ class McpClientManager:
             async with asyncio.timeout(self._call_timeout_s):
                 result = await connection.session.read_resource(uri)
         except asyncio.CancelledError:
-            await self._audit(
-                "mcp.resource.cancelled", server=server_name, uri=uri
-            )
+            await self._audit("mcp.resource.cancelled", server=server_name, uri=uri)
             raise
         except Exception as exc:
             if _is_disconnect_error(exc):
@@ -334,9 +332,7 @@ class McpClientManager:
             return connection
         status = self._statuses.get(server_name)
         detail = status.detail if status is not None else "unknown server"
-        raise McpServerNotConnectedError(
-            f"MCP server {server_name!r} is not connected: {detail}"
-        )
+        raise McpServerNotConnectedError(f"MCP server {server_name!r} is not connected: {detail}")
 
     async def _mark_disconnected(
         self,

@@ -207,9 +207,7 @@ async def test_confirmation_gates_external_mutation_before_resource_acquisition(
             context,
         ):
             del tool_name, is_read_only, required_capabilities, arguments, context
-            return PermissionDecision(
-                False, requires_confirmation=True, reason="test gate"
-            )
+            return PermissionDecision(False, requires_confirmation=True, reason="test gate")
 
     async def mutate(arguments, context):
         nonlocal backend_calls

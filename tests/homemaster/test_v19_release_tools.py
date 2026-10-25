@@ -26,11 +26,18 @@ from scripts.v19_release.validate_upstream_port_manifest import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENHARNESS_ROOT = REPO_ROOT.parent / "OpenHarness"
-ALFWORLD_SMOKE_MANIFEST = (
-    REPO_ROOT / "tests/fixtures/alfworld/gateway_smoke_trials.json"
+ALFWORLD_SMOKE_MANIFEST = REPO_ROOT / "tests/fixtures/alfworld/gateway_smoke_trials.json"
+
+# These cases exercise the locked upstream port against the real sibling
+# OpenHarness checkout; they only run where that repo is cloned next to
+# this one (e.g. release-engineering workstations).
+_REQUIRES_OPENHARNESS_CHECKOUT = pytest.mark.skipif(
+    not OPENHARNESS_ROOT.is_dir(),
+    reason="requires the sibling ../OpenHarness upstream checkout",
 )
 
 
+@_REQUIRES_OPENHARNESS_CHECKOUT
 def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
     report = validate_manifest(
         REPO_ROOT / "plan/V1.9/upstream-port-manifest.json", repo_root=REPO_ROOT
@@ -42,6 +49,7 @@ def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
     }
 
 
+@_REQUIRES_OPENHARNESS_CHECKOUT
 def test_port_without_upstream_tests_requires_gap_and_local_characterization(
     tmp_path: Path,
 ) -> None:
@@ -339,6 +347,7 @@ def test_import_identity_resolves_symlinks_before_containment(
     assert alfworld["origin_within_conda_prefix"] is False
 
 
+@_REQUIRES_OPENHARNESS_CHECKOUT
 def test_baseline_capture_writes_exact_sanitized_contract_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

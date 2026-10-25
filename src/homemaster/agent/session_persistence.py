@@ -15,7 +15,6 @@ from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.trace import json_compatible_copy
-from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 
 
@@ -108,15 +107,6 @@ def session_snapshot_path(session_root: Path, session_id: str) -> Path:
     return expanded / session_id / "session.json"
 
 
-def find_latest_session_snapshot(session_root: Path) -> Path:
-    """Return the newest session snapshot under session_root."""
-
-    snapshots = list(session_root.expanduser().glob("*/session.json"))
-    if not snapshots:
-        raise FileNotFoundError(f"no sessions found under {session_root.expanduser()}")
-    return max(snapshots, key=lambda path: path.stat().st_mtime)
-
-
 def list_sessions(session_root: Path) -> list[SessionInfo]:
     """List readable session snapshots, newest first."""
 
@@ -129,18 +119,6 @@ def list_sessions(session_root: Path) -> list[SessionInfo]:
         info = _session_info_from_payload(snapshot_path, payload)
         infos.append(info)
     return sorted(infos, key=lambda item: item.saved_at, reverse=True)
-
-
-def resume_session(path: Path) -> tuple[AgentSession, AgentState, TaskStateStore]:
-    """Load session, agent state, and task state. Paused tasks become active."""
-
-    session, agent_state, task_state_store = AgentSession.from_snapshot_dict(
-        load_session_json(path)
-    )
-    snapshot = task_state_store.snapshot
-    if snapshot is not None and snapshot.status == TaskStatus.PAUSED:
-        task_state_store.update_status(TaskStatus.ACTIVE)
-    return session, agent_state, task_state_store
 
 
 def _session_info_from_payload(path: Path, payload: dict[str, Any]) -> SessionInfo:
@@ -163,7 +141,17 @@ def _session_info_from_payload(path: Path, payload: dict[str, Any]) -> SessionIn
 
 
 class SessionPersistenceManager:
-    """Own the per-session trace, message log, and resumable snapshot files."""
+    """Own the per-session trace, message log, and resumable snapshot files.
+
+    Writes ``session.json`` (snapshot), ``trace.jsonl`` (debug event log),
+    and ``messages.jsonl`` (user-visible dialogue) into
+    ``<observability.session_dir>/<session_id>/`` — the observability
+    side-channel read by CLI session inspection. The same session directory
+    is shared with ``application.session.SessionFileBackend``, which owns
+    ``revisions/`` + ``latest.json`` + ``meta.json`` and is the authoritative
+    resume source behind ``SessionManager``. The two file families are
+    deliberately disjoint — do not merge them.
+    """
 
     def __init__(
         self,

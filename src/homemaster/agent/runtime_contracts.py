@@ -44,7 +44,7 @@ StopCondition = Callable[
 ]
 
 
-def _cancelled(interrupt: InterruptController, cancellation_token: Any) -> bool:
+def is_cancelled(interrupt: InterruptController, cancellation_token: Any) -> bool:
     return interrupt.cancelled or bool(getattr(cancellation_token, "cancelled", False))
 
 
@@ -52,5 +52,5 @@ __all__ = [
     "GenericRunResult",
     "RuntimeStopDecision",
     "StopCondition",
-    "_cancelled",
+    "is_cancelled",
 ]

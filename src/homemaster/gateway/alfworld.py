@@ -110,6 +110,17 @@ class AlfworldGatewayApplication:
             profile="alfworld",
             environment=self._binding.adapter,
             dependencies=dependencies,
+            run_policy=replace(
+                request.run_policy,
+                # The alfworld console has no episode-scoped budget of its own;
+                # keep the historical 100-iteration bound unless the caller
+                # carried an explicit cap.
+                max_tool_iterations=(
+                    request.run_policy.max_tool_iterations
+                    if request.run_policy.max_tool_iterations is not None
+                    else 100
+                ),
+            ),
         )
         return await self._application.run(bound_request)
 

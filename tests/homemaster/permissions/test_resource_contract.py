@@ -73,8 +73,10 @@ def _cup_request() -> PreparedPhysicalRequest:
 
 def test_exact_resource_identity():
     from homemaster.permissions.models import ResourceKey
-    a = ResourceKey(environment_id="home", resource_kind="object",
-                    resource_id="cup-a", action="pick_up")
+
+    a = ResourceKey(
+        environment_id="home", resource_kind="object", resource_id="cup-a", action="pick_up"
+    )
     b = a.model_copy(update={"resource_id": "cup-b"})
     c = a.model_copy(update={"action": "clean"})
     assert a != b
@@ -232,15 +234,18 @@ def test_named_exceptions_exist() -> None:
         PermissionStorageUnavailable,
     ):
         assert issubclass(exc, Exception)
-    assert len(
-        {
-            TargetUnresolved,
-            TargetChanged,
-            ApprovalConflict,
-            ApprovalExpired,
-            PermissionStorageUnavailable,
-        }
-    ) == 5
+    assert (
+        len(
+            {
+                TargetUnresolved,
+                TargetChanged,
+                ApprovalConflict,
+                ApprovalExpired,
+                PermissionStorageUnavailable,
+            }
+        )
+        == 5
+    )
 
 
 def test_request_time_must_be_utc_and_ordered() -> None:
@@ -249,9 +254,7 @@ def test_request_time_must_be_utc_and_ordered() -> None:
     with pytest.raises(ValidationError):
         PreparedPhysicalRequest(**{**payload, "created_at": "2026-09-10 01:00:00"})
     with pytest.raises(ValidationError):
-        PreparedPhysicalRequest(
-            **{**payload, "created_at": _utc(2), "deadline_at": _utc(1)}
-        )
+        PreparedPhysicalRequest(**{**payload, "created_at": _utc(2), "deadline_at": _utc(1)})
 
 
 def test_submission_rules() -> None:

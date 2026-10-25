@@ -82,9 +82,7 @@ def _current_platform() -> str:
 
 
 def _packaged_lock_resource() -> Any:
-    return importlib.resources.files("homemaster").joinpath(
-        "resources/runtime-assets.lock.json"
-    )
+    return importlib.resources.files("homemaster").joinpath("resources/runtime-assets.lock.json")
 
 
 def _load_lock(repo_root: Path | None) -> dict[str, Any]:
@@ -125,8 +123,14 @@ def _fetch_archive(asset: Mapping[str, Any], *, offline_bundle: Path | None, pre
         try:
             subprocess.run(
                 [
-                    "curl", "--fail", "--location", "--retry", "3",
-                    "--output", str(archive), asset["url"],
+                    "curl",
+                    "--fail",
+                    "--location",
+                    "--retry",
+                    "3",
+                    "--output",
+                    str(archive),
+                    asset["url"],
                 ],
                 check=True,
             )
@@ -189,8 +193,7 @@ def ensure_java(
             with tarfile.open(archive, "r:gz") as package:
                 _safe_extract_tar(package, root, "Java")
             candidates = [
-                p for p in root.iterdir()
-                if p.is_dir() and (p / "bin" / "java").is_file()
+                p for p in root.iterdir() if p.is_dir() and (p / "bin" / "java").is_file()
             ]
             if not candidates:
                 candidates = [
@@ -251,7 +254,7 @@ def _version_satisfies(version: str, spec: str) -> bool:
         constraint = constraint.strip()
         for operator in (">=", "<=", "==", ">", "<"):
             if constraint.startswith(operator):
-                target = _parse_version(constraint[len(operator):])
+                target = _parse_version(constraint[len(operator) :])
                 width = max(len(value), len(target))
                 lhs = value + (0,) * (width - len(value))
                 rhs = target + (0,) * (width - len(target))
@@ -358,8 +361,7 @@ def _run(cmd: list[str], *, env: Mapping[str, str], label: str) -> None:
     proc = subprocess.run([str(part) for part in cmd], env=dict(env), check=False)
     if proc.returncode:
         raise SetupError(
-            f"{label} failed (exit {proc.returncode}): "
-            + " ".join(str(p) for p in cmd)
+            f"{label} failed (exit {proc.returncode}): " + " ".join(str(p) for p in cmd)
         )
 
 
@@ -379,7 +381,8 @@ def _default_python_installer(
         if repo_root is not None:
             _run(
                 [uv, "venv", "--allow-existing", "--python", "3.11", str(target)],
-                env=env, label="uv venv",
+                env=env,
+                label="uv venv",
             )
             env["UV_PROJECT_ENVIRONMENT"] = str(target)
             sync = [uv, "sync", "--frozen", "--no-editable", "--project", str(repo_root)]
@@ -400,9 +403,7 @@ def _default_python_installer(
 
 
 def _read_packaged_example() -> str:
-    resource = importlib.resources.files("homemaster").joinpath(
-        "resources/homemaster.example.yaml"
-    )
+    resource = importlib.resources.files("homemaster").joinpath("resources/homemaster.example.yaml")
     if not resource.is_file():
         raise SetupError("packaged homemaster.example.yaml resource is missing")
     return resource.read_text(encoding="utf-8")
@@ -665,8 +666,7 @@ def setup_runtime(
         echo(f"[OK] neo4j: {neo4j_home}")
     else:
         echo(
-            "[SKIP] assets: files tier installs no Neo4j/Java "
-            "(run `homemaster setup --full` later)"
+            "[SKIP] assets: files tier installs no Neo4j/Java (run `homemaster setup --full` later)"
         )
 
     target_config = config_path
@@ -687,9 +687,7 @@ def setup_runtime(
     )
 
     data_root = (
-        (repo_root / ".runtime" / "memory")
-        if repo_root is not None
-        else (hm_home / "memory")
+        (repo_root / ".runtime" / "memory") if repo_root is not None else (hm_home / "memory")
     )
     data_root.mkdir(parents=True, exist_ok=True)
 

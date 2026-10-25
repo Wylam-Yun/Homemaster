@@ -169,7 +169,7 @@ class TaskStateSnapshotProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -204,7 +204,7 @@ class RuntimeBudgetStatusProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -241,7 +241,7 @@ class FailureSummaryProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
                 mode=RenderMode.FULL,
             )
         ]
@@ -268,7 +268,7 @@ class ConversationProvider:
                 # is computed once per prepare on the projected view, so an
                 # O(history) scan here would be pure waste.
                 token_estimate=0,
-                render=lambda _mode, msgs=messages: msgs,
+                render=lambda _mode: messages,
             )
         ]
 
@@ -312,7 +312,7 @@ class AvailableSkillsProvider:
                 freshness=ContextFreshness.CURRENT,
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
-                render=lambda _mode, text=text: text,
+                render=lambda _mode: text,
             )
         ]
 
@@ -529,9 +529,7 @@ class ContextAssembler:
                     agent_state.compaction = CompactionArtifact(
                         first_kept_index=first_kept,
                         prefix_hash=_hash_messages(canonical_messages[:first_kept]),
-                        head_messages=[
-                            m.model_dump(mode="json") for m in out_messages[:head_len]
-                        ],
+                        head_messages=[m.model_dump(mode="json") for m in out_messages[:head_len]],
                     )
                     compaction_triggered = True
                     if force_mode == "manual":
@@ -647,8 +645,7 @@ class ContextAssembler:
             and anchor.artifact_key == _artifact_key(agent_state.compaction)
             and anchor.tools_key == _tools_key(tools)
             # O(N) fingerprint runs last — the cheap keys above short-circuit.
-            and anchor.prefix_key
-            == _prefix_key(canonical_messages[: anchor.canonical_len])
+            and anchor.prefix_key == _prefix_key(canonical_messages[: anchor.canonical_len])
         )
         if anchored:
             delta_start = anchor.canonical_len
@@ -668,9 +665,7 @@ class ContextAssembler:
                 - anchor.fixed_est
             )
         else:
-            estimated = fixed_est + self._estimator.estimate_messages(
-                conversation_messages
-            )
+            estimated = fixed_est + self._estimator.estimate_messages(conversation_messages)
         return max(1, estimated)
 
     def _projected_conversation_view(
@@ -720,9 +715,7 @@ class ContextAssembler:
         finish = getattr(message, "finish_reason", None)
         if finish is not None and finish != "stop":
             if self._policy.abort_on_summary_failure:
-                raise RuntimeError(
-                    f"context compaction aborted: summary finish={finish}"
-                )
+                raise RuntimeError(f"context compaction aborted: summary finish={finish}")
             return fallback
         text = getattr(message, "text", "") or ""
         if text.strip():
@@ -996,9 +989,7 @@ def _artifact_key(artifact: CompactionArtifact | None) -> str:
     if artifact is None:
         return ""
     head_key = hashlib.sha256(
-        json.dumps(artifact.head_messages, sort_keys=True, default=str).encode(
-            "utf-8"
-        )
+        json.dumps(artifact.head_messages, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:8]
     return f"{artifact.first_kept_index}:{artifact.prefix_hash[:16]}:{head_key}"
 
@@ -1020,9 +1011,7 @@ def _prefix_key(canonical_messages: list[Message]) -> str:
         return ""
     fps = [
         hashlib.sha256(
-            json.dumps(
-                _canonical_hash_view(m), sort_keys=True, default=str
-            ).encode("utf-8")
+            json.dumps(_canonical_hash_view(m), sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
         for m in canonical_messages[:-1]
     ]

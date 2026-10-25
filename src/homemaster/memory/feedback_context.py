@@ -40,9 +40,7 @@ def build_feedback_context_snapshot(
                 continue
             seen_ids.add(memory_id)
             copier = getattr(memory, "model_copy", None)
-            recalled.append(
-                copier(deep=True) if callable(copier) else copy.deepcopy(memory)
-            )
+            recalled.append(copier(deep=True) if callable(copier) else copy.deepcopy(memory))
     return FeedbackContextSnapshot(
         messages=frozen_messages,
         recalled_memories=tuple(recalled),
@@ -61,9 +59,7 @@ def bind_feedback_contexts(
     snapshot = build_feedback_context_snapshot(
         frozen_messages,
         automatic_recalled_memories=deps.get("automatic_recalled_memories", ()),
-        recalled_memories_by_tool_call_id=deps.get(
-            "recalled_memories_by_tool_call_id", {}
-        ),
+        recalled_memories_by_tool_call_id=deps.get("recalled_memories_by_tool_call_id", {}),
     )
     by_call = deps.setdefault("memory_feedback_context_by_tool_call_id", {})
     for call in feedback_calls:

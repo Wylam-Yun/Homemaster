@@ -64,9 +64,7 @@ def _assert_frozen_contract_snapshot(
     assert snapshot["schema_version"] == schema
     assert snapshot["files"]
     assert all(_is_sha256(digest) for digest in snapshot["files"].values())
-    assert snapshot["aggregate_sha256"] == sha256_bytes(
-        canonical_json_bytes(snapshot["files"])
-    )
+    assert snapshot["aggregate_sha256"] == sha256_bytes(canonical_json_bytes(snapshot["files"]))
 
 
 def _is_sha256(value: object) -> bool:

@@ -388,9 +388,7 @@ class ToolExecutor:
         try:
             prepared = await adapter.prepare(normalized_arguments, context)
         except TargetUnresolved as exc:
-            return _physical_result(
-                str(exc) or "target could not be resolved", "target_unresolved"
-            )
+            return _physical_result(str(exc) or "target could not be resolved", "target_unresolved")
         except Exception as exc:
             return _result(
                 f"{type(exc).__name__}: {exc}",
@@ -415,9 +413,7 @@ class ToolExecutor:
                 "permission_storage_unavailable",
             )
         try:
-            verdict = self.permission_checker.evaluate_physical(
-                request=prepared, context=context
-            )
+            verdict = self.permission_checker.evaluate_physical(request=prepared, context=context)
         except RuntimeError as exc:
             return _physical_result(str(exc), "permission_configuration_error")
         if verdict.allowed and not verdict.missing_item_ids:
@@ -428,13 +424,9 @@ class ToolExecutor:
             try:
                 store.mark_awaiting_approval(prepared.request_id)
             except ApprovalConflict as exc:
-                return _physical_result(
-                    f"approval conflict: {exc}", "approval_conflict"
-                )
+                return _physical_result(f"approval conflict: {exc}", "approval_conflict")
             try:
-                approved = await self._confirm_physical(
-                    prepared, verdict.missing_item_ids, context
-                )
+                approved = await self._confirm_physical(prepared, verdict.missing_item_ids, context)
             except ApprovalCancelled:
                 return _physical_result(
                     "the approval was cancelled before a decision",
@@ -449,15 +441,11 @@ class ToolExecutor:
             if isinstance(approved, ApprovalResolution):
                 choices = approved
             elif approved:
-                choices = {
-                    item.item_id: "allow_once" for item in prepared.requirements
-                }
+                choices = {item.item_id: "allow_once" for item in prepared.requirements}
             else:
                 choices = {
                     item.item_id: (
-                        "reject"
-                        if item.item_id in verdict.missing_item_ids
-                        else "allow_once"
+                        "reject" if item.item_id in verdict.missing_item_ids else "allow_once"
                     )
                     for item in prepared.requirements
                 }
@@ -471,9 +459,7 @@ class ToolExecutor:
         except TargetUnresolved as exc:
             store.cancel(prepared.request_id, "target changed during approval")
             await self._release_adapter(adapter, prepared.request_id)
-            return _physical_result(
-                str(exc) or "target changed during approval", "target_changed"
-            )
+            return _physical_result(str(exc) or "target changed during approval", "target_changed")
         except Exception as exc:
             store.cancel(prepared.request_id, "target changed during approval")
             await self._release_adapter(adapter, prepared.request_id)
@@ -489,9 +475,7 @@ class ToolExecutor:
         if _binding_signature(rechecked) != _binding_signature(prepared):
             store.cancel(prepared.request_id, "target changed during approval")
             await self._release_adapter(adapter, prepared.request_id)
-            return _physical_result(
-                "target changed during approval", "target_changed"
-            )
+            return _physical_result("target changed during approval", "target_changed")
         # The credential opens only after the bindings revalidate, against a
         # fresh grant snapshot, so a target move or a revocation during the
         # approval wait cannot slip into execution.
@@ -502,9 +486,7 @@ class ToolExecutor:
         if isinstance(choices, ApprovalResolution):
             resolution = choices
         else:
-            resolution = self._submit_for_execution(
-                store, prepared, choices, context
-            )
+            resolution = self._submit_for_execution(store, prepared, choices, context)
             if isinstance(resolution, ToolExecutionResult):
                 return resolution
         if resolution.request_status == "blocked":
@@ -516,9 +498,7 @@ class ToolExecutor:
                 "permission_denied",
             )
         keys_by_item = {item.item_id: item.key for item in prepared.requirements}
-        resource_key, resource_error = self._resource_key(
-            tool, normalized_arguments, context
-        )
+        resource_key, resource_error = self._resource_key(tool, normalized_arguments, context)
         if resource_error is not None:
             store.cancel(prepared.request_id, "resource key failed")
             await self._release_adapter(adapter, prepared.request_id)
@@ -527,11 +507,7 @@ class ToolExecutor:
         last_result: ToolExecutionResult | None = None
         try:
             for step in prepared.steps:
-                needed = [
-                    item_id
-                    for item_id in step.required_item_ids
-                    if item_id in grant_covered
-                ]
+                needed = [item_id for item_id in step.required_item_ids if item_id in grant_covered]
                 try:
                     last_result, proceed = await self._run_physical_step(
                         adapter,
@@ -563,9 +539,7 @@ class ToolExecutor:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         """Run permission-free steps without touching the store."""
-        resource_key, resource_error = self._resource_key(
-            tool, normalized_arguments, context
-        )
+        resource_key, resource_error = self._resource_key(tool, normalized_arguments, context)
         if resource_error is not None:
             return resource_error
         last: ToolExecutionResult | None = None
@@ -580,18 +554,14 @@ class ToolExecutor:
 
             remaining = _remaining_s(context)
             if remaining is not None and remaining <= 0:
-                return _deadline_result(
-                    is_read_only=False, backend_attempted=False
-                )
+                return _deadline_result(is_read_only=False, backend_attempted=False)
             try:
                 if remaining is None:
                     last = await invoke()
                 else:
                     last = await asyncio.wait_for(invoke(), timeout=remaining)
             except TimeoutError:
-                return _deadline_result(
-                    is_read_only=False, backend_attempted=backend_started
-                )
+                return _deadline_result(is_read_only=False, backend_attempted=backend_started)
             except asyncio.CancelledError:
                 if backend_started:
                     return _result(
@@ -684,15 +654,11 @@ class ToolExecutor:
                 },
             )
         try:
-            return store.submit(
-                prepared.approval_id, submission, _subject_actor(context)
-            )
+            return store.submit(prepared.approval_id, submission, _subject_actor(context))
         except ApprovalExpired as exc:
             return _physical_result(f"approval expired: {exc}", "approval_expired")
         except ApprovalConflict as exc:
-            return _physical_result(
-                f"approval conflict: {exc}", "approval_conflict"
-            )
+            return _physical_result(f"approval conflict: {exc}", "approval_conflict")
         except ValueError as exc:
             return _result(
                 f"invalid approval submission: {exc}",
@@ -726,12 +692,8 @@ class ToolExecutor:
             try:
                 async with owner.linearize(prepared.request_id, step.step_id):
                     if needed:
-                        live = store.matching_grants(
-                            [keys_by_item[item_id] for item_id in needed]
-                        )
-                        if any(
-                            keys_by_item[item_id] not in live for item_id in needed
-                        ):
+                        live = store.matching_grants([keys_by_item[item_id] for item_id in needed])
+                        if any(keys_by_item[item_id] not in live for item_id in needed):
                             raise _GrantRevoked()
                     binding = store.claim_step(
                         prepared.request_id,
@@ -746,9 +708,7 @@ class ToolExecutor:
                     "permission_denied",
                 ), False
             except ApprovalConflict as exc:
-                return _physical_result(
-                    f"approval conflict: {exc}", "approval_conflict"
-                ), False
+                return _physical_result(f"approval conflict: {exc}", "approval_conflict"), False
             backend_started = False
 
             async def invoke(bound: str = binding) -> ToolExecutionResult:
@@ -760,9 +720,7 @@ class ToolExecutor:
             remaining = _remaining_s(context)
             if remaining is not None and remaining <= 0:
                 store.cancel(prepared.request_id, "deadline before step started")
-                return _deadline_result(
-                    is_read_only=False, backend_attempted=False
-                ), False
+                return _deadline_result(is_read_only=False, backend_attempted=False), False
             try:
                 if remaining is None:
                     exec_result = await invoke()
@@ -771,9 +729,7 @@ class ToolExecutor:
             except TimeoutError:
                 if not backend_started:
                     store.cancel(prepared.request_id, "deadline before backend started")
-                    return _deadline_result(
-                        is_read_only=False, backend_attempted=False
-                    ), False
+                    return _deadline_result(is_read_only=False, backend_attempted=False), False
                 observation = await self._observe_best_effort(adapter, binding, context)
                 self._finish_best_effort(store, prepared, step, observation)
                 if observation.outcome == "succeeded":
@@ -818,20 +774,14 @@ class ToolExecutor:
                 raise
             except (TargetChanged, TargetUnresolved) as exc:
                 store.cancel(prepared.request_id, "target changed during execution")
-                status = (
-                    "target_changed"
-                    if isinstance(exc, TargetChanged)
-                    else "target_unresolved"
-                )
+                status = "target_changed" if isinstance(exc, TargetChanged) else "target_unresolved"
                 return _physical_result(str(exc) or status, status), False
             except Exception as exc:
                 manager_error = _resource_manager_error(exc)
                 if manager_error is not None:
                     return manager_error, False
                 if backend_started:
-                    observation = await self._observe_best_effort(
-                        adapter, binding, context
-                    )
+                    observation = await self._observe_best_effort(adapter, binding, context)
                     self._finish_best_effort(store, prepared, step, observation)
                     return _result(
                         f"backend outcome is unknown after {type(exc).__name__}: {exc}",
@@ -861,9 +811,7 @@ class ToolExecutor:
                     MAX_ATTEMPTS_DEFAULT,
                 )
             except (ApprovalConflict, TargetChanged) as exc:
-                return _physical_result(
-                    f"approval conflict: {exc}", "approval_conflict"
-                ), False
+                return _physical_result(f"approval conflict: {exc}", "approval_conflict"), False
             if observation.outcome == "no_effect_failure" and request_status == "running":
                 continue
             if observation.outcome == "unknown":

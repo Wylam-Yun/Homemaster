@@ -398,9 +398,7 @@ def test_global_config_is_rejected_with_a_subcommand(tmp_path: Path) -> None:
     assert "subcommand" in result.output
 
 
-def test_bare_config_path_is_forwarded_to_foreground_serve(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_bare_config_path_is_forwarded_to_foreground_serve(monkeypatch, tmp_path: Path) -> None:
     """Bare ``--config`` now belongs to the serve entrypoint — the config is
     handed to the foreground web server, not the interactive shell."""
 
@@ -410,9 +408,7 @@ def test_bare_config_path_is_forwarded_to_foreground_serve(
     captured: dict = {}
     monkeypatch.setattr(app_module, "probe_server", lambda url: (False, None))
     monkeypatch.setattr(app_module, "validate_port_available", lambda *a: None)
-    monkeypatch.setattr(
-        app_module, "run_web_server", lambda **kwargs: captured.update(kwargs)
-    )
+    monkeypatch.setattr(app_module, "run_web_server", lambda **kwargs: captured.update(kwargs))
     monkeypatch.setattr(app_module, "_open_browser_when_ready", lambda url, **k: None)
     monkeypatch.delenv("SSH_CONNECTION", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -423,9 +419,7 @@ def test_bare_config_path_is_forwarded_to_foreground_serve(
     assert captured.get("config_path") == config_path
 
 
-def test_shell_local_config_path_is_passed_through(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_shell_local_config_path_is_passed_through(monkeypatch, tmp_path: Path) -> None:
     """``shell --local --config`` threads the path into the shell — no
     mutation of the process-wide default config path."""
 
@@ -442,9 +436,7 @@ def test_shell_local_config_path_is_passed_through(
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
 
-    result = CliRunner().invoke(
-        app, ["shell", "--local", "--config", str(config_path)]
-    )
+    result = CliRunner().invoke(app, ["shell", "--local", "--config", str(config_path)])
 
     assert result.exit_code == 0, result.stdout
     assert calls == [
@@ -458,9 +450,7 @@ def test_shell_local_config_path_is_passed_through(
     assert config_impl.HOMEMASTER_CONFIG_PATH is original
 
 
-def test_shell_remote_config_is_spawn_config_not_local_pin(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_shell_remote_config_is_spawn_config_not_local_pin(monkeypatch, tmp_path: Path) -> None:
     """Remote ``shell --config`` feeds the spawned server — it must not mutate
     the process-wide default config path of the client process."""
 
@@ -601,9 +591,7 @@ def test_shell_local_permission_mode_is_forwarded(monkeypatch) -> None:
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
 
-    result = CliRunner().invoke(
-        app, ["shell", "--local", "--permission-mode", "confirm"]
-    )
+    result = CliRunner().invoke(app, ["shell", "--local", "--permission-mode", "confirm"])
 
     assert result.exit_code == 0
     assert calls[0]["permission_mode"] is CliPermissionMode.CONFIRM
@@ -614,9 +602,7 @@ def test_shell_permission_mode_is_forwarded(monkeypatch) -> None:
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
 
-    result = CliRunner().invoke(
-        app, ["shell", "--local", "--permission-mode", "plan"]
-    )
+    result = CliRunner().invoke(app, ["shell", "--local", "--permission-mode", "plan"])
 
     assert result.exit_code == 0
     assert calls == [

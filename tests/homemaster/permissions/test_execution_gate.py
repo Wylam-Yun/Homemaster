@@ -72,8 +72,17 @@ class FakeAdapter:
             "deadline_at": _iso(self.clock, 300),
         }, PreparedPhysicalRequest
 
-    def _requirement(self, suffix: str, kind: str, rid: str, action: str,
-                     display: str, location: str, label: str, step_id: str):
+    def _requirement(
+        self,
+        suffix: str,
+        kind: str,
+        rid: str,
+        action: str,
+        display: str,
+        location: str,
+        label: str,
+        step_id: str,
+    ):
         from homemaster.permissions.models import Requirement
 
         return Requirement(
@@ -90,8 +99,9 @@ class FakeAdapter:
             step_ids=(f"step-{step_id}-{suffix}",),
         )
 
-    def _step(self, suffix: str, step_id: str, item_ids: tuple[str, ...],
-              binding: str, summary: str):
+    def _step(
+        self, suffix: str, step_id: str, item_ids: tuple[str, ...], binding: str, summary: str
+    ):
         from homemaster.permissions.models import PreparedStep
 
         return PreparedStep(
@@ -114,45 +124,59 @@ class FakeAdapter:
             target = call["area"]
             if self.world.robot_area != target:
                 requirements.append(
-                    self._requirement(suffix, "area", target, "enter",
-                                      target, target, "进入", "enter")
+                    self._requirement(
+                        suffix, "area", target, "enter", target, target, "进入", "enter"
+                    )
                 )
                 steps.append(
-                    self._step(suffix, "enter",
-                               (requirements[0].item_id,), f"nav:{target}",
-                               f"进入{target}")
+                    self._step(
+                        suffix,
+                        "enter",
+                        (requirements[0].item_id,),
+                        f"nav:{target}",
+                        f"进入{target}",
+                    )
                 )
         elif op == "manipulate":
             action, obj = call["action"], call["object"]
             requirements.append(
-                self._requirement(suffix, "object", obj, action, obj,
-                                  self.world.objects[obj], action, "act")
+                self._requirement(
+                    suffix, "object", obj, action, obj, self.world.objects[obj], action, "act"
+                )
             )
             steps.append(
-                self._step(suffix, "act", (requirements[0].item_id,),
-                           f"{action}:{obj}@{self.world.objects[obj]}",
-                           f"{action}{obj}")
+                self._step(
+                    suffix,
+                    "act",
+                    (requirements[0].item_id,),
+                    f"{action}:{obj}@{self.world.objects[obj]}",
+                    f"{action}{obj}",
+                )
             )
         elif op == "combo":
             area, action, obj = call["area"], call["action"], call["object"]
             if self.world.robot_area != area:
                 requirements.append(
-                    self._requirement(suffix, "area", area, "enter",
-                                      area, area, "进入", "enter")
+                    self._requirement(suffix, "area", area, "enter", area, area, "进入", "enter")
                 )
                 steps.append(
-                    self._step(suffix, "enter",
-                               (requirements[0].item_id,), f"nav:{area}",
-                               f"进入{area}")
+                    self._step(
+                        suffix, "enter", (requirements[0].item_id,), f"nav:{area}", f"进入{area}"
+                    )
                 )
             requirements.append(
-                self._requirement(suffix, "object", obj, action, obj,
-                                  self.world.objects[obj], action, "act")
+                self._requirement(
+                    suffix, "object", obj, action, obj, self.world.objects[obj], action, "act"
+                )
             )
             steps.append(
-                self._step(suffix, "act", (requirements[-1].item_id,),
-                           f"{action}:{obj}@{self.world.objects[obj]}",
-                           f"{action}{obj}")
+                self._step(
+                    suffix,
+                    "act",
+                    (requirements[-1].item_id,),
+                    f"{action}:{obj}@{self.world.objects[obj]}",
+                    f"{action}{obj}",
+                )
             )
         return PreparedPhysicalRequest(
             **base,
@@ -171,8 +195,7 @@ class FakeAdapter:
             raise TimeoutError("injected backend timeout")
         if mode == "no_effect":
             self.last_outcome[binding_ref] = "no_effect_failure"
-            return ToolResult("device busy", True,
-                              {"status": "busy", "backend_attempted": True})
+            return ToolResult("device busy", True, {"status": "busy", "backend_attempted": True})
         kind, target = binding_ref.split(":", 1)
         if kind == "nav":
             self.world.robot_area = target
@@ -222,9 +245,14 @@ class _Handler:
         return self.answer
 
 
-def _harness(tmp_path: Path, world: FakeWorld, clock: FakeClock,
-             handler: Any = None, store: PermissionStore | None = None,
-             checker: Any = None):
+def _harness(
+    tmp_path: Path,
+    world: FakeWorld,
+    clock: FakeClock,
+    handler: Any = None,
+    store: PermissionStore | None = None,
+    checker: Any = None,
+):
     adapter = FakeAdapter(world, clock)
     tool = FunctionTool(
         name="home_act",
@@ -265,8 +293,11 @@ async def test_reject_starts_nothing(tmp_path: Path) -> None:
     world, clock = FakeWorld(), FakeClock()
     _, executor, context, store = _harness(tmp_path, world, clock, _Handler(False))
     try:
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.data["status"] == "permission_denied"
         assert world.robot_area == "living"
         assert world.held is None
@@ -281,8 +312,11 @@ async def test_no_handler_starts_nothing(tmp_path: Path) -> None:
     world, clock = FakeWorld(), FakeClock()
     _, executor, context, store = _harness(tmp_path, world, clock, None)
     try:
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.data["status"] == "approval_channel_unavailable"
         assert world.backend_calls == []
     finally:
@@ -299,8 +333,9 @@ async def test_nav_allowed_then_pick_rejected(tmp_path: Path) -> None:
         assert first.is_error is False
         assert world.robot_area == "bedroom"
         handler.answer = False
-        second = await _await_call(executor, context, {"op": "manipulate",
-                                                 "action": "pick_up", "object": "cup-a"})
+        second = await _await_call(
+            executor, context, {"op": "manipulate", "action": "pick_up", "object": "cup-a"}
+        )
         assert second.data["status"] == "permission_denied"
         assert world.held is None
         assert world.robot_area == "bedroom"
@@ -317,9 +352,12 @@ async def test_grant_skips_card_and_executes(tmp_path: Path) -> None:
     try:
         prepared = await adapter.prepare({"op": "navigate", "area": "bedroom"}, context)
         store.create_request(prepared)
-        decide(store, prepared,
-               {item.item_id: "allow_always" for item in prepared.requirements},
-               "sub-pre-grant")
+        decide(
+            store,
+            prepared,
+            {item.item_id: "allow_always" for item in prepared.requirements},
+            "sub-pre-grant",
+        )
         result = await _await_call(executor, context, {"op": "navigate", "area": "bedroom"})
         assert result.is_error is False
         assert world.robot_area == "bedroom"
@@ -335,8 +373,11 @@ async def test_target_changed_aborts_before_side_effects(tmp_path: Path) -> None
     _, executor, context, store = _harness(tmp_path, world, clock, handler)
     handler.hook = lambda: world.objects.__setitem__("cup-a", "living")
     try:
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.data["status"] == "target_changed"
         assert world.backend_calls == []
         assert world.held is None
@@ -348,12 +389,14 @@ async def test_target_changed_aborts_before_side_effects(tmp_path: Path) -> None
 @pytest.mark.asyncio
 async def test_retry_on_no_effect_then_success(tmp_path: Path) -> None:
     world, clock = FakeWorld(), FakeClock()
-    adapter, executor, context, store = _harness(
-        tmp_path, world, clock, _Handler(True))
+    adapter, executor, context, store = _harness(tmp_path, world, clock, _Handler(True))
     adapter.behaviors["pick_up:cup-a@bedroom"] = ["no_effect", "ok"]
     try:
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.is_error is False
         assert world.held == "cup-a"
         assert world.backend_calls.count("pick_up:cup-a@bedroom") == 2
@@ -364,12 +407,14 @@ async def test_retry_on_no_effect_then_success(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_unknown_outcome_does_not_retry(tmp_path: Path) -> None:
     world, clock = FakeWorld(), FakeClock()
-    adapter, executor, context, store = _harness(
-        tmp_path, world, clock, _Handler(True))
+    adapter, executor, context, store = _harness(tmp_path, world, clock, _Handler(True))
     adapter.behaviors["pick_up:cup-a@bedroom"] = ["timeout"]
     try:
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.data["status"] == "outcome_unknown"
         assert world.backend_calls.count("pick_up:cup-a@bedroom") == 1
     finally:
@@ -382,28 +427,37 @@ async def test_revoke_before_second_step_stops(tmp_path: Path) -> None:
     handler = _Handler(True)
     adapter, executor, context, store = _harness(tmp_path, world, clock, handler)
     try:
-        prepared = await adapter.prepare({"op": "combo", "area": "bedroom",
-                                            "action": "pick_up", "object": "cup-a"}, context)
+        prepared = await adapter.prepare(
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"}, context
+        )
         store.create_request(prepared)
-        resolution = decide(store, prepared,
-                            {item.item_id: "allow_always"
-                             for item in prepared.requirements},
-                            "sub-revoke-setup")
-        grants = dict(zip(
-            [item.item_id for item in prepared.requirements],
-            resolution.persisted_grant_ids,
-            strict=True,
-        ))
-        pick_grant = grants[[i.item_id for i in prepared.requirements
-                             if i.key.action == "pick_up"][0]]
+        resolution = decide(
+            store,
+            prepared,
+            {item.item_id: "allow_always" for item in prepared.requirements},
+            "sub-revoke-setup",
+        )
+        grants = dict(
+            zip(
+                [item.item_id for item in prepared.requirements],
+                resolution.persisted_grant_ids,
+                strict=True,
+            )
+        )
+        pick_grant = grants[
+            [i.item_id for i in prepared.requirements if i.key.action == "pick_up"][0]
+        ]
 
         def revoke_pick(binding: str) -> None:
             if binding.startswith("nav:"):
                 store.revoke(pick_grant, "rev-pick", 1, "tester")
 
         world.on_execute = revoke_pick
-        result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
-                                                 "action": "pick_up", "object": "cup-a"})
+        result = await _await_call(
+            executor,
+            context,
+            {"op": "combo", "area": "bedroom", "action": "pick_up", "object": "cup-a"},
+        )
         assert result.data["status"] == "permission_denied"
         assert world.robot_area == "bedroom"
         assert world.held is None
@@ -448,8 +502,7 @@ async def test_suppressed_second_ask_in_same_run(tmp_path: Path) -> None:
 async def test_stay_put_needs_no_request(tmp_path: Path) -> None:
     world, clock = FakeWorld(), FakeClock()
     world.robot_area = "bedroom"
-    _, executor, context, store = _harness(
-        tmp_path, world, clock, _Handler(True))
+    _, executor, context, store = _harness(tmp_path, world, clock, _Handler(True))
     try:
         result = await _await_call(executor, context, {"op": "navigate", "area": "bedroom"})
         assert result.is_error is False
@@ -484,9 +537,7 @@ async def test_physical_without_store_is_configuration_error(tmp_path: Path) -> 
 
 
 async def _await_call(executor: ToolExecutor, context: Any, call: dict) -> ToolResult:
-    return await executor.execute(
-        ToolCall(id="1", name="home_act", arguments=call), context
-    )
+    return await executor.execute(ToolCall(id="1", name="home_act", arguments=call), context)
 
 
 class _StructuredRejectHandler:
@@ -505,8 +556,7 @@ class _StructuredRejectHandler:
                 submission_id="sub-structured-reject",
                 request_revision=request.revision,
                 decisions=tuple(
-                    ItemDecision(item_id=item_id, choice="reject")
-                    for item_id in missing_item_ids
+                    ItemDecision(item_id=item_id, choice="reject") for item_id in missing_item_ids
                 ),
             ),
             "tester",
@@ -521,9 +571,9 @@ async def test_structured_blocked_resolution_denies_without_bool(tmp_path: Path)
     handler = _StructuredRejectHandler(store)
     executor.confirmation_handler = handler
     try:
-        result = await _await_call(executor, context, {"op": "manipulate",
-                                                       "action": "pick_up",
-                                                       "object": "cup-b"})
+        result = await _await_call(
+            executor, context, {"op": "manipulate", "action": "pick_up", "object": "cup-b"}
+        )
         assert result.data["status"] == "permission_denied"
         assert world.held is None
         assert world.backend_calls == []

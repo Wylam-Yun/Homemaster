@@ -7,9 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from homemaster.channels.contracts import ApprovalDecision, ApprovalResolveStatus
 from homemaster.gateway.confirmation import (
-    ApprovalDecision,
-    ApprovalResolveStatus,
     FeishuApprovalRoute,
     FeishuGatewayConfirmationHandler,
 )

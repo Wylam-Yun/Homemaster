@@ -12,7 +12,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
 from homemaster.application import (
     ApplicationRuntime,
     ResourceBinding,
@@ -28,8 +27,6 @@ from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feishu_group_tools
-from homemaster.cli.live_output import RichStreamEventSink
-from homemaster.cli.rich_renderer import RichOutputRenderer
 from homemaster.config import HomeMasterConfig, load_config
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import FanoutEventSink
@@ -63,6 +60,7 @@ from homemaster.tools.base import ToolRegistry
 from homemaster.tools.runtime_services import HomeToolServices
 
 if TYPE_CHECKING:
+    from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
     from homemaster.extensions.reloader import ExtensionReloader
 
 logger = logging.getLogger(__name__)
@@ -245,8 +243,7 @@ def compose_application(
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
         memory_enabled=(
-            (resolved.memory.enabled or resolved.memory.mode == "files")
-            and not memory_off
+            (resolved.memory.enabled or resolved.memory.mode == "files") and not memory_off
         ),
         memory_tier=resolved.memory.mode,
         memory_mode=tool_memory_mode,
@@ -383,6 +380,11 @@ def _finish_home_application(
         sinks.append(event_sink)
     if progress or verbose:
         if not quiet:
+            # Lazy: the Rich CLI renderer is a console-only dependency —
+            # web/gateway composition must not import the cli package.
+            from homemaster.cli.live_output import RichStreamEventSink
+            from homemaster.cli.rich_renderer import RichOutputRenderer
+
             rich_sink = RichStreamEventSink(RichOutputRenderer())
             sinks.append(rich_sink)
             live_rendered = True
@@ -485,11 +487,18 @@ def _finish_home_application(
                 mindmemos,
                 audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
             )
+            # Lazy: trajectory writers belong to per-profile optional domains
+            # (alfworld/robocasa). Name-level deferral only for alfworld —
+            # homemaster.experience (imported above) already pulls
+            # alfworld.trajectory_memory transitively via its package exports;
+            # full decoupling needs an experience __init__ split. The robocasa
+            # half does stay genuinely deferred.
+            from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
+            from homemaster.robocasa.trajectory_memory import RoboCasaTrajectoryWriter
+
             trajectory_writer = AlfworldTrajectoryWriter(
                 mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
             )
-            from homemaster.robocasa.trajectory_memory import RoboCasaTrajectoryWriter
-
             robocasa_trajectory_writer = RoboCasaTrajectoryWriter(
                 mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
             )
@@ -576,21 +585,18 @@ def _finish_home_application(
                 await memory_add_queue.start()
                 assert memory_enrichment_queue is not None
                 await memory_enrichment_queue.start()
-                from mindmemos.typing import MemoryRequestContext
+                from homemaster.memory.automatic_recall import (
+                    build_mindmemos_request_context,
+                )
 
                 assert dreaming_coordinator is not None
                 await dreaming_coordinator.retry_pending(
                     project_id="local",
                     user_id="local",
-                    context_template=MemoryRequestContext(
+                    context_template=build_mindmemos_request_context(
                         request_id="startup-dreaming-recovery",
-                        account_id="local",
-                        project_id="local",
-                        api_key_uuid="embedded-local",
-                        user_id="local",
-                        app_id="homemaster",
+                        tenant_id="local",
                         session_id=None,
-                        agent_id="homemaster",
                     ),
                 )
 
@@ -649,9 +655,7 @@ def _finish_home_application(
             dreaming_coordinator=dreaming_coordinator,
             event_sink=bus,
         )
-        if resolved.memory.mode == "full"
-        and mindmemos is not None
-        and memory_add_queue is not None
+        if resolved.memory.mode == "full" and mindmemos is not None and memory_add_queue is not None
         else None
     )
 

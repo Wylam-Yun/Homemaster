@@ -84,9 +84,7 @@ def _seed_pairs(
     start: int = 0,
 ) -> None:
     for index in range(start, start + pairs):
-        session.append(
-            UserMessage.from_text(f"turn {index} " + "u" * user_chars)
-        )
+        session.append(UserMessage.from_text(f"turn {index} " + "u" * user_chars))
         session.append(
             AssistantMessage(
                 tool_calls=[
@@ -107,12 +105,14 @@ def _seed_pairs(
 
 
 def _prepare(assembler: ContextAssembler, session: AgentSession, state: AgentState):
-    return asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=state,
-        task_state_store=None,
-        tools=[],
-    ))
+    return asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=state,
+            task_state_store=None,
+            tools=[],
+        )
+    )
 
 
 def _text(context) -> str:
@@ -174,12 +174,7 @@ def test_fold_projection_contains_head_and_live_tail() -> None:
     tail = canonical[artifact.first_kept_index :]
 
     next_view = _prepare(assembler, session, state)
-    view_texts = [
-        block.text
-        for m in next_view.messages
-        for block in m.content
-        if block.text
-    ]
+    view_texts = [block.text for m in next_view.messages for block in m.content if block.text]
     # Head still leads with the stored summary marker …
     assert "CONTEXT COMPACTION" in next_view.messages[0].content[0].text
     # … and the protected prefix's user text still follows it.
@@ -232,9 +227,7 @@ def test_volatile_fields_do_not_invalidate_artifact() -> None:
     _prepare(assembler, session, state)
     assert summary_client.calls == 1
 
-    folded_assistant = next(
-        m for m in session.messages if isinstance(m, AssistantMessage)
-    )
+    folded_assistant = next(m for m in session.messages if isinstance(m, AssistantMessage))
     folded_assistant.usage = {"input_tokens": 999_999}
     folded_assistant.finish_reason = "stop"
     folded_assistant.provider_metadata["latency_ms"] = 42
@@ -301,12 +294,14 @@ def test_snapshot_round_trip_preserves_artifact() -> None:
     assert restored_state.compaction is not None
     assert restored_state.compaction.first_kept_index == state.compaction.first_kept_index
 
-    context = asyncio.run(assembler.aprepare(
-        session=restored_session,
-        agent_state=restored_state,
-        task_state_store=None,
-        tools=[],
-    ))
+    context = asyncio.run(
+        assembler.aprepare(
+            session=restored_session,
+            agent_state=restored_state,
+            task_state_store=None,
+            tools=[],
+        )
+    )
     assert summary_client.calls == 1
     assert "summary n1" in _text(context)
 
@@ -317,9 +312,7 @@ def test_snapshot_stripped_image_forces_one_refold() -> None:
     summary_client = RecordingSummaryClient()
     assembler = _assembler(summary_client=summary_client)
     session = AgentSession(session_id="s1")
-    session.append(
-        AssistantMessage(tool_calls=[ToolCall(id="img", name="observe", arguments={})])
-    )
+    session.append(AssistantMessage(tool_calls=[ToolCall(id="img", name="observe", arguments={})]))
     session.append(
         ToolResultMessage(
             tool_call_id="img",
@@ -356,12 +349,14 @@ def test_snapshot_stripped_image_forces_one_refold() -> None:
     )
     restored_session, restored_state, _ = AgentSession.from_snapshot_dict(snap)
 
-    context = asyncio.run(assembler.aprepare(
-        session=restored_session,
-        agent_state=restored_state,
-        task_state_store=None,
-        tools=[],
-    ))
+    context = asyncio.run(
+        assembler.aprepare(
+            session=restored_session,
+            agent_state=restored_state,
+            task_state_store=None,
+            tools=[],
+        )
+    )
     assert summary_client.calls == 2  # one refold, not an error loop
     assert restored_state.compaction is not None
     assert context.metrics.compaction_triggered is True
@@ -388,9 +383,7 @@ def test_micro_compaction_stays_event_free_and_ephemeral() -> None:
                 name="robot_go_to",
                 content=[
                     ContentBlock(
-                        text="\n".join(
-                            f"line {index}.{j} " + "x" * 100 for j in range(20)
-                        )
+                        text="\n".join(f"line {index}.{j} " + "x" * 100 for j in range(20))
                     )
                 ],
             )
@@ -419,13 +412,15 @@ def test_reactive_aggressive_compaction_writes_artifact() -> None:
     state = AgentState(run_id="r1", session_id="s1")
 
     # Reactive retry path (force_compact="aggressive") folds + persists.
-    context = asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=state,
-        task_state_store=None,
-        tools=[],
-        force_compact="aggressive",
-    ))
+    context = asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=state,
+            task_state_store=None,
+            tools=[],
+            force_compact="aggressive",
+        )
+    )
     assert context.metrics.compaction_triggered is True
     # metrics carries the trigger so _notify_compaction reports "reactive",
     # not "auto".
@@ -471,10 +466,7 @@ def test_second_compaction_stacks_summaries() -> None:
     artifact = state.compaction
     assert artifact is not None
     head_texts = [
-        block.text
-        for m in artifact.head_as_messages()
-        for block in m.content
-        if block.text
+        block.text for m in artifact.head_as_messages() for block in m.content if block.text
     ]
     assert "summary n2" in head_texts[0]
     assert "summary n1" in head_texts[1]
@@ -497,10 +489,7 @@ def test_head_stubs_are_not_rewrapped_each_round() -> None:
     artifact = state.compaction
     assert artifact is not None
     head_text = "\n".join(
-        block.text
-        for m in artifact.head_as_messages()
-        for block in m.content
-        if block.text
+        block.text for m in artifact.head_as_messages() for block in m.content if block.text
     )
     # The protected-prefix tool result was micro-stubbed at fold time —
     # sanity-check the fixture actually exercises the head-stub path.
@@ -512,19 +501,18 @@ def test_head_stubs_are_not_rewrapped_each_round() -> None:
 
     # A second fold must not re-summarize stubs either — neither in the
     # outgoing view nor in the persisted head.
-    context = asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=state,
-        task_state_store=None,
-        tools=[],
-        force_compact="manual",
-    ))
+    context = asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=state,
+            task_state_store=None,
+            tools=[],
+            force_compact="manual",
+        )
+    )
     assert "[navigate] [navigate]" not in _text(context)
     head_text = "\n".join(
-        block.text
-        for m in state.compaction.head_as_messages()
-        for block in m.content
-        if block.text
+        block.text for m in state.compaction.head_as_messages() for block in m.content if block.text
     )
     assert "[navigate] [navigate]" not in head_text
 
@@ -676,13 +664,15 @@ def test_new_fold_invalidates_anchor() -> None:
     assert anchored > 5000  # sanity: anchored path reports the anchor
 
     # Manual compact → new artifact key → anchor stale → full heuristic.
-    asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=state,
-        task_state_store=None,
-        tools=[],
-        force_compact="manual",
-    ))
+    asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=state,
+            task_state_store=None,
+            tools=[],
+            force_compact="manual",
+        )
+    )
     fallback = _prepare(assembler, session, state).metrics.estimated_tokens
     assert fallback < 3000  # full heuristic of the small folded view
 
@@ -731,12 +721,14 @@ def test_tools_change_invalidates_anchor() -> None:
             "input_schema": {"type": "object", "properties": {}},
         }
     ]
-    fallback = asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=state,
-        task_state_store=None,
-        tools=tools,
-    )).metrics.estimated_tokens
+    fallback = asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=state,
+            task_state_store=None,
+            tools=tools,
+        )
+    ).metrics.estimated_tokens
     assert fallback < anchored  # full heuristic, not anchored 5000+
 
 
@@ -833,9 +825,7 @@ async def test_record_usage_promotes_pending_view() -> None:
     assert emitted[-1]["payload"]["context_tokens"] == 300
 
     # Zero-usage calls (errored provider) must not clobber the anchor.
-    await AsAgentRuntime._record_usage(
-        state, {"input_tokens": 0, "output_tokens": 0}, emit=_emit
-    )
+    await AsAgentRuntime._record_usage(state, {"input_tokens": 0, "output_tokens": 0}, emit=_emit)
     assert state.usage_anchor.input_tokens == 300
 
 
@@ -904,9 +894,7 @@ def test_estimate_messages_counts_reasoning_and_tool_calls() -> None:
     msg = AssistantMessage(
         content=[ContentBlock(text="short")],
         reasoning_content="think " + "t" * 4000,
-        tool_calls=[
-            ToolCall(id="c1", name="robot_go_to", arguments={"to": "x" * 4000})
-        ],
+        tool_calls=[ToolCall(id="c1", name="robot_go_to", arguments={"to": "x" * 4000})],
     )
     plain = AssistantMessage(content=[ContentBlock(text="short")])
     counted = estimator.estimate_messages([msg])
@@ -959,7 +947,7 @@ _REAL_REASONING = (
     "modules worth comparing are context assembly, state serialization, and "
     "the substrate message converters, in that order. "
 )  # ~2KB reasoning block — real sessions carry 0.3-1.2k+ per turn; sized up
-    # so conversation mass survives micro (tool results stub away, text doesn't)
+# so conversation mass survives micro (tool results stub away, text doesn't)
 
 _REAL_LS_RESULT = (
     "apps\nartifacts\nCHANGELOG.md\nCLAUDE.md\nconfig\ndata\ndocs\nexamples\n"
@@ -973,27 +961,38 @@ _REAL_LS_RESULT = (
 def _real_shape_session() -> list:
     """Multi-turn session shaped like a captured gateway run: interleaved
     user turns, reasoning-bearing assistants, KB-scale tool results."""
-    msgs = [UserMessage.from_text(
-        "帮我看看这个项目有没有代码冗余的情况 /Users/wylam/Documents/workspace/HomeMaster "
-        "重点看 agent/context.py 和 substrate/runtime.py 两条链路，先给结论再给证据。"
-    )]
+    msgs = [
+        UserMessage.from_text(
+            "帮我看看这个项目有没有代码冗余的情况 /Users/wylam/Documents/workspace/HomeMaster "
+            "重点看 agent/context.py 和 substrate/runtime.py 两条链路，先给结论再给证据。"
+        )
+    ]
     for turn in range(1, 20):
         if turn in (6, 8):  # mid-session user turns — real gw cadence
-            msgs.append(UserMessage.from_text(
-                "继续，另外把 token 估算相关的也列出来" if turn == 6 else "runtime.py 也看"
-            ))
-        msgs.append(AssistantMessage(
-            reasoning_content=_REAL_REASONING + f"turn {turn} specifics.",
-            tool_calls=[ToolCall(
-                id=f"call_{turn:04d}", name="list_directory" if turn % 3 else "read_file",
-                arguments={"path": f"/ws/src/homemaster/mod_{turn}", "depth": 2},
-            )],
-        ))
-        msgs.append(ToolResultMessage(
-            tool_call_id=f"call_{turn:04d}",
-            name="list_directory" if turn % 3 else "read_file",
-            content=[ContentBlock(text=_REAL_LS_RESULT + f"\n# turn {turn}")],
-        ))
+            msgs.append(
+                UserMessage.from_text(
+                    "继续，另外把 token 估算相关的也列出来" if turn == 6 else "runtime.py 也看"
+                )
+            )
+        msgs.append(
+            AssistantMessage(
+                reasoning_content=_REAL_REASONING + f"turn {turn} specifics.",
+                tool_calls=[
+                    ToolCall(
+                        id=f"call_{turn:04d}",
+                        name="list_directory" if turn % 3 else "read_file",
+                        arguments={"path": f"/ws/src/homemaster/mod_{turn}", "depth": 2},
+                    )
+                ],
+            )
+        )
+        msgs.append(
+            ToolResultMessage(
+                tool_call_id=f"call_{turn:04d}",
+                name="list_directory" if turn % 3 else "read_file",
+                content=[ContentBlock(text=_REAL_LS_RESULT + f"\n# turn {turn}")],
+            )
+        )
     return msgs
 
 
@@ -1031,11 +1030,10 @@ def test_real_shape_session_folds_once_and_stays_folded() -> None:
     # Summary input is two sections: "# Messages To Compact" (the folded
     # span) + "# Recent Tail Reference" (kept tail shown as context —
     # reasoning_content is deliberately never serialized to the summarizer).
-    seen_text = json.dumps([m.model_dump(mode="json") for m in sc.seen[0]],
-                           ensure_ascii=False, default=str)
-    compacted_section, _, tail_section = seen_text.partition(
-        "# Recent Tail Reference"
+    seen_text = json.dumps(
+        [m.model_dump(mode="json") for m in sc.seen[0]], ensure_ascii=False, default=str
     )
+    compacted_section, _, tail_section = seen_text.partition("# Recent Tail Reference")
     assert "call_0004" in compacted_section  # folded mid-history reaches summarizer
     assert "call_0019" in tail_section  # live tail shown as reference
     assert "call_0019" not in compacted_section  # tail is never folded away
@@ -1053,9 +1051,7 @@ def test_real_shape_session_folds_once_and_stays_folded() -> None:
     assert sc.calls == 1, "summary must fire exactly once across rounds"
 
     # Snapshot round-trip keeps artifact + anchor on real shapes.
-    restored = AgentState.model_validate(
-        json.loads(json.dumps(state.model_dump(mode="json")))
-    )
+    restored = AgentState.model_validate(json.loads(json.dumps(state.model_dump(mode="json"))))
     assert restored.compaction is not None
     assert restored.usage_anchor is not None and restored.usage_anchor.prefix_key
     ctx = _prepare(assembler, session, restored)
@@ -1070,13 +1066,9 @@ def _seed_single_instruction(session: AgentSession, *, rounds: int = 12) -> None
     for index in range(rounds):
         session.append(
             AssistantMessage(
-                reasoning_content=(
-                    f"planning step {index}: " + "think about objects " * 60
-                ),
+                reasoning_content=(f"planning step {index}: " + "think about objects " * 60),
                 tool_calls=[
-                    ToolCall(
-                        id=f"sc{index}", name="navigate", arguments={"to": f"wp{index}"}
-                    )
+                    ToolCall(id=f"sc{index}", name="navigate", arguments={"to": f"wp{index}"})
                 ],
                 finish_reason="tool_calls",
                 usage={"input_tokens": 500 + index},
@@ -1192,9 +1184,7 @@ def test_truncated_summary_is_not_persisted() -> None:
 
 def test_truncated_summary_aborts_sync_when_configured() -> None:
     summary_client = _LengthTruncatedClient()
-    assembler = _assembler(
-        summary_client=summary_client, abort_on_summary_failure=True
-    )
+    assembler = _assembler(summary_client=summary_client, abort_on_summary_failure=True)
     session = AgentSession(session_id="s1")
     _seed_pairs(session, pairs=10)
     state = AgentState(run_id="r1", session_id="s1")
@@ -1222,9 +1212,7 @@ async def test_truncated_summary_falls_back_async() -> None:
 @pytest.mark.asyncio
 async def test_truncated_summary_aborts_when_configured() -> None:
     summary_client = _LengthTruncatedClient()
-    assembler = _assembler(
-        summary_client=summary_client, abort_on_summary_failure=True
-    )
+    assembler = _assembler(summary_client=summary_client, abort_on_summary_failure=True)
     session = AgentSession(session_id="s1")
     _seed_pairs(session, pairs=10)
     state = AgentState(run_id="r1", session_id="s1")
@@ -1245,9 +1233,7 @@ def test_summary_uses_dedicated_output_budget() -> None:
     """opencode-style dedicated summary budget — the call must not inherit
     the per-request output_reserve_tokens sliver."""
     summary_client = _KwargsRecordingClient()
-    assembler = _assembler(
-        summary_client=summary_client, summary_max_output_tokens=7777
-    )
+    assembler = _assembler(summary_client=summary_client, summary_max_output_tokens=7777)
     session = AgentSession(session_id="s1")
     _seed_pairs(session, pairs=10)
     state = AgentState(run_id="r1", session_id="s1")

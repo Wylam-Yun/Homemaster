@@ -5,7 +5,7 @@ Package layout:
   tools/      canonical ToolDefinition / RegisteredTool execution contracts
   domain/     Domain tool packages for robot capabilities
   memory/     RAG retrieval, indexing, tokenization, runtime memory store
-  skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
+  skills/     SkillDefinition / SkillLoader / SkillRegistry / builtin SKILL.md
   events/     RuntimeEvent schema, sinks, and bounded projections
   config/     Unified YAML configuration
   providers/  LLM/embedding transport adapters

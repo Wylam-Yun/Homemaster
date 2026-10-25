@@ -53,7 +53,7 @@ class _FakeService:
         self.stop_calls: list[int] = []
 
     class _Proc:
-        def __init__(self, service: "_FakeService", pid: int) -> None:
+        def __init__(self, service: _FakeService, pid: int) -> None:
             self._service = service
             self.pid = pid
 
@@ -70,7 +70,7 @@ class _FakeService:
             self._service.running = False
             return -15
 
-    def spawn(self) -> "_FakeService._Proc":
+    def spawn(self) -> _FakeService._Proc:
         self.spawn_calls += 1
         self.running = True
         self.pid = 40000 + self.spawn_calls
@@ -127,9 +127,7 @@ async def test_first_process_spawns_last_leaser_stops(tmp_path: Path) -> None:
     await second.start()
     assert service.spawn_calls == 1  # attached, no second spawn
     leases = list(
-        config.memory.mindmemos_qdrant_service_root.joinpath(
-            "runtime", "clients"
-        ).glob("*.json")
+        config.memory.mindmemos_qdrant_service_root.joinpath("runtime", "clients").glob("*.json")
     )
     assert len(leases) == 2
 
@@ -290,11 +288,11 @@ def test_process_probe_uses_pid_start_identity(tmp_path: Path) -> None:
     """The default probe must distinguish a live pid from a recycled one —
     it compares a real start-time identity (/proc on Linux, ps on macOS)
     so a stale lease for a reused pid is pruned rather than trusted."""
-    from homemaster.memory.managed_qdrant import _pid_alive
     from homemaster.memory.managed_neo4j import (
         _process_identity_is_alive,
         _process_start_identity,
     )
+    from homemaster.memory.managed_qdrant import _pid_alive
 
     pid = os.getpid()
     start = _process_start_identity(pid)
@@ -317,9 +315,7 @@ async def test_same_event_loop_clients_start_concurrently(tmp_path: Path) -> Non
     await asyncio.gather(first.start(), second.start())
     assert service.spawn_calls == 1
     leases = list(
-        config.memory.mindmemos_qdrant_service_root.joinpath(
-            "runtime", "clients"
-        ).glob("*.json")
+        config.memory.mindmemos_qdrant_service_root.joinpath("runtime", "clients").glob("*.json")
     )
     assert len(leases) == 2
     await asyncio.gather(first.close(), second.close())
@@ -538,9 +534,7 @@ async def test_stop_escalates_sigterm_then_sigkill_with_identity(
             service.alive_pids.discard(pid)
             service.running = False
 
-    runtime = service.runtime(
-        config, process_stopper=None, process_killer=killer
-    )
+    runtime = service.runtime(config, process_stopper=None, process_killer=killer)
     await runtime.start()
     await runtime.close()
     assert signal.SIGTERM in signals

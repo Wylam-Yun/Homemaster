@@ -223,6 +223,14 @@ class SessionFileBackend:
     Immutable revisions are written and fsynced before the small latest pointer
     is replaced.  Readers validate the pointer and fall back to the newest
     complete revision when a crash leaves a torn pointer behind.
+
+    Owns ``<session_root>/<session_id>/revisions/*.json``, ``latest.json``,
+    ``meta.json``, and the ``.lock`` flock — the authoritative resume source
+    behind ``SessionManager``. The same session directory also carries
+    ``session.json``/``trace.jsonl``/``messages.jsonl`` written by
+    ``agent.session_persistence.SessionPersistenceManager`` (observability
+    snapshot and logs). Ownership is deliberately disjoint — do not merge
+    the two file families.
     """
 
     _locks: dict[Path, threading.Lock] = {}
@@ -446,18 +454,14 @@ def _message_text(message: Any) -> str:
 
     content = getattr(message, "content", None)
     if isinstance(content, (list, tuple)):
-        joined = "\n".join(
-            str(getattr(block, "text", "") or "") for block in content
-        )
+        joined = "\n".join(str(getattr(block, "text", "") or "") for block in content)
         if joined.strip():
             return joined
     if isinstance(message, dict):
         blocks = message.get("content", [])
         if isinstance(blocks, list):
             joined = "\n".join(
-                str(block.get("text", "") or "")
-                for block in blocks
-                if isinstance(block, dict)
+                str(block.get("text", "") or "") for block in blocks if isinstance(block, dict)
             )
             if joined.strip():
                 return joined
@@ -491,7 +495,15 @@ def _iso_timestamp(value: Any) -> str | None:
 
 
 class SessionManager:
-    """Own session state while keeping active resources out of snapshots."""
+    """Own session state while keeping active resources out of snapshots.
+
+    Durable resume state goes through the ``SessionBackend`` (a
+    ``SessionFileBackend`` writing ``revisions/`` + ``latest.json`` +
+    ``meta.json`` per session when ``session_root`` is given) — not through
+    the ``session.json``/``trace.jsonl``/``messages.jsonl`` files that
+    ``agent.session_persistence.SessionPersistenceManager`` writes into the
+    same session directory for observability.
+    """
 
     def __init__(
         self,
@@ -539,8 +551,7 @@ class SessionManager:
             summaries.append(
                 SessionSummary(
                     session_id=session_id,
-                    title=self._title_override(session_id)
-                    or _summary_title(session_id, messages),
+                    title=self._title_override(session_id) or _summary_title(session_id, messages),
                     message_count=len(messages),
                     updated_at=self._session_updated_at(session_id),
                 )
@@ -601,13 +612,9 @@ class SessionManager:
         async with self._manager_lock:
             runtime = self._sessions.get(session_id)
             if runtime is not None and runtime.active_task is not None:
-                raise SessionConflictError(
-                    f"session {session_id} has an active run"
-                )
+                raise SessionConflictError(f"session {session_id} has an active run")
             if busy_check is not None and busy_check(session_id):
-                raise SessionConflictError(
-                    f"session {session_id} has an active run"
-                )
+                raise SessionConflictError(f"session {session_id} has an active run")
             if session_id not in self._known_session_ids():
                 raise KeyError(f"unknown session: {session_id}")
             self._sessions.pop(session_id, None)
@@ -823,9 +830,7 @@ class SessionManager:
             snapshot = self._backend.load(session_id)
         except (FileNotFoundError, KeyError) as exc:
             raise KeyError(f"unknown session: {session_id}") from exc
-        session, _agent_state, _task_state = AgentSession.from_snapshot_dict(
-            snapshot.payload
-        )
+        session, _agent_state, _task_state = AgentSession.from_snapshot_dict(snapshot.payload)
         return tuple(copy.deepcopy(session.messages))
 
     def _runtime_from_snapshot(self, snapshot: SessionSnapshot) -> SessionRuntime:
@@ -841,9 +846,7 @@ class SessionManager:
             task_state = parsed.task_state
             engine_state = parsed.engine_state
         else:
-            session, agent_state, task_state = AgentSession.from_snapshot_dict(
-                snapshot.payload
-            )
+            session, agent_state, task_state = AgentSession.from_snapshot_dict(snapshot.payload)
         if task_state.snapshot is not None and task_state.snapshot.status is TaskStatus.PAUSED:
             task_state.update_status(TaskStatus.ACTIVE)
         runtime = SessionRuntime(

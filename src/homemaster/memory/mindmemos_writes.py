@@ -257,9 +257,7 @@ class MindMemOSWriteMixin:
             root_id=[memory_id],
         )
         relationship = GraphRelationship(
-            source=GraphNodeRef(
-                kind="Memory", project_id=context.project_id, node_id=memory_id
-            ),
+            source=GraphNodeRef(kind="Memory", project_id=context.project_id, node_id=memory_id),
             target=GraphNodeRef(
                 kind="Source", project_id=context.project_id, node_id=source.source_id
             ),
@@ -456,50 +454,16 @@ class MindMemOSWriteMixin:
             AlfworldTrajectoryRecord,
         )
 
+        # Strict per-domain guard, not generic dispatch: the ALFWorld and
+        # RoboCasa records are deliberately parallel types (no shared base)
+        # and a structural Protocol could not reject a cross-domain record.
         if not isinstance(record, AlfworldTrajectoryRecord):
             raise TypeError("record must be an AlfworldTrajectoryRecord")
-        content = json.dumps(
-            record.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        result = await self.add_flat(
-            content,
-            "fact",
-            provenance_seq=record.final_environment_state.step_index or 0,
-            evidence_kind="environment_observation",
+        return await self._persist_trajectory_record(
+            record,
             context=context,
-            metadata_extra={
-                "homemaster_memory_type": "trajectory",
-                "record_kind": record.record_kind,
-                "trajectory_id": record.trajectory_id,
-                "outcome": record.outcome,
-                "classification": record.classification,
-                "failure_reason": record.failure_reason,
-                "source_trace_sha256": record.source_trace_sha256,
-                "source_trace_path": record.source_trace_path,
-                "record_json": content,
-            },
             source_type="alfworld_trajectory",
-            source_metadata={
-                "trajectory_id": record.trajectory_id,
-                "source_trace_sha256": record.source_trace_sha256,
-                "episode_id": record.episode_id,
-            },
         )
-        raw = await self.get_raw(str(result["memory_id"]), context)
-        metadata = dict(getattr(raw, "metadata", {}) or {}) if raw is not None else {}
-        if (
-            raw is None
-            or getattr(raw, "status", None) != "active"
-            or metadata.get("homemaster_memory_type") != "trajectory"
-            or metadata.get("trajectory_id") != record.trajectory_id
-            or metadata.get("source_trace_sha256") != record.source_trace_sha256
-            or metadata.get("record_json") != content
-        ):
-            raise RuntimeError("trajectory memory metadata terminal state could not be verified")
-        return {**result, "trajectory_id": record.trajectory_id, "readback_verified": True}
 
     async def add_robocasa_trajectory_memory(
         self,
@@ -515,6 +479,26 @@ class MindMemOSWriteMixin:
 
         if not isinstance(record, RoboCasaTrajectoryRecord):
             raise TypeError("record must be a RoboCasaTrajectoryRecord")
+        return await self._persist_trajectory_record(
+            record,
+            context=context,
+            source_type="robocasa_trajectory",
+            extra_source_metadata={
+                "task_name": record.task_name,
+                "seed": record.seed,
+            },
+        )
+
+    async def _persist_trajectory_record(
+        self,
+        record: Any,
+        *,
+        context: Any,
+        source_type: str,
+        extra_source_metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, object]:
+        """Persist one domain trajectory record through the shared flat path."""
+
         content = json.dumps(
             record.model_dump(mode="json"),
             ensure_ascii=False,
@@ -538,13 +522,12 @@ class MindMemOSWriteMixin:
                 "source_trace_path": record.source_trace_path,
                 "record_json": content,
             },
-            source_type="robocasa_trajectory",
+            source_type=source_type,
             source_metadata={
                 "trajectory_id": record.trajectory_id,
                 "source_trace_sha256": record.source_trace_sha256,
                 "episode_id": record.episode_id,
-                "task_name": record.task_name,
-                "seed": record.seed,
+                **dict(extra_source_metadata or {}),
             },
         )
         raw = await self.get_raw(str(result["memory_id"]), context)
@@ -623,9 +606,7 @@ class MindMemOSWriteMixin:
                 context.project_id, [memory_id], with_vectors=True
             )
             dense = (
-                verified[0].vectors.get(semantic_name)
-                if verified and verified[0].vectors
-                else None
+                verified[0].vectors.get(semantic_name) if verified and verified[0].vectors else None
             )
             expected_dense = list(vectors[0])
             if (
@@ -728,9 +709,7 @@ class MindMemOSWriteMixin:
                     )
                     stored_entity_vectors = entity_record.vectors if entity_record else None
                     entity_dense = (
-                        stored_entity_vectors.get(semantic_name)
-                        if stored_entity_vectors
-                        else None
+                        stored_entity_vectors.get(semantic_name) if stored_entity_vectors else None
                     )
                     if (
                         entity_record is None
@@ -750,25 +729,19 @@ class MindMemOSWriteMixin:
                         entity_id=entity_id,
                     )
                     if graph_rows != [{"entity_id": entity_id}]:
-                        raise RuntimeError(
-                            f"entity enrichment graph readback failed: {entity_id}"
-                        )
+                        raise RuntimeError(f"entity enrichment graph readback failed: {entity_id}")
             await _merge_metadata(
                 {
                     "entity_enrichment_pending": False,
                     "entity_count": len(entity_ids),
-                    "entities": [
-                        entity.canonical_name or entity.name for entity in entities
-                    ],
+                    "entities": [entity.canonical_name or entity.name for entity in entities],
                 }
             )
         else:
             await _merge_metadata({})
         final = await self._reader.get_memory(context, memory_id)
         final_metadata = dict(getattr(final, "metadata", {}) or {})
-        if final_metadata.get("vector_pending") or final_metadata.get(
-            "entity_enrichment_pending"
-        ):
+        if final_metadata.get("vector_pending") or final_metadata.get("entity_enrichment_pending"):
             raise RuntimeError("enrichment completion metadata readback failed")
         return {"memory_id": memory_id, "entity_ids": entity_ids}
 
@@ -843,9 +816,7 @@ class MindMemOSWriteMixin:
         )
         encoded = canonical.encode("utf-8")
         if len(encoded) > _SCHEMA_EPISODE_MAX_BYTES:
-            raise ValueError(
-                f"schema episode exceeds {_SCHEMA_EPISODE_MAX_BYTES} UTF-8 bytes"
-            )
+            raise ValueError(f"schema episode exceeds {_SCHEMA_EPISODE_MAX_BYTES} UTF-8 bytes")
         required_metadata = {
             "ingress": "homemaster_schema_episode_v1",
             "domain_schema_version": episode.get("schema_version"),
@@ -863,9 +834,7 @@ class MindMemOSWriteMixin:
         # Qdrant local/server point IDs must be UUID-compatible. The UUID5
         # input remains the stable idempotency material; the ingress metadata
         # carries the semantic schema-episode identity.
-        add_record_id = str(
-            uuid5(NAMESPACE_URL, f"homemaster-schema-episode:{stable_material}")
-        )
+        add_record_id = str(uuid5(NAMESPACE_URL, f"homemaster-schema-episode:{stable_material}"))
         required_metadata.setdefault("schema_episode_id", add_record_id)
         payload = AddPipelineInput(
             messages=[TextMessage(text=canonical)],

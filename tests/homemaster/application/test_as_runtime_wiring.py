@@ -66,12 +66,8 @@ class _ScriptedModel(ChatModelBase):
             for block in getattr(msg, "content", ()) or ():
                 if getattr(block, "type", None) == "tool_result":
                     for out in getattr(block, "output", ()) or ():
-                        self.seen_tool_result_text += str(
-                            getattr(out, "text", "") or ""
-                        )
-        blocks = self._script.pop(0) if self._script else [
-            TextBlock(text="done")
-        ]
+                        self.seen_tool_result_text += str(getattr(out, "text", "") or "")
+        blocks = self._script.pop(0) if self._script else [TextBlock(text="done")]
         return ChatResponse(
             content=blocks,
             is_last=True,
@@ -161,8 +157,6 @@ class _ActionExecutor:
             text="moved",
             backend_attempted=True,
         )
-
-
 
 
 def _app(
@@ -275,8 +269,6 @@ async def test_app_runtime_agentscope_engine_tool_call(tmp_path: Path) -> None:
         assert payload["agentscope_state"]["context"]
 
 
-
-
 class _SummaryClient:
     """Minimal sync summary client: returns a fixed assistant summary."""
 
@@ -352,12 +344,8 @@ async def test_app_runtime_agentscope_post_compaction_recalls_inline(
 
     runtime = await app.session_manager.open_or_resume(session_id)
     for index in range(6):
-        runtime.session.append(
-            UserMessage.from_text(f"earlier question {index} " + "x" * 300)
-        )
-        runtime.session.append(
-            AssistantMessage(content=[ContentBlock(text="a" * 300)])
-        )
+        runtime.session.append(UserMessage.from_text(f"earlier question {index} " + "x" * 300))
+        runtime.session.append(AssistantMessage(content=[ContentBlock(text="a" * 300)]))
     result = await app.run(
         RunRequest(
             text="hello",

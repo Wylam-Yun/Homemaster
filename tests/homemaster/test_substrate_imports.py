@@ -42,21 +42,13 @@ def _loaded_modules_after(import_target: str) -> list[str]:
 
 def test_substrate_import_pulls_no_extras_subpackages() -> None:
     loaded = _loaded_modules_after("homemaster.substrate")
-    pulled = [
-        m
-        for m in loaded
-        if any(m == f or m.startswith(f + ".") for f in FORBIDDEN)
-    ]
+    pulled = [m for m in loaded if any(m == f or m.startswith(f + ".") for f in FORBIDDEN)]
     assert not pulled, f"extras-gated subpackages imported: {pulled}"
 
 
 def test_plain_agentscope_import_pulls_no_extras_subpackages() -> None:
     loaded = _loaded_modules_after("agentscope")
-    pulled = [
-        m
-        for m in loaded
-        if any(m == f or m.startswith(f + ".") for f in FORBIDDEN)
-    ]
+    pulled = [m for m in loaded if any(m == f or m.startswith(f + ".") for f in FORBIDDEN)]
     assert not pulled, f"extras-gated subpackages imported: {pulled}"
 
 
@@ -91,9 +83,7 @@ def test_vendored_agentscope_never_imports_homemaster() -> None:
         for path, mod in _iter_imports(SRC_ROOT / "agentscope")
         if mod in {"homemaster", "mindmemos"}
     ]
-    assert not offenders, "vendored agentscope imports project code:\n" + "\n".join(
-        offenders
-    )
+    assert not offenders, "vendored agentscope imports project code:\n" + "\n".join(offenders)
 
 
 def test_homemaster_only_imports_agentscope_via_substrate() -> None:
@@ -107,9 +97,7 @@ def test_homemaster_only_imports_agentscope_via_substrate() -> None:
         if rel.parts and rel.parts[0] == "substrate":
             continue
         offenders.append(str(path.relative_to(SRC_ROOT)))
-    assert not offenders, (
-        "agentscope imported outside substrate/:\n" + "\n".join(offenders)
-    )
+    assert not offenders, "agentscope imported outside substrate/:\n" + "\n".join(offenders)
 
 
 def test_no_machine_specific_absolute_paths_in_src() -> None:
@@ -123,16 +111,10 @@ def test_no_machine_specific_absolute_paths_in_src() -> None:
         for path in sorted(root.rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
-            for lineno, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if pattern.search(line):
-                    offenders.append(
-                        f"{path.relative_to(SRC_ROOT)}:{lineno}"
-                    )
-    assert not offenders, (
-        "machine-specific absolute paths in source:\n" + "\n".join(offenders)
-    )
+                    offenders.append(f"{path.relative_to(SRC_ROOT)}:{lineno}")
+    assert not offenders, "machine-specific absolute paths in source:\n" + "\n".join(offenders)
 
 
 # --- RunContext.deps / services escape-hatch freeze ---------------------------
@@ -167,6 +149,9 @@ _ALLOWED_DEPS_KEYS = frozenset(
         "plan_mode",
         "provider_attempt_context_binder",
         "recalled_memories_by_tool_call_id",
+        "robocasa_env",
+        "robocasa_episode_outcome",
+        "robocasa_trace",
         "run_context",
         "session_allows",
         "skill_registry",

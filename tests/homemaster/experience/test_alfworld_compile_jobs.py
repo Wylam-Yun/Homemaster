@@ -9,20 +9,22 @@ from homemaster.experience.alfworld_compile_jobs import AlfworldCompileJobServic
 
 
 def _record(trace_path: str) -> AlfworldTrajectoryRecord:
-    return AlfworldTrajectoryRecord.model_validate({
-        "trajectory_id": "traj-1",
-        "source_session_id": "session-1",
-        "run_id": "run-1",
-        "episode_id": "episode-1",
-        "task": "put mug in cabinet",
-        "goal_type": "pick_and_place_simple",
-        "outcome": "success",
-        "classification": "agent_success",
-        "source_trace_path": trace_path,
-        "source_trace_sha256": "a" * 64,
-        "final_environment_state": {"won": True, "done": True},
-        "steps": [{"index": 0, "payload": {"action": "navigate", "target": "cabinet"}}],
-    })
+    return AlfworldTrajectoryRecord.model_validate(
+        {
+            "trajectory_id": "traj-1",
+            "source_session_id": "session-1",
+            "run_id": "run-1",
+            "episode_id": "episode-1",
+            "task": "put mug in cabinet",
+            "goal_type": "pick_and_place_simple",
+            "outcome": "success",
+            "classification": "agent_success",
+            "source_trace_path": trace_path,
+            "source_trace_sha256": "a" * 64,
+            "final_environment_state": {"won": True, "done": True},
+            "steps": [{"index": 0, "payload": {"action": "navigate", "target": "cabinet"}}],
+        }
+    )
 
 
 class Queue:
@@ -40,6 +42,7 @@ async def test_compile_job_writes_succeeded_receipt_and_derived_memory(tmp_path)
     record = _record(str(trace))
     # The job verifies the trace hash independently, so use the actual hash.
     import hashlib
+
     record = record.model_copy(
         update={"source_trace_sha256": hashlib.sha256(trace.read_bytes()).hexdigest()}
     )
@@ -56,6 +59,7 @@ async def test_compile_job_writes_succeeded_receipt_and_derived_memory(tmp_path)
         async def get_raw(self, memory_id, context):
             assert memory_id == "source-memory"
             return raw
+
         async def add_derived_experience(self, content, **kwargs):
             calls.append((content, kwargs))
             return {"memory_id": "derived-memory", "readback_verified": True}
@@ -98,6 +102,7 @@ async def test_compile_job_hash_tamper_fails_without_derived_write(tmp_path):
     class Store:
         async def get_raw(self, memory_id, context):
             return raw
+
         async def add_derived_experience(self, content, **kwargs):
             calls.append((content, kwargs))
             return {"memory_id": "derived-memory", "readback_verified": True}

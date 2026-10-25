@@ -114,10 +114,13 @@ def test_projection_maps_snapshots_and_lifecycle_and_rejects_unknown_events() ->
             ),
         )
 
-    assert projection.project(
-        _event("provider.private_payload", payload={"secret": "private"}),
-        request_id="request-01",
-    ) == ()
+    assert (
+        projection.project(
+            _event("provider.private_payload", payload={"secret": "private"}),
+            request_id="request-01",
+        )
+        == ()
+    )
 
 
 def test_turn_completed_projects_question_before_completion() -> None:
@@ -145,10 +148,13 @@ def test_turn_completed_projects_question_before_completion() -> None:
             payload={"status": "waiting_user", "final_reply": ""},
         ),
     )
-    assert WebEventProjection(include_thinking=False).project(
-        _event("assistant.thinking", payload={"thinking": "private"}),
-        request_id="request-01",
-    ) == ()
+    assert (
+        WebEventProjection(include_thinking=False).project(
+            _event("assistant.thinking", payload={"thinking": "private"}),
+            request_id="request-01",
+        )
+        == ()
+    )
 
 
 def test_projection_maps_structured_events_with_explicit_field_allowlists() -> None:

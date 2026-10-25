@@ -82,8 +82,7 @@ def compile_alfworld_trajectory(
     if not record.steps:
         raise ValueError("successful trajectory has no compilable steps")
     steps = tuple(
-        _compile_step(item, order=position)
-        for position, item in enumerate(record.steps, start=1)
+        _compile_step(item, order=position) for position, item in enumerate(record.steps, start=1)
     )
     procedure = ProcedureRecord(
         name=f"Household task: {record.goal_type}",

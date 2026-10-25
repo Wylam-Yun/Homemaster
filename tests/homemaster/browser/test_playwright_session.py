@@ -10,6 +10,10 @@ from urllib.parse import quote, urlencode
 
 import pytest
 
+# Playwright is an optional extra: the real-browser session tests skip when it
+# is not installed in this environment.
+pytest.importorskip("playwright.async_api")
+
 from homemaster.browser.contracts import BrowserSessionError
 from homemaster.browser.playwright_session import PlaywrightBrowserSession
 from homemaster.browser.policy import BrowserPolicy
@@ -242,9 +246,7 @@ async def test_navigate_honors_configured_timeout_beyond_five_seconds(
     )
     await session.start()
     try:
-        navigation = await session.navigate(
-            f"{control_origin}/delayed-render.html?delay=5200"
-        )
+        navigation = await session.navigate(f"{control_origin}/delayed-render.html?delay=5200")
         snapshot = await session.inspect({"name": "Hydrated action"})
 
         assert navigation["load_state"] == "dom_stable"
@@ -574,9 +576,7 @@ async def test_inspect_discovers_semantic_popup_date_and_time_elements(
 
         date_cell = await session.find({"role": "gridcell", "name": "21", "match": "exact"})
         assert date_cell["matches_n"] == 1
-        clicked_date = await session.click(
-            {"role": "gridcell", "name": "21", "match": "exact"}
-        )
+        clicked_date = await session.click({"role": "gridcell", "name": "21", "match": "exact"})
         assert clicked_date["interaction_verified"] is True
 
         combobox = _find(snapshot, "Cloud service")
@@ -700,21 +700,15 @@ async def test_click_matches_cjk_label_with_framework_inserted_display_spacing(
     try:
         await session.navigate(f"{control_origin}/semantic-controls.html")
 
-        snapshot = await session.inspect(
-            {"role": "button", "name": "确认", "match": "exact"}
-        )
+        snapshot = await session.inspect({"role": "button", "name": "确认", "match": "exact"})
         assert snapshot.total_matches == 1
         assert snapshot.elements[0].name == "确 认"
 
-        found = await session.find(
-            {"role": "button", "name": "确认", "match": "contains"}
-        )
+        found = await session.find({"role": "button", "name": "确认", "match": "contains"})
         assert found["matches_n"] == 1
         assert found["target"]["name"] == "确 认"
 
-        receipt = await session.click(
-            {"role": "button", "name": "确认", "match": "exact"}
-        )
+        receipt = await session.click({"role": "button", "name": "确认", "match": "exact"})
 
         assert receipt["interaction_verified"] is True
         assert await session._page.locator("#cjk-confirm-status").inner_text() == (

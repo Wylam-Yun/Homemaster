@@ -129,10 +129,9 @@ class AgentState(BaseModel):
         Consumes ``pending_view`` — it describes exactly one sent request,
         so a second usage event must not re-promote it."""
         if self.pending_view is not None:
-            self.usage_anchor = self.pending_view.model_copy(
-                update={"input_tokens": input_tokens}
-            )
+            self.usage_anchor = self.pending_view.model_copy(update={"input_tokens": input_tokens})
             self.pending_view = None
+
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def begin_iteration(self, iteration: int) -> None:

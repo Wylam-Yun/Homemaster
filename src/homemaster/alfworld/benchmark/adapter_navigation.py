@@ -45,6 +45,7 @@ from homemaster.alfworld.types import AlfworldStepResult
 
 class AlfworldAdapterNavigationMixin:
     """Navigation/finding entry points (virtual go-to, move_to, find_object)."""
+
     def _indexed_navigation_target(
         self,
         thor_env: Any,

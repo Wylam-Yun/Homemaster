@@ -55,8 +55,6 @@ SKIP_DIRS = frozenset(
         "src/agentscope/",
         "src/homemaster/browser/vendor/",
         "story/",
-        "src/homemaster/benchmarking/browser_demo/",
-        "tests/homemaster/benchmarking/browser_demo/",
         "third_party/",
     }
 )
@@ -74,6 +72,11 @@ SKIP_FILES = frozenset(
         "docs/architecture/memory-system.md",
         "docs/memory-user-guide.md",
         "docs/mindmemos-native-pipeline-integration-report-zh.md",
+        # Documents the real external MindMemOS `search_pipeline=` kwarg verbatim.
+        "architecture/interview/interview_guide.md",
+        # Historical A/B report citing real paths inside the external
+        # mindmemos package (`mindmemos/pipelines/dreaming/default.py`).
+        "docs/reports/dreaming-entity-merge-ab-2026-10-25.md",
         "docs/skills-and-config-user-guide.md",
         # Historical coworker records archived from repo root on 2026-08-27.
         "docs/reports/2026-08-27-coworker-demo-findings.md",
@@ -91,9 +94,6 @@ SKIP_FILES = frozenset(
         "src/homemaster/application/runtime.py",
         # MindMemOS `search_pipeline=` is a real external API kwarg.
         "src/homemaster/application/memory_recall.py",
-        "src/homemaster/tools/legacy_adapter.py",
-        "src/homemaster/tools/pipeline.py",
-        "tests/homemaster/permissions/test_policy.py",
         "tests/homemaster/application/test_application_runtime.py",
         "tests/homemaster/application/test_factory.py",
         "tests/homemaster/tools/test_universal_registry.py",
@@ -112,13 +112,9 @@ SKIP_FILES = frozenset(
         "tests/homemaster/test_import_boundaries.py",
         "tests/homemaster/test_domain_import_boundaries.py",
         "tests/homemaster/test_domain_memory_tools.py",
-        "tests/homemaster/test_runtime_settings.py",
         "tests/homemaster/test_prompt_externalization.py",
         "tests/homemaster/test_skills_registry.py",
         "tests/homemaster/test_third_party_logging.py",
-        "tests/homemaster/tools/test_execution_pipeline.py",
-        "tests/homemaster/tools/test_retry_policy.py",
-        "tests/homemaster/tools/test_validation.py",
     }
 )
 

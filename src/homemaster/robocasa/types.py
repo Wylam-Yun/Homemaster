@@ -148,17 +148,13 @@ class RoboCasaSummary:
             by_task.setdefault(cell.cell.task_name, []).append(cell.success)
         if not by_task:
             return 0.0
-        return sum(sum(map(int, flags)) / len(flags) for flags in by_task.values()) / len(
-            by_task
-        )
+        return sum(sum(map(int, flags)) / len(flags) for flags in by_task.values()) / len(by_task)
 
     def to_dict(self) -> dict[str, Any]:
         total = len(self.cells)
         scored = self.scored_cells
         classifications = [cell.classification for cell in self.cells]
-        classification_count = {
-            name: classifications.count(name) for name in set(classifications)
-        }
+        classification_count = {name: classifications.count(name) for name in set(classifications)}
         infrastructure_failures = classification_count.get("infrastructure_error", 0)
         provider_failures = classification_count.get("provider_failure", 0)
         runtime_failures = classification_count.get("runtime_failure", 0)
@@ -180,8 +176,7 @@ class RoboCasaSummary:
             "scored_successes": sum(1 for cell in scored if cell.success),
             "task_weighted_success_rate": self.task_weighted_success_rate,
             "per_task_success_rate": {
-                task: sum(map(int, flags)) / len(flags)
-                for task, flags in sorted(per_task.items())
+                task: sum(map(int, flags)) / len(flags) for task, flags in sorted(per_task.items())
             },
             "infrastructure_errors": infrastructure_failures,
             "provider_failures": provider_failures,

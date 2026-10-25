@@ -159,9 +159,7 @@ def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch
 
     # AsLLMClient is lazily imported inside the factory build; patch its
     # defining module so the guard holds.
-    monkeypatch.setattr(
-        "homemaster.substrate.as_llm_client.AsLLMClient", forbidden_client
-    )
+    monkeypatch.setattr("homemaster.substrate.as_llm_client.AsLLMClient", forbidden_client)
     build = _provider_factory(_model_override_config())
 
     with pytest.raises(ValueError, match="must map to exactly one"):
@@ -492,4 +490,4 @@ async def test_factory_start_recovers_and_close_closes_store_once(tmp_path) -> N
     import sqlite3
 
     with pytest.raises(sqlite3.ProgrammingError):
-        store.list_grants('home')
+        store.list_grants("home")

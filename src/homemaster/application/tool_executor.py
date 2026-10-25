@@ -168,6 +168,21 @@ class ApplicationToolExecutor:
         deps["task_completion_guard"] = self._completion_guard
         deps["current_tool_call_id"] = call.id
         _bind_backend(deps, self._request.profile, self._backend)
+        # NOTE: ``tool_run_context.deps`` intentionally aliases the ``deps``
+        # dict built above — ``run_context.deps`` is the sanctioned mutable
+        # service/introspection bag for tools. Deliberate writes through it
+        # are part of the contract: substrate/runtime.py writes back
+        # ``task_state_store``, run_driver.py re-arms
+        # ``automatic_recalled_memories`` after compaction, the feedback
+        # binder fills ``memory_feedback_context_by_tool_call_id``, and
+        # memory_tools records ``recalled_memories_by_tool_call_id`` per
+        # call. Nested mappings (the two *_by_tool_call_id dicts) are shared
+        # with the run-level RunContext by shallow ``deps.update`` so those
+        # writes propagate across calls in the run. Do not wrap deps in a
+        # MappingProxyType or deep-copy it: both break the write channel.
+        # ``ToolExecutionContext.services`` snapshots this dict at
+        # construction (MappingProxyType copy), so later mutations through
+        # ``run_context.deps`` never retro-mutate the frozen services view.
         tool_run_context = RunContext(
             session_id=self._runtime.session.session_id,
             run_id=self._run_id,

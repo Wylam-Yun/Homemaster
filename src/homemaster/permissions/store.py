@@ -236,9 +236,7 @@ def default_store_path(session_dir: str | Path, tenant_id: str) -> Path:
     return base.parent / _sanitize_tenant(tenant_id) / "permissions.sqlite3"
 
 
-def resolve_store_path(
-    configured: str | None, *, session_dir: str | Path, tenant_id: str
-) -> Path:
+def resolve_store_path(configured: str | None, *, session_dir: str | Path, tenant_id: str) -> Path:
     """Resolve the effective database path; an explicit value wins."""
     if configured and configured.strip():
         candidate = Path(configured.strip()).expanduser()
@@ -306,9 +304,7 @@ class PermissionStore:
             conn.execute("PRAGMA synchronous = NORMAL")
         except sqlite3.Error as exc:
             conn.close()
-            raise PermissionStorageUnavailable(
-                f"cannot configure permission store: {exc}"
-            ) from exc
+            raise PermissionStorageUnavailable(f"cannot configure permission store: {exc}") from exc
         return conn
 
     def _ensure_schema(self) -> None:
@@ -399,9 +395,7 @@ class PermissionStore:
                                 step.step_id,
                                 request.request_id,
                                 step.binding_ref,
-                                json.dumps(
-                                    list(step.required_item_ids), ensure_ascii=False
-                                ),
+                                json.dumps(list(step.required_item_ids), ensure_ascii=False),
                                 step.summary,
                                 "prepared",
                                 0,
@@ -417,9 +411,7 @@ class PermissionStore:
                         {"revision": request.revision},
                     )
             except sqlite3.IntegrityError as exc:
-                raise ApprovalConflict(
-                    f"permission request id already exists: {exc}"
-                ) from exc
+                raise ApprovalConflict(f"permission request id already exists: {exc}") from exc
             except sqlite3.Error as exc:
                 raise PermissionStorageUnavailable(
                     f"cannot persist permission request: {exc}"
@@ -461,8 +453,7 @@ class PermissionStore:
                 matched_grant_id=item["matched_grant_id"],
             )
             for item in self._execute(
-                "SELECT * FROM permission_request_items WHERE request_id = ?"
-                " ORDER BY item_id",
+                "SELECT * FROM permission_request_items WHERE request_id = ? ORDER BY item_id",
                 (request_id,),
             ).fetchall()
         )
@@ -510,18 +501,13 @@ class PermissionStore:
                     if row is None:
                         raise KeyError(f"unknown request id: {request_id}")
                     if row["status"] in _TERMINAL_STATUSES:
-                        raise ApprovalConflict(
-                            f"request {request_id} is already {row['status']}"
-                        )
+                        raise ApprovalConflict(f"request {request_id} is already {row['status']}")
                     if row["status"] == "prepared":
                         self._execute(
-                            "UPDATE permission_requests SET status = ?"
-                            " WHERE request_id = ?",
+                            "UPDATE permission_requests SET status = ? WHERE request_id = ?",
                             ("awaiting_approval", request_id),
                         )
-                        self._record_event(
-                            request_id, None, None, "approval_requested", {}
-                        )
+                        self._record_event(request_id, None, None, "approval_requested", {})
             except (KeyError, ApprovalConflict):
                 raise
             except sqlite3.Error as exc:
@@ -533,9 +519,7 @@ class PermissionStore:
 
     # -- grants --------------------------------------------------------
 
-    def matching_grants(
-        self, keys: Iterable[ResourceKey]
-    ) -> dict[ResourceKey, GrantRecord]:
+    def matching_grants(self, keys: Iterable[ResourceKey]) -> dict[ResourceKey, GrantRecord]:
         unique = list(dict.fromkeys(keys))
         if not unique:
             return {}
@@ -582,9 +566,7 @@ class PermissionStore:
             {
                 "approval_id": None,
                 "request_revision": submission.request_revision,
-                "decisions": sorted(
-                    (d.item_id, d.choice) for d in submission.decisions
-                ),
+                "decisions": sorted((d.item_id, d.choice) for d in submission.decisions),
             }
         )
 
@@ -604,12 +586,8 @@ class PermissionStore:
                     ).fetchone()
                     if stored is not None:
                         if stored["payload_digest"] != digest:
-                            raise ApprovalConflict(
-                                "submission id reused with different content"
-                            )
-                        return ApprovalResolution.model_validate_json(
-                            stored["response_json"]
-                        )
+                            raise ApprovalConflict("submission id reused with different content")
+                        return ApprovalResolution.model_validate_json(stored["response_json"])
                     row = self._execute(
                         "SELECT * FROM permission_requests WHERE approval_id = ?",
                         (approval_id,),
@@ -618,13 +596,9 @@ class PermissionStore:
                         raise KeyError(f"unknown approval id: {approval_id}")
                     request_id = row["request_id"]
                     if row["status"] not in _SUBMITTABLE_STATUSES:
-                        raise ApprovalConflict(
-                            f"request {request_id} is already {row['status']}"
-                        )
+                        raise ApprovalConflict(f"request {request_id} is already {row['status']}")
                     if row["revision"] != submission.request_revision:
-                        raise ApprovalConflict(
-                            "request revision does not match the submission"
-                        )
+                        raise ApprovalConflict("request revision does not match the submission")
                     now = self._now_iso()
                     if _parse_instant(row["deadline_at"]) < _parse_instant(now):
                         self._execute(
@@ -632,24 +606,19 @@ class PermissionStore:
                             " WHERE request_id = ?",
                             ("expired", now, request_id),
                         )
-                        self._record_event(
-                            request_id, None, None, "request_expired", {}
-                        )
+                        self._record_event(request_id, None, None, "request_expired", {})
                         expired_request = request_id
                     else:
                         expected = {
                             item["item_id"]
                             for item in self._execute(
-                                "SELECT item_id FROM permission_request_items"
-                                " WHERE request_id = ?",
+                                "SELECT item_id FROM permission_request_items WHERE request_id = ?",
                                 (request_id,),
                             ).fetchall()
                         }
                         decided = [d.item_id for d in submission.decisions]
                         if set(decided) != expected:
-                            raise ValueError(
-                                "submission must decide exactly the pending items"
-                            )
+                            raise ValueError("submission must decide exactly the pending items")
                         persisted: list[str] = []
                         has_reject = False
                         for decision in submission.decisions:
@@ -750,8 +719,7 @@ class PermissionStore:
         ).fetchone()
         if existing is not None:
             self._execute(
-                "UPDATE permission_request_items SET matched_grant_id = ?"
-                " WHERE item_id = ?",
+                "UPDATE permission_request_items SET matched_grant_id = ? WHERE item_id = ?",
                 (existing["grant_id"], decision.item_id),
             )
             return existing["grant_id"]
@@ -833,8 +801,7 @@ class PermissionStore:
                     if row["revision"] != revision:
                         raise ApprovalConflict("request revision changed; re-prepare")
                     step = self._execute(
-                        "SELECT * FROM permission_steps WHERE step_id = ?"
-                        " AND request_id = ?",
+                        "SELECT * FROM permission_steps WHERE step_id = ? AND request_id = ?",
                         (step_id, request_id),
                     ).fetchone()
                     if step is None:
@@ -844,9 +811,7 @@ class PermissionStore:
                             f"step {step_id} is {step['status']}; cannot claim again"
                         )
                     if step["attempt_count"] >= max_attempts:
-                        raise ApprovalConflict(
-                            f"step {step_id} exhausted its attempt budget"
-                        )
+                        raise ApprovalConflict(f"step {step_id} exhausted its attempt budget")
                     self._execute(
                         "UPDATE permission_steps SET status = ?, attempt_count = ?"
                         " WHERE step_id = ?",
@@ -854,20 +819,15 @@ class PermissionStore:
                     )
                     if row["status"] == "ready":
                         self._execute(
-                            "UPDATE permission_requests SET status = ?"
-                            " WHERE request_id = ?",
+                            "UPDATE permission_requests SET status = ? WHERE request_id = ?",
                             ("running", request_id),
                         )
-                    self._record_event(
-                        request_id, step_id, None, "step_claimed", {}
-                    )
+                    self._record_event(request_id, step_id, None, "step_claimed", {})
                     binding_ref = step["binding_ref"]
             except (KeyError, ApprovalConflict):
                 raise
             except sqlite3.Error as exc:
-                raise PermissionStorageUnavailable(
-                    f"cannot claim step: {exc}"
-                ) from exc
+                raise PermissionStorageUnavailable(f"cannot claim step: {exc}") from exc
         self._emit_pending()
         return binding_ref
 
@@ -885,16 +845,13 @@ class PermissionStore:
             try:
                 with self._conn:
                     step = self._execute(
-                        "SELECT * FROM permission_steps WHERE step_id = ?"
-                        " AND request_id = ?",
+                        "SELECT * FROM permission_steps WHERE step_id = ? AND request_id = ?",
                         (step_id, request_id),
                     ).fetchone()
                     if step is None:
                         raise KeyError(f"unknown step id: {step_id}")
                     if step["status"] != "running":
-                        raise ApprovalConflict(
-                            f"step {step_id} is {step['status']}; cannot finish"
-                        )
+                        raise ApprovalConflict(f"step {step_id} is {step['status']}; cannot finish")
                     if observation.binding_ref != step["binding_ref"]:
                         raise TargetChanged(
                             f"step {step_id} binding changed; approval no longer applies"
@@ -933,9 +890,7 @@ class PermissionStore:
             except (KeyError, ApprovalConflict, TargetChanged):
                 raise
             except sqlite3.Error as exc:
-                raise PermissionStorageUnavailable(
-                    f"cannot finish step: {exc}"
-                ) from exc
+                raise PermissionStorageUnavailable(f"cannot finish step: {exc}") from exc
         self._emit_pending()
         return request_status
 
@@ -958,8 +913,7 @@ class PermissionStore:
         else:
             rolled = "failed"
         self._execute(
-            "UPDATE permission_requests SET status = ?, resolved_at = ?"
-            " WHERE request_id = ?",
+            "UPDATE permission_requests SET status = ?, resolved_at = ? WHERE request_id = ?",
             (rolled, self._now_iso(), request_id),
         )
         return rolled
@@ -980,10 +934,7 @@ class PermissionStore:
         if not 1 <= limit <= 200:
             raise ValueError("limit must be within 1..200")
         predicate = "revoked_at IS NULL" if status == "active" else "revoked_at IS NOT NULL"
-        sql = (
-            "SELECT * FROM permission_grants WHERE environment_id = ?"
-            f" AND {predicate}"
-        )
+        sql = f"SELECT * FROM permission_grants WHERE environment_id = ? AND {predicate}"
         params: list[Any] = [environment_id]
         if resource_kind is not None:
             sql += " AND resource_kind = ?"
@@ -1070,9 +1021,7 @@ class PermissionStore:
                             return self._grant_from_row(row)
                         raise ApprovalConflict("grant is already revoked")
                     if row["revision"] != expected_revision:
-                        raise ApprovalConflict(
-                            "grant revision changed; reload before revoking"
-                        )
+                        raise ApprovalConflict("grant revision changed; reload before revoking")
                     now = self._now_iso()
                     self._execute(
                         "UPDATE permission_grants SET revoked_at = ?, revoked_by = ?,"
@@ -1089,9 +1038,7 @@ class PermissionStore:
             except (KeyError, ApprovalConflict):
                 raise
             except sqlite3.Error as exc:
-                raise PermissionStorageUnavailable(
-                    f"cannot revoke grant: {exc}"
-                ) from exc
+                raise PermissionStorageUnavailable(f"cannot revoke grant: {exc}") from exc
         self._emit_pending()
         with self._lock:
             row = self._execute(
@@ -1158,9 +1105,7 @@ class PermissionStore:
             except KeyError:
                 raise
             except sqlite3.Error as exc:
-                raise PermissionStorageUnavailable(
-                    f"cannot cancel request: {exc}"
-                ) from exc
+                raise PermissionStorageUnavailable(f"cannot cancel request: {exc}") from exc
         self._emit_pending()
         return "cancelled"
 
@@ -1180,8 +1125,7 @@ class PermissionStore:
                         " 'expired', 'cancelled', 'interrupted')"
                     ).fetchall()
                     running = self._execute(
-                        "SELECT request_id, step_id FROM permission_steps"
-                        " WHERE status = 'running'"
+                        "SELECT request_id, step_id FROM permission_steps WHERE status = 'running'"
                     ).fetchall()
                     now = self._now_iso()
                     for row in pending:
@@ -1190,9 +1134,7 @@ class PermissionStore:
                             " WHERE request_id = ?",
                             ("interrupted", now, row["request_id"]),
                         )
-                        self._record_event(
-                            row["request_id"], None, None, "request_interrupted", {}
-                        )
+                        self._record_event(row["request_id"], None, None, "request_interrupted", {})
                     for row in running:
                         self._execute(
                             "UPDATE permission_steps SET status = ? WHERE step_id = ?",
@@ -1260,9 +1202,7 @@ class PermissionStore:
         try:
             with open(self.mirror_path, "a", encoding="utf-8") as handle:
                 for event in events:
-                    handle.write(
-                        json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
-                    )
+                    handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
         except OSError as exc:
             log.warning("permission event mirror failed: %s", exc)
 

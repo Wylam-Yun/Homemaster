@@ -29,15 +29,18 @@ from homemaster.channels.router import AttachmentPolicy, ChannelRouter
 from homemaster.config import ContextPolicyConfig, HomeMasterConfig, ProviderProfileConfig
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import JsonlTraceSink
-from homemaster.gateway.auth import AuthenticatedPrincipal
 from homemaster.gateway.browser import BrowserGatewayApplication
 from homemaster.gateway.runtime import GatewayRuntime
 from homemaster.prompts.loader import PromptId, load_prompt
 from homemaster.providers.attempts import ProviderAttemptRecord
 from homemaster.providers.types import TransportDelta
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 ANT_ORIGIN = os.environ.get("HOMEMASTER_ANT_ORIGIN")
-pytestmark = pytest.mark.skipif(not ANT_ORIGIN, reason="HOMEMASTER_ANT_ORIGIN is not set")
+pytestmark = [
+    pytest.mark.live_api,
+    pytest.mark.skipif(not ANT_ORIGIN, reason="HOMEMASTER_ANT_ORIGIN is not set"),
+]
 
 VALUES = {
     "TenantId": "tenant-phase1",

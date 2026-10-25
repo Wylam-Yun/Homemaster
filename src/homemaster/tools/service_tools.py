@@ -577,7 +577,7 @@ def _cron(
             "Cron job requires command or message.",
             backend_attempted=False,
         )
-    job: dict[str, Any] = {
+    job = {
         "name": arguments.name,
         "schedule": arguments.schedule,
         "cwd": arguments.cwd or str(context.working_directory),

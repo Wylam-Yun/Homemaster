@@ -38,9 +38,7 @@ KEY_HELP_LINES = (
     "@<path>: file path completion (Tab / while typing).",
 )
 
-REMOTE_KEY_HELP_LINES = (
-    "Tab on an empty prompt: toggle Plan/Act mode.",
-)
+REMOTE_KEY_HELP_LINES = ("Tab on an empty prompt: toggle Plan/Act mode.",)
 
 
 def build_key_bindings(

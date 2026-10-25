@@ -45,14 +45,18 @@ def test_begin_iteration_increments_counters() -> None:
 def test_record_tool_results_tracks_errors() -> None:
     state = AgentState(run_id="r1", session_id="s1")
 
-    state.record_tool_results([
-        {"tool_call_id": "c1", "name": "t1", "is_error": True, "text": "fail"},
-    ])
+    state.record_tool_results(
+        [
+            {"tool_call_id": "c1", "name": "t1", "is_error": True, "text": "fail"},
+        ]
+    )
     assert state.consecutive_tool_errors == 1
 
-    state.record_tool_results([
-        {"tool_call_id": "c2", "name": "t1", "is_error": False, "text": "ok"},
-    ])
+    state.record_tool_results(
+        [
+            {"tool_call_id": "c2", "name": "t1", "is_error": False, "text": "ok"},
+        ]
+    )
     assert state.consecutive_tool_errors == 0
 
 
@@ -65,9 +69,9 @@ def test_record_tool_results_tracks_no_progress_repeated_signature() -> None:
 
     assert state.no_progress_iterations == 1
 
-    state.record_tool_results([
-        {"tool_call_id": "c3", "name": "robot_observe", "is_error": False, "text": "new"}
-    ])
+    state.record_tool_results(
+        [{"tool_call_id": "c3", "name": "robot_observe", "is_error": False, "text": "new"}]
+    )
     assert state.no_progress_iterations == 0
 
 

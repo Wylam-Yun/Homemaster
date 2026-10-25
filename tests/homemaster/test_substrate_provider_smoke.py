@@ -35,9 +35,7 @@ _OPENAI_SSE = [
     {
         "id": "chatcmpl-fake",
         "object": "chat.completion.chunk",
-        "choices": [
-            {"index": 0, "delta": {}, "finish_reason": "stop"}
-        ],
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
         "usage": {
             "prompt_tokens": 5,
             "completion_tokens": 2,
@@ -189,9 +187,7 @@ def _profile(api_format: str, port: int) -> ProviderProfileConfig:
 async def test_provider_wire_smoke(api_format: str, wire_server: Any) -> None:
     client = AsLLMClient(_profile(api_format, wire_server.server_port))
     try:
-        message = await client.complete(
-            [UserMessage.from_text("ping")], system_prompt="sys"
-        )
+        message = await client.complete([UserMessage.from_text("ping")], system_prompt="sys")
     finally:
         await client.aclose()
     assert message.text == "hi"

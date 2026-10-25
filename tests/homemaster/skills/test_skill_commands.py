@@ -31,8 +31,7 @@ def test_skill_slash_command_expands_upstream_placeholders() -> None:
     assert result is not None
     assert result.model_override == "configured-model"
     assert result.prompt == (
-        "Base directory for this skill: /tmp/demo\n\n"
-        "Run from /tmp/demo: one two for session-1"
+        "Base directory for this skill: /tmp/demo\n\nRun from /tmp/demo: one two for session-1"
     )
 
 

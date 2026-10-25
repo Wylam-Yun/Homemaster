@@ -57,9 +57,7 @@ def test_explicit_server_is_connect_only_and_never_spawns(monkeypatch) -> None:
         spawned.append((args, kwargs))
         return FakeProc()
 
-    url, proc = ensure_server(
-        probe=_prober({"http://remote.test:9000"}), spawn=spawn
-    )
+    url, proc = ensure_server(probe=_prober({"http://remote.test:9000"}), spawn=spawn)
     assert url == "http://remote.test:9000"
     assert proc is None
     assert spawned == []

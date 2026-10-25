@@ -8,6 +8,7 @@ onto ALFWorld command labels before the command is sent to the simulator.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,8 @@ from typing import Any
 import httpx
 
 from homemaster.providers.json_utils import extract_json_payload
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -379,29 +382,50 @@ def _judge_same_semantic_target(
         f"ground_truth_label: {json.dumps(canonical_label, ensure_ascii=False)}"
     )
     try:
-        response = httpx.post(
-            f"{config['base_url'].rstrip('/')}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {config['api_key']}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": config["model"],
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": float(config.get("temperature", 0)),
-                "max_tokens": int(config.get("max_tokens", 32)),
-            },
-            timeout=float(config.get("timeout_s", 30)),
-        )
+        url = f"{config['base_url'].rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": config["model"],
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": float(config.get("temperature", 0)),
+            "max_tokens": int(config.get("max_tokens", 32)),
+        }
+        timeout = float(config.get("timeout_s", 30))
+        threshold = float(config.get("min_confidence", 0.5))
+    except KeyError as exc:
+        logger.warning("semantic judge config missing key %s", exc)
+        return False
+    except (TypeError, ValueError):
+        logger.warning("semantic judge config values are invalid")
+        return False
+    try:
+        response = httpx.post(url, headers=headers, json=body, timeout=timeout)
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # exc text embeds the request URL (config-derived); log the code only.
+        logger.warning("semantic judge request failed: HTTP %s", exc.response.status_code)
+        return False
+    except httpx.HTTPError as exc:
+        # Exception messages may embed the base_url; log the type name only.
+        logger.warning("semantic judge request failed: %s", type(exc).__name__)
+        return False
+    except Exception as exc:
+        # e.g. httpx.InvalidURL sits outside HTTPError; its message can carry
+        # the config-derived URL, so log only the exception type.
+        logger.warning("semantic judge request failed unexpectedly: %s", type(exc).__name__)
+        return False
+    try:
         content = response.json()["choices"][0]["message"]["content"]
         payload = extract_json_payload(str(content))
     except Exception:
+        logger.warning("semantic judge response could not be parsed", exc_info=True)
         return False
     if not payload.get("match"):
         return False
     confidence = payload.get("confidence")
-    threshold = float(config.get("min_confidence", 0.5))
     if isinstance(confidence, int | float) and confidence < threshold:
         return False
     return True
@@ -414,7 +438,13 @@ def _load_judge_config(path: Path) -> dict[str, Any] | None:
         return None
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
+    except Exception as exc:
+        # YAML/OS error text can quote file content; log only path + type.
+        logger.warning(
+            "semantic judge config could not be loaded from %s: %s",
+            path,
+            type(exc).__name__,
+        )
         return None
     section = payload.get("semantic_judge") if isinstance(payload, dict) else None
     if not isinstance(section, dict):

@@ -142,11 +142,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         # this run's reply.
         if getattr(self._handle, "assistant_watermark", None) is None:
             prior_tail = next(
-                (
-                    m
-                    for m in reversed(agent.state.context)
-                    if getattr(m, "role", "") == "assistant"
-                ),
+                (m for m in reversed(agent.state.context) if getattr(m, "role", "") == "assistant"),
                 None,
             )
             self._handle.assistant_watermark = (
@@ -252,7 +248,8 @@ class ContextAssemblyMiddleware(MiddlewareBase):
 
     async def _notify_compaction(self, metrics: Any) -> None:
         """Emit the legacy-shaped ``context.compaction`` event then invoke
-        the ``on_compaction`` callback (order matches generic_runtime)."""
+        the ``on_compaction`` callback — event first, callback second, so
+        listeners observe the event before any callback side effects."""
         kind = getattr(metrics, "compaction_kind", "") or ""
         trigger = (
             "manual"
@@ -306,10 +303,9 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             # pending view's tools_key must fingerprint the wire tools or
             # the usage anchor dies on the very next prepare.
             tools=tools,
-            # Legacy passes "aggressive" for reactive compaction
-            # (generic_runtime.py: `pending_compaction = "aggressive"`) —
-            # a bare True would string-coerce into neither the aggressive
-            # nor manual branch and silently no-op on small histories.
+            # Reactive compaction forces the "aggressive" branch — a bare
+            # True would string-coerce into neither the aggressive nor the
+            # manual branch and silently no-op on small histories.
             force_compact="aggressive",
         )
         metrics = getattr(prepared, "metrics", None)
@@ -788,10 +784,10 @@ def _usage_from_chunk(chunk: Any) -> dict[str, int]:
 
 
 class ProtocolFenceMiddleware(MiddlewareBase):
-    """Pre-dispatch batch fences ported from ``generic_runtime`` — the AS
-    toolkit only errors per-call on unknown names, which would let a valid
-    companion call execute before the batch's bad call fails. These fences
-    preserve HM's atomic batch rejection:
+    """Pre-dispatch batch fences carried over from the legacy HM runtime —
+    the AS toolkit only errors per-call on unknown names, which would let a
+    valid companion call execute before the batch's bad call fails. These
+    fences preserve HM's atomic batch rejection:
 
     - **unavailable tool**: any round call whose name was not offered in the
       current model request denies the whole batch
@@ -943,7 +939,6 @@ class ProtocolFenceMiddleware(MiddlewareBase):
                     ),
                 )
         return await next_handler()
-
 
 
 def _round_tool_calls(agent: Any, handle: Any = None) -> list[Any]:

@@ -125,9 +125,7 @@ class Requirement(FrozenDTO):
 
     @field_validator("step_ids")
     @classmethod
-    def _step_ids_must_be_unique_nonblank(
-        cls, value: tuple[str, ...]
-    ) -> tuple[str, ...]:
+    def _step_ids_must_be_unique_nonblank(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         for step_id in value:
             _nonblank(step_id, label="step id")
         if len(set(value)) != len(value):
@@ -154,9 +152,7 @@ class PreparedStep(FrozenDTO):
 
     @field_validator("required_item_ids")
     @classmethod
-    def _item_ids_must_be_unique_nonblank(
-        cls, value: tuple[str, ...]
-    ) -> tuple[str, ...]:
+    def _item_ids_must_be_unique_nonblank(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         for item_id in value:
             _nonblank(item_id, label="required item id")
         if len(set(value)) != len(value):
@@ -206,25 +202,18 @@ class PreparedPhysicalRequest(FrozenDTO):
             unknown = set(step.required_item_ids) - known
             if unknown:
                 raise ValueError(
-                    f"step {step.step_id!r} references unknown items: "
-                    f"{sorted(unknown)}"
+                    f"step {step.step_id!r} references unknown items: {sorted(unknown)}"
                 )
         step_ids = {step.step_id for step in self.steps}
         if len(step_ids) != len(self.steps):
             raise ValueError("step_ids must be unique")
-        covered = {
-            item_id for step in self.steps for item_id in step.required_item_ids
-        }
+        covered = {item_id for step in self.steps for item_id in step.required_item_ids}
         orphaned = known - covered
         if orphaned:
-            raise ValueError(
-                f"requirements without a step: {sorted(orphaned)}"
-            )
+            raise ValueError(f"requirements without a step: {sorted(orphaned)}")
         environments = {item.key.environment_id for item in self.requirements}
         if self.requirements and environments != {self.environment_id}:
-            raise ValueError(
-                "requirement environments must match the request environment"
-            )
+            raise ValueError("requirement environments must match the request environment")
         created, deadline = _checked_instant_pair(self.created_at, self.deadline_at)
         object.__setattr__(self, "created_at", created)
         object.__setattr__(self, "deadline_at", deadline)

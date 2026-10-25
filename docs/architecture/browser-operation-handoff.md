@@ -188,11 +188,11 @@ ApplicationRuntime（进程级）
 | Session messages/TaskState | 当前对话和本轮任务状态 | session/run | 不能 |
 | Browser SnapshotStore | 当前 page 的 DOM 元素、`target_ref`、generation、fingerprint | run/page 生命周期 | 可以，但只能在当前 page/generation 校验后使用 |
 
-源码入口：[`src/homemaster/memory/automatic_recall.py`](../../src/homemaster/memory/automatic_recall.py:20)、[`src/homemaster/memory/context_service.py`](../../src/homemaster/memory/context_service.py:9)、[`src/homemaster/application/runtime.py`](../../src/homemaster/application/runtime.py:458)、[`src/homemaster/cli/composition.py`](../../src/homemaster/cli/composition.py:370)、[`src/homemaster/tools/memory_tools.py`](../../src/homemaster/tools/memory_tools.py:1319)。
+源码入口：[`src/homemaster/memory/automatic_recall.py`](../../src/homemaster/memory/automatic_recall.py:20)、[`src/homemaster/memory/context_service.py`](../../src/homemaster/memory/context_service.py:9)、[`src/homemaster/application/runtime.py`](../../src/homemaster/application/runtime.py:458)、[`src/homemaster/application/composition/base.py`](../../src/homemaster/application/composition/base.py:170)、[`src/homemaster/tools/memory_tools.py`](../../src/homemaster/tools/memory_tools.py:1319)。
 
 ### 第 5 层：AgentRuntime 与 Provider
 
-**是什么**：`src/homemaster/agent/generic_runtime.py` 是循环控制器，`src/homemaster/providers/` 是模型传输层。
+**是什么**：`src/homemaster/substrate/runtime.py`（`AsAgentRuntime`，AgentScope 之上的循环控制壳）是循环控制器，`src/homemaster/providers/` 与 `src/homemaster/substrate/as_llm_client.py` 是模型传输层。
 
 **为什么存在**：模型只做“下一步决策”，不直接拥有浏览器能力；所有能力都通过本轮提供给它的 typed schema 暴露。
 
@@ -383,7 +383,7 @@ session.append(UserMessage)
 
 这也是为什么“模型说完成了”不等于 run completed：只有 agent loop 没有剩余 tool call，并且 `_commit_result()` 成功，Runtime 才提交最终 session 状态。
 
-源码入口：[`src/homemaster/agent/generic_runtime.py`](../../src/homemaster/agent/generic_runtime.py:121)、[`src/homemaster/agent/generic_runtime.py`](../../src/homemaster/agent/generic_runtime.py:329)、[`src/homemaster/agent/generic_runtime.py`](../../src/homemaster/agent/generic_runtime.py:769)。
+源码入口：[`src/homemaster/substrate/runtime.py`](../../src/homemaster/substrate/runtime.py:140)、[`src/homemaster/substrate/runtime.py`](../../src/homemaster/substrate/runtime.py:172)、[`src/homemaster/substrate/runtime.py`](../../src/homemaster/substrate/runtime.py:725)。
 
 ### 1.2.6 Tool 层：参数、权限、资源、异常的精确顺序
 
@@ -509,7 +509,7 @@ Chromium / 目标网站
 
 `create_browser_web_app()` 使用 `create_home_application(..., tool_environment="browser")` 组装通用应用，再通过
 `create_browser_application()` 包装。浏览器模式会切换到 browser system prompt，并把 `BrowserSessionFactory`
-放入每次请求的 dependencies；见 [`src/homemaster/cli/composition.py`](../../src/homemaster/cli/composition.py:162) 和
+放入每次请求的 dependencies；见 [`src/homemaster/application/composition/base.py`](../../src/homemaster/application/composition/base.py:170) 和
 [`src/homemaster/browser/application.py`](../../src/homemaster/browser/application.py:18)。
 
 ### 3.2 服务启动顺序
@@ -554,7 +554,7 @@ Chromium / 目标网站
 ApplicationRuntime 的 run/tool-view 边界在 [`src/homemaster/application/runtime.py`](../../src/homemaster/application/runtime.py:342) 和
 [`src/homemaster/application/runtime.py`](../../src/homemaster/application/runtime.py:682)；记忆召回在
 [`src/homemaster/application/runtime.py`](../../src/homemaster/application/runtime.py:586)；Agent loop 的“模型 -> tool -> 结果”在
-[`src/homemaster/agent/generic_runtime.py`](../../src/homemaster/agent/generic_runtime.py:121)；浏览器工具注册表在
+[`src/homemaster/substrate/runtime.py`](../../src/homemaster/substrate/runtime.py:172)；浏览器工具注册表在
 [`src/homemaster/tools/browser/registry.py`](../../src/homemaster/tools/browser/registry.py:67)。
 
 ### 4.1 具体例子：填写一个输入框

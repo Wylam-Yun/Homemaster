@@ -154,9 +154,7 @@ def _session_label(summary: dict[str, Any]) -> str:
     return f"{summary.get('session_id', '')} {summary.get('title', '')}"
 
 
-def resolve_resume_session(
-    term: str, sessions: list[dict[str, Any]]
-) -> dict[str, Any] | None:
+def resolve_resume_session(term: str, sessions: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Three-level match: exact id → unique substring → fuzzy (openclaw tui)."""
 
     needle = term.strip()
@@ -297,11 +295,7 @@ async def _cmd_model(ctx: RemoteShellContext, args: str) -> None:
     if not term:
         await _model_picker(ctx, providers, prefill=None)
         return
-    exact = [
-        p
-        for p in providers
-        if str(p.get("name", "")).casefold() == term.casefold()
-    ]
+    exact = [p for p in providers if str(p.get("name", "")).casefold() == term.casefold()]
     if len(exact) == 1:
         _apply_provider(ctx, exact[0])
         return
@@ -370,9 +364,7 @@ async def _model_picker(
             _apply_provider(ctx, provider)
             return
     # Custom model id — keep the selected/default provider.
-    provider_name = ctx.provider_name or (
-        str(providers[0].get("name")) if providers else None
-    )
+    provider_name = ctx.provider_name or (str(providers[0].get("name")) if providers else None)
     ctx.provider_name = provider_name
     ctx.model = choice
     ctx.echo(f"Model: provider={provider_name or 'default'} model={choice}")
@@ -401,9 +393,7 @@ async def _cmd_session(ctx: RemoteShellContext, args: str) -> None:
     await _session_picker(ctx, sessions)
 
 
-async def _session_picker(
-    ctx: RemoteShellContext, sessions: list[dict[str, Any]]
-) -> None:
+async def _session_picker(ctx: RemoteShellContext, sessions: list[dict[str, Any]]) -> None:
     lines = ["Sessions:"]
     for index, summary in enumerate(sessions, start=1):
         marker = " *current*" if summary.get("session_id") == ctx.session_id else ""
@@ -520,9 +510,7 @@ async def _read(ctx: RemoteShellContext, prompt: str) -> str:
 _APPROVAL_CHOICES = {"1": "once", "2": "session", "3": "always", "4": "deny"}
 
 
-async def handle_approval_event(
-    ctx: RemoteShellContext, event: dict[str, Any]
-) -> None:
+async def handle_approval_event(ctx: RemoteShellContext, event: dict[str, Any]) -> None:
     """Walk one ``approval.requested`` payload item by item and submit v2."""
 
     payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
@@ -539,10 +527,7 @@ async def handle_approval_event(
             decisions.append(await _decide_item(ctx, item))
     except (EOFError, KeyboardInterrupt):
         # Input ended mid-prompt — fail closed: reject the whole card.
-        decisions = [
-            {"item_id": str(item.get("item_id")), "choice": "reject"}
-            for item in items
-        ]
+        decisions = [{"item_id": str(item.get("item_id")), "choice": "reject"} for item in items]
         ctx.echo("(input ended — rejected)")
     if not decisions:
         return
@@ -562,9 +547,7 @@ async def handle_approval_event(
             decisions=decisions,
         )
         ctx.decided_interactions.add(("approval", approval_id, revision))
-        ctx.echo(
-            f"approval {approval_id}: {resolution.get('request_status', 'submitted')}"
-        )
+        ctx.echo(f"approval {approval_id}: {resolution.get('request_status', 'submitted')}")
     except ApiError as exc:
         ctx.echo(f"approval {approval_id}: {exc.code} — {exc}")
 
@@ -583,8 +566,8 @@ async def _decide_item(ctx: RemoteShellContext, item: dict[str, Any]) -> dict[st
         )
         if choice == "always":
             confirm = (
-                await _read(ctx, "    allow ALWAYS for future requests? [y/N] ")
-            ).strip().lower()
+                (await _read(ctx, "    allow ALWAYS for future requests? [y/N] ")).strip().lower()
+            )
             if confirm in ("y", "yes"):
                 return {"item_id": item_id, "choice": "allow_always"}
             continue
@@ -605,9 +588,7 @@ async def _decide_item(ctx: RemoteShellContext, item: dict[str, Any]) -> dict[st
         ctx.echo("    answer 1/2/3/4 (once, session, always, deny)")
 
 
-async def handle_question_event(
-    ctx: RemoteShellContext, event: dict[str, Any]
-) -> None:
+async def handle_question_event(ctx: RemoteShellContext, event: dict[str, Any]) -> None:
     """Answer one ``question.asked`` payload via an ``ask>`` prompt."""
 
     payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}

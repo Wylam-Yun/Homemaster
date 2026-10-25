@@ -135,11 +135,7 @@ def repair_tool_pairs_indexed(messages: list[Message]) -> tuple[list[Message], l
     repaired lists back into input-view coordinates — repair drops orphan
     assistant messages, shifting every later index.
     """
-    result_ids = {
-        msg.tool_call_id
-        for msg in messages
-        if isinstance(msg, ToolResultMessage)
-    }
+    result_ids = {msg.tool_call_id for msg in messages if isinstance(msg, ToolResultMessage)}
     repaired: list[Message] = []
     kept: list[int] = []
     for index, msg in enumerate(messages):
@@ -152,20 +148,6 @@ def repair_tool_pairs_indexed(messages: list[Message]) -> tuple[list[Message], l
             repaired.append(msg)
             kept.append(index)
     return repaired, kept
-
-
-def split_preserving_tool_pairs(
-    messages: list[Message],
-    *,
-    preserve_recent: int,
-) -> tuple[list[Message], list[Message]]:
-    if len(messages) <= preserve_recent:
-        return [], list(messages)
-    split = _split_index_preserving_groups(
-        messages,
-        preserve_recent_messages=preserve_recent,
-    )
-    return list(messages[:split]), list(messages[split:])
 
 
 def split_preserving_recent_context(

@@ -47,9 +47,7 @@ def _stack(
     config_path = tmp_path / "config.yaml"
     config = HomeMasterConfig.model_validate({})
     config._config_path = config_path
-    service = ProviderConfigService(
-        config_path=config_path, runtime_config=config, probe=probe
-    )
+    service = ProviderConfigService(config_path=config_path, runtime_config=config, probe=probe)
     app = create_web_app(
         application=_FakeApplication(),
         confirmation_handler=WebConfirmationHandler(timeout_s=None),
@@ -189,17 +187,13 @@ def test_provider_error_branches(tmp_path: Path) -> None:
         assert bad_field.status_code == 422
         assert bad_field.json()["code"] == "invalid_provider"
 
-        bad_format = client.post(
-            "/api/providers", json=_payload(api_format="nope")
-        )
+        bad_format = client.post("/api/providers", json=_payload(api_format="nope"))
         assert bad_format.status_code == 422
         # Validation failures must not touch the file.
         assert not config_path.exists()
 
         client.post("/api/providers", json=_payload())
-        conflict = client.post(
-            "/api/providers", json=_payload(model="different-model")
-        )
+        conflict = client.post("/api/providers", json=_payload(model="different-model"))
         assert conflict.status_code == 409
         assert conflict.json()["code"] == "provider_conflict"
 
@@ -232,16 +226,12 @@ def test_provider_test_endpoint_with_injected_probe(tmp_path: Path) -> None:
         assert ok.json()["error_kind"] is None
         assert API_KEY not in ok.text
 
-        auth = client.post(
-            "/api/providers/test", json=_payload(name="BadKey")
-        )
+        auth = client.post("/api/providers/test", json=_payload(name="BadKey"))
         assert auth.status_code == 200
         assert auth.json()["ok"] is False
         assert auth.json()["error_kind"] == "auth"
 
-        net = client.post(
-            "/api/providers/test", json=_payload(name="BadUrl")
-        )
+        net = client.post("/api/providers/test", json=_payload(name="BadUrl"))
         assert net.status_code == 200
         assert net.json()["error_kind"] == "network"
 

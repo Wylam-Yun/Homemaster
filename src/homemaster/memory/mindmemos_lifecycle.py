@@ -276,17 +276,11 @@ class MindMemOSLifecycleMixin:
                         memory_writer=writer,
                         activity_collector=activity_collector,
                         clients=clients,
-                        query_rewriter=ImplicitFeedbackQueryRewriter(
-                            llm_client=llm_client
-                        ),
+                        query_rewriter=ImplicitFeedbackQueryRewriter(llm_client=llm_client),
                         search_pipeline=search_pipeline,
                     ),
-                    signal_detector=ImplicitFeedbackSignalDetector(
-                        llm_client=llm_client
-                    ),
-                    action_planner=ImplicitFeedbackActionPlanner(
-                        llm_client=llm_client
-                    ),
+                    signal_detector=ImplicitFeedbackSignalDetector(llm_client=llm_client),
+                    action_planner=ImplicitFeedbackActionPlanner(llm_client=llm_client),
                     executor=feedback_executor,
                 ),
             )

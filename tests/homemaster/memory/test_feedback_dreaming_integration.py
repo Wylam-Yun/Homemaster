@@ -40,6 +40,7 @@ def live_config(tmp_path: Path):
 
 
 @pytest.mark.live_api
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> None:
     nonce = "v27-stored-first-" + uuid.uuid4().hex[:10]
@@ -94,9 +95,7 @@ async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> Non
             project_id=context.project_id,
             memory_id=memory_id,
         )
-        assert before_graph == [
-            {"memory_count": 1, "extracted_from_count": 1, "mentions_count": 0}
-        ]
+        assert before_graph == [{"memory_count": 1, "extracted_from_count": 1, "mentions_count": 0}]
 
         bundle.memory_enrichment_queue.enqueue(
             memory_id=memory_id,
@@ -144,6 +143,7 @@ async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> Non
 
 
 @pytest.mark.live_api
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_structured_update_and_history_reach_qdrant_and_neo4j(live_config) -> None:
     nonce = "v26-direct-update-" + uuid.uuid4().hex[:10]
@@ -236,6 +236,7 @@ async def test_real_structured_update_and_history_reach_qdrant_and_neo4j(live_co
 
 
 @pytest.mark.live_api
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_application_explicit_feedback_updates_only_recalled_memory(
     live_config,
@@ -362,6 +363,7 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
 
 
 @pytest.mark.live_api
+@pytest.mark.live_memory
 @pytest.mark.asyncio
 async def test_real_dreaming_no_action_consumes_verified_batch(live_config) -> None:
     nonce = "v26-dreaming-" + uuid.uuid4().hex[:10]

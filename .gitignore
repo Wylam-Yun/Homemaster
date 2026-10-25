@@ -5,11 +5,14 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+coverage.xml
+*.prof
 htmlcov/
-dist/
-build/
+/dist/
+/build/
 *.egg-info/
 .env*
+!.env.example
 .DS_Store
 config/api_config.json
 config/nvidia_api_config.json
@@ -28,8 +31,6 @@ trace.jsonl
 *.sqlite3-wal
 *.sqlite3-shm
 permissions.events.jsonl
-plan/V1.2/test_results/
-plan/V1.2/baselines/migration_artifacts/
 var/homemaster/
 var/alfworld_smoke/
 /record/

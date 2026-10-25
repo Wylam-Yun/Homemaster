@@ -37,7 +37,6 @@ from homemaster.tools.base import BaseTool
 if TYPE_CHECKING:
     from homemaster.agent.messages import ToolResultMessage
 from homemaster.tools.contracts import (
-    MEMORY_TOOL_NAMES,
     CancellationHandle,
     DeadlineHandle,
     PermissionSubject,

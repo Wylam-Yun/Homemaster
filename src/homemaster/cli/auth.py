@@ -318,8 +318,7 @@ def _collect_answers(
         echo(f"{template.title} runs keyless; no API key needed.")
     else:
         api_key = prompter.secret(
-            f"API key for {name} (input hidden; leave empty to use "
-            f"{env_override_hint(name)} later)"
+            f"API key for {name} (input hidden; leave empty to use {env_override_hint(name)} later)"
         )
         if not api_key:
             echo(f"No API key stored; set {env_override_hint(name)} before running.")

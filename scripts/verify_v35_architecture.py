@@ -55,7 +55,7 @@ def audit() -> list[dict[str, object]]:
             offenders.append(str(path.relative_to(ROOT)))
     check("composition_import_direction", not offenders, ", ".join(offenders))
 
-    domain_runtime = [SRC / "application" / "runtime.py", SRC / "agent" / "generic_runtime.py"]
+    domain_runtime = [SRC / "application" / "runtime.py"]
     forbidden_runtime = ("homemaster.alfworld", "AlfredThorEnv", "objectId", "scorer")
     leaks = [
         f"{path.relative_to(ROOT)}:{term}"
@@ -63,7 +63,7 @@ def audit() -> list[dict[str, object]]:
         for term in forbidden_runtime
         if term in path.read_text(encoding="utf-8")
     ]
-    check("generic_runtime_domain_free", not leaks, ", ".join(leaks))
+    check("runtime_domain_free", not leaks, ", ".join(leaks))
 
     worker_offenders = []
     for path in _python_files(WORKER):

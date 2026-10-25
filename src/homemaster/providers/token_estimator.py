@@ -127,6 +127,7 @@ class BaseTokenEstimator:
 
 class AnthropicTokenEstimator(BaseTokenEstimator):
     """Anthropic-wire-family estimator (``anthropic``/``minimax``)."""
+
     def estimate_image(self, *, base64_data: str, media_type: str) -> int:
         width, height = decode_image_dimensions(base64_data)
         return max(1, (width * height) // 1000)
@@ -140,9 +141,7 @@ class AnthropicTokenEstimator(BaseTokenEstimator):
         return self.estimate_text(json.dumps(value, ensure_ascii=True, sort_keys=True))
 
     def real_usage(self, usage: dict[str, int]) -> int:
-        return int(usage.get("input_tokens") or 0) + int(
-            usage.get("cache_read_input_tokens") or 0
-        )
+        return int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0)
 
 
 class OpenAIChatTokenEstimator(BaseTokenEstimator):

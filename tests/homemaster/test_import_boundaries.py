@@ -142,9 +142,7 @@ def test_homemaster_imports_agentscope_only_inside_substrate() -> None:
             continue
         if pattern.search(path.read_text(encoding="utf-8")):
             offenders.append(rel)
-    assert offenders == [], (
-        f"agentscope imports outside substrate: {offenders}"
-    )
+    assert offenders == [], f"agentscope imports outside substrate: {offenders}"
 
 
 def test_agentscope_engine_entrypoints_do_not_reverse_import_application() -> None:
@@ -152,13 +150,9 @@ def test_agentscope_engine_entrypoints_do_not_reverse_import_application() -> No
     application composition layer (application → substrate direction only)."""
     import re
 
-    pattern = re.compile(
-        r"^\s*(?:from|import)\s+homemaster\.application\b", re.M
-    )
+    pattern = re.compile(r"^\s*(?:from|import)\s+homemaster\.application\b", re.M)
     offenders = []
     for path in (ROOT / "src/homemaster/substrate").rglob("*.py"):
         if pattern.search(path.read_text(encoding="utf-8")):
             offenders.append(str(path.relative_to(ROOT)))
-    assert offenders == [], (
-        f"substrate reverse-imports application layer: {offenders}"
-    )
+    assert offenders == [], f"substrate reverse-imports application layer: {offenders}"

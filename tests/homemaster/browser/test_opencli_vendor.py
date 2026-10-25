@@ -6,14 +6,7 @@ import os
 import re
 from pathlib import Path
 
-VENDOR = (
-    Path(__file__).parents[3]
-    / "src"
-    / "homemaster"
-    / "browser"
-    / "vendor"
-    / "opencli_1_8_7"
-)
+VENDOR = Path(__file__).parents[3] / "src" / "homemaster" / "browser" / "vendor" / "opencli_1_8_7"
 GENERATED = VENDOR.parent.parent / "generated" / "opencli_1_8_7"
 
 
@@ -78,9 +71,7 @@ def test_opencli_relative_esm_import_dependency_closure_is_complete() -> None:
     missing: list[tuple[str, str]] = []
     pattern = re.compile(r"(?:from\s+|import\s*\()['\"]([^'\"]+)['\"]")
     for source in root.rglob("*.js"):
-        text = re.sub(
-            r"/\*.*?\*/|//[^\n]*", "", source.read_text(encoding="utf-8"), flags=re.S
-        )
+        text = re.sub(r"/\*.*?\*/|//[^\n]*", "", source.read_text(encoding="utf-8"), flags=re.S)
         for specifier in pattern.findall(text):
             if not specifier.startswith("."):
                 continue
@@ -103,11 +94,11 @@ def test_opencli_upstream_test_fixtures_are_complete_and_locked() -> None:
         ),
     }
     fixtures = VENDOR / "dist" / "src" / "browser" / "__fixtures__" / "article-extract"
-    actual = {
-        path.name: _sha256(path)
-        for path in fixtures.iterdir()
-        if path.is_file()
-    } if fixtures.is_dir() else {}
+    actual = (
+        {path.name: _sha256(path) for path in fixtures.iterdir() if path.is_file()}
+        if fixtures.is_dir()
+        else {}
+    )
     assert actual == expected
 
 
@@ -126,9 +117,7 @@ def test_vendored_node_dependencies_retain_package_metadata_and_license() -> Non
 def test_vendored_tree_contains_no_generated_test_or_build_caches() -> None:
     forbidden = {".pytest_cache", ".ruff_cache", ".vite", "__pycache__"}
     found = {
-        path.relative_to(VENDOR).as_posix()
-        for path in VENDOR.rglob("*")
-        if path.name in forbidden
+        path.relative_to(VENDOR).as_posix() for path in VENDOR.rglob("*") if path.name in forbidden
     }
     assert found == set()
 
@@ -136,9 +125,5 @@ def test_vendored_tree_contains_no_generated_test_or_build_caches() -> None:
 def test_generated_opencli_manifest_matches_loaded_page_scripts() -> None:
     manifest = json.loads((GENERATED / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["upstream"] == "@jackwener/opencli@1.8.7"
-    scripts = {
-        path.name: _sha256(path)
-        for path in GENERATED.glob("*.js")
-        if path.is_file()
-    }
+    scripts = {path.name: _sha256(path) for path in GENERATED.glob("*.js") if path.is_file()}
     assert manifest["generated"] == scripts

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
 
-from homemaster.gateway.auth import AuthenticatedPrincipal
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$")
 _ARTIFACT_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
@@ -233,6 +233,35 @@ class OutboundMessage:
         return (*self.queue_key, self.kind)
 
 
+class ApprovalDecision(StrEnum):
+    APPROVE = "approve"
+    DENY = "deny"
+
+
+class ApprovalResolveStatus(StrEnum):
+    RESOLVED = "resolved"
+    UNKNOWN = "unknown"
+    UNAUTHORIZED = "unauthorized"
+    STALE = "stale"
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    """Legacy card payload kept for the channel renderer.
+
+    V3.4 issues no Feishu cards for household approvals, so the gateway
+    handler never constructs one; the type remains for the existing
+    channel rendering path and its tests.
+    """
+
+    approval_id: str
+    tool_name: str
+    arguments: dict[str, object]
+    cwd: str
+    reason: str
+    subject_id: str
+
+
 def _require_token(value: object, label: str) -> None:
     if not isinstance(value, str) or _TOKEN_RE.fullmatch(value) is None:
         raise ValueError(f"{label} must be a non-empty stable token")
@@ -259,6 +288,9 @@ def _freeze_json(value: object) -> object:
 
 
 __all__ = [
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "ApprovalResolveStatus",
     "ChannelDeliveryContext",
     "ChannelEventKind",
     "ChannelIdentity",

@@ -2,9 +2,7 @@ from pathlib import Path
 
 
 def _skill() -> str:
-    content = Path(
-        "src/homemaster/skills/builtin/change-ticket-executor/SKILL.md"
-    ).read_text(
+    content = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
         encoding="utf-8",
     )
     return " ".join(content.split())

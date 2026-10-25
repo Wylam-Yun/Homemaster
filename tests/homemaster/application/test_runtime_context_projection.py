@@ -53,9 +53,7 @@ class _RecordingChatModel:
             ) -> ChatResponse:
                 for msg in messages:
                     if msg.role == "system":
-                        outer.system_prompts.append(
-                            "".join(b.text or "" for b in msg.content)
-                        )
+                        outer.system_prompts.append("".join(b.text or "" for b in msg.content))
                 return ChatResponse(
                     content=[TextBlock(text="done")],
                     is_last=True,
@@ -136,7 +134,7 @@ async def test_default_runtime_sends_authoritative_workspace_in_system_prompt(
     assert result.status is RunStatus.REPLIED
     assert len(provider.system_prompts) == 1
     system_prompt = provider.system_prompts[0]
-    assert f'Current workspace: {json.dumps(str(tmp_path))}.' in system_prompt
+    assert f"Current workspace: {json.dumps(str(tmp_path))}." in system_prompt
     assert "Relative paths passed to terminal and file tools resolve from this workspace" in (
         system_prompt
     )
@@ -203,9 +201,7 @@ async def test_terminal_receipt_survives_actual_provider_serialization(
             working_directory=tmp_path,
         ),
     )
-    tool_call = ToolCall(
-        id="terminal-call", name="terminal", arguments={"command": command}
-    )
+    tool_call = ToolCall(id="terminal-call", name="terminal", arguments={"command": command})
     message = _projector()._message(tool_call, normalized)
     assistant = AssistantMessage(content=[], tool_calls=[tool_call])
 

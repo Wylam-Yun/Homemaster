@@ -55,8 +55,7 @@ class SessionFinalizationController:
             # Admission denial must be observable — a silently dropped
             # finalization is an unwritten episode nobody can retry.
             logger.warning(
-                "session finalization not admitted for %s "
-                "(queue_started=%s, backend_ready=%s)",
+                "session finalization not admitted for %s (queue_started=%s, backend_ready=%s)",
                 session_id,
                 self._queue.started,
                 self._ready(),
@@ -131,6 +130,13 @@ class SessionFinalizationController:
                 if self._inflight.get(session_id) is pending:
                     del self._inflight[session_id]
 
+        # NOTE: the accepted episode lives only in this in-memory queue slot
+        # until the worker runs ``work()`` and ``_load_or_create_job`` persists
+        # job.json + episode.json — a process crash inside that window drops it
+        # silently (accepted risk; a durable-intent enqueue design is
+        # intentionally deferred). The finalizer's trace binding is also
+        # per-process (run_dir), so the intent could not be faithfully
+        # replayed against the same trace after a restart anyway.
         receipt = self._queue.enqueue_work(
             job_type="session_finalization",
             session_id=session_id,
@@ -138,9 +144,7 @@ class SessionFinalizationController:
         )
         pending.receipt = receipt
         self._inflight[session_id] = pending
-        for job_id in [
-            key for key, future in self._results.items() if future.done()
-        ]:
+        for job_id in [key for key, future in self._results.items() if future.done()]:
             del self._results[job_id]
         self._results[receipt.job_id] = result_future
         return receipt
@@ -183,8 +187,7 @@ class SessionFinalizationController:
     def statuses(self) -> dict[str, dict[str, Any]]:
         """Latest finalization view per session, merged with live queue state."""
         views = {
-            session_id: finalization_job_view(job)
-            for session_id, job in self._job_index().items()
+            session_id: finalization_job_view(job) for session_id, job in self._job_index().items()
         }
         for session_id, pending in self._inflight.items():
             if not pending.started:

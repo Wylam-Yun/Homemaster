@@ -165,9 +165,7 @@ def _application(
 def _tool_results(app: ApplicationRuntime, session_id: str) -> list[ToolResultMessage]:
     runtime = app.session_manager.get(session_id)
     return [
-        message
-        for message in runtime.session.messages
-        if isinstance(message, ToolResultMessage)
+        message for message in runtime.session.messages if isinstance(message, ToolResultMessage)
     ]
 
 
@@ -290,15 +288,8 @@ async def test_unconvertible_response_block_becomes_placeholder(tmp_path: Path):
     result = await app.run(RunRequest(text="x", session_id="s-badblock"))
     assert result.status.value == "replied"
     runtime = app.session_manager.get("s-badblock")
-    assistant = [
-        m for m in runtime.session.messages if isinstance(m, AssistantMessage)
-    ]
-    texts = [
-        b.text
-        for m in assistant
-        for b in m.content
-        if getattr(b, "type", None) == "text"
-    ]
+    assistant = [m for m in runtime.session.messages if isinstance(m, AssistantMessage)]
+    texts = [b.text for m in assistant for b in m.content if getattr(b, "type", None) == "text"]
     assert any("unconvertible provider content omitted" in t for t in texts)
     assert any("with attachment" in t for t in texts)
     await app.aclose()
@@ -324,9 +315,7 @@ async def test_unknown_tool_carries_canonical_error_code(tmp_path: Path) -> None
 async def test_invalid_arguments_carry_canonical_error_code(tmp_path: Path) -> None:
     from homemaster.application.runtime import RunRequest
 
-    transport = _ScriptTransport(
-        [_call("call-1", "echo", {"value": [1, 2, 3]}), _text("handled")]
-    )
+    transport = _ScriptTransport([_call("call-1", "echo", {"value": [1, 2, 3]}), _text("handled")])
     app = _application(tmp_path, [_echo_tool()], {"go": transport})
     result = await app.run(RunRequest(text="go", session_id="s-invargs"))
     assert result.status.value == "replied"
@@ -343,9 +332,7 @@ async def test_well_formed_arguments_are_not_silently_retyped(tmp_path: Path) ->
     executing with a coerced value."""
     from homemaster.application.runtime import RunRequest
 
-    transport = _ScriptTransport(
-        [_call("call-1", "echo", {"value": 12345}), _text("done")]
-    )
+    transport = _ScriptTransport([_call("call-1", "echo", {"value": 12345}), _text("done")])
     app = _application(tmp_path, [_echo_tool()], {"go": transport})
     result = await app.run(RunRequest(text="go", session_id="s-coerce"))
     assert result.status.value == "replied"

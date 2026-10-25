@@ -12,9 +12,9 @@ import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
-from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web import serve
+from homemaster.web.memory_views import MemoryManagementService
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "LOCALHOST", "::1"])
@@ -78,9 +78,7 @@ def test_create_home_web_app_uses_full_auto_permission_mode(monkeypatch) -> None
     assert expected_app.state.home_bundle is bundle
 
 
-def test_create_browser_web_app_uses_full_auto_permission_mode(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_create_browser_web_app_uses_full_auto_permission_mode(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
     config_path = tmp_path / "homemaster.browser.yaml"
     config = SimpleNamespace()
@@ -332,6 +330,7 @@ async def test_create_alfworld_web_app_forwards_config_path(monkeypatch, tmp_pat
     assert result is expected_app
     assert captured["config"] is config
 
+
 @pytest.mark.asyncio
 async def test_create_alfworld_web_app_closes_base_when_binding_fails(monkeypatch) -> None:
     close_base = AsyncMock()
@@ -352,9 +351,7 @@ async def test_create_alfworld_web_app_closes_base_when_binding_fails(monkeypatc
     async def fail_binding(*_args, **_kwargs):
         raise RuntimeError("binding failed")
 
-    monkeypatch.setattr(
-        serve, "create_alfworld_gateway_binding", fail_binding, raising=False
-    )
+    monkeypatch.setattr(serve, "create_alfworld_gateway_binding", fail_binding, raising=False)
 
     with pytest.raises(RuntimeError, match="binding failed"):
         await serve.create_alfworld_web_app()

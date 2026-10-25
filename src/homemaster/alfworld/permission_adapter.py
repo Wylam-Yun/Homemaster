@@ -120,9 +120,7 @@ class AlfworldBackend(Protocol):
         """Monotonic backend revision for change detection."""
         ...  # pragma: no cover
 
-    def resolve_target(
-        self, label: str, *, allowed: frozenset[str]
-    ) -> BackendTarget | None:
+    def resolve_target(self, label: str, *, allowed: frozenset[str]) -> BackendTarget | None:
         """Pin one label to exactly one native object, or None."""
         ...  # pragma: no cover
 
@@ -134,9 +132,7 @@ class AlfworldBackend(Protocol):
         """Move toward one locked label."""
         ...  # pragma: no cover
 
-    async def manipulate(
-        self, *, action: str, args: Mapping[str, Any]
-    ) -> BackendReceipt:
+    async def manipulate(self, *, action: str, args: Mapping[str, Any]) -> BackendReceipt:
         """Run one locked manipulation with already-resolved labels."""
         ...  # pragma: no cover
 
@@ -205,9 +201,7 @@ class AlfworldPermissionAdapter:
             "manipulate",
         ):
             if not callable(getattr(candidate, attr, None)):
-                raise TargetUnresolved(
-                    "no environment backend is wired for the permission adapter"
-                )
+                raise TargetUnresolved("no environment backend is wired for the permission adapter")
         return candidate  # type: ignore[return-value]
 
     async def prepare(
@@ -220,13 +214,9 @@ class AlfworldPermissionAdapter:
         planned = self._plan(args, backend)
         primary = planned.resolved_primary
         if primary is None:
-            primary = backend.resolve_target(
-                planned.primary_label, allowed=planned.primary_allowed
-            )
+            primary = backend.resolve_target(planned.primary_label, allowed=planned.primary_allowed)
         if primary is None:
-            raise TargetUnresolved(
-                f"target unresolved: {planned.primary_label!r}"
-            )
+            raise TargetUnresolved(f"target unresolved: {planned.primary_label!r}")
         nav_label = (
             planned.primary_label
             if self._tool == "robot_go_to"
@@ -236,18 +226,12 @@ class AlfworldPermissionAdapter:
         if nav_label is not None:
             nav_target = backend.resolve_target(nav_label, allowed=_NAV_ROLES)
             if nav_target is None:
-                raise TargetUnresolved(
-                    f"navigation target unresolved: {nav_label!r}"
-                )
+                raise TargetUnresolved(f"navigation target unresolved: {nav_label!r}")
         recep_target: BackendTarget | None = None
         if planned.receptacle_label is not None:
-            recep_target = backend.resolve_target(
-                planned.receptacle_label, allowed=_NAV_ROLES
-            )
+            recep_target = backend.resolve_target(planned.receptacle_label, allowed=_NAV_ROLES)
             if recep_target is None:
-                raise TargetUnresolved(
-                    f"receptacle unresolved: {planned.receptacle_label!r}"
-                )
+                raise TargetUnresolved(f"receptacle unresolved: {planned.receptacle_label!r}")
         return self._build_request(
             args,
             planned,
@@ -292,8 +276,7 @@ class AlfworldPermissionAdapter:
             return _PlannedEffect(
                 canonical_action=canonical,
                 primary_label=_required_text(label, f"{canonical} target"),
-                primary_allowed=_GROUNDING_ROLES["target_receptacle"]
-                | _GROUNDING_ROLES["object"],
+                primary_allowed=_GROUNDING_ROLES["target_receptacle"] | _GROUNDING_ROLES["object"],
             )
         if canonical == "place":
             recep = args.get("target_receptacle") or args.get("object")
@@ -327,25 +310,18 @@ class AlfworldPermissionAdapter:
             return _PlannedEffect(
                 canonical_action=canonical,
                 primary_label=_required_text(args.get("object"), f"{canonical} target"),
-                primary_allowed=_GROUNDING_ROLES["object"]
-                | _GROUNDING_ROLES["target_receptacle"],
+                primary_allowed=_GROUNDING_ROLES["object"] | _GROUNDING_ROLES["target_receptacle"],
             )
         raise TargetUnresolved(f"action {spelling!r} has no environment mapping")
 
-    def _plan_use(
-        self, args: dict[str, Any], backend: AlfworldBackend
-    ) -> _PlannedEffect:
+    def _plan_use(self, args: dict[str, Any], backend: AlfworldBackend) -> _PlannedEffect:
         label = _required_text(args.get("object"), "use target")
         target = backend.resolve_target(label, allowed=frozenset({"toggle"}))
         if target is None or target.kind != "toggle":
-            raise TargetUnresolved(
-                f"use target unresolved as a toggle: {label!r}"
-            )
+            raise TargetUnresolved(f"use target unresolved as a toggle: {label!r}")
         state = backend.toggle_state(target.object_id)
         if state is None:
-            raise TargetUnresolved(
-                f"toggle state unreadable for {label!r}; refusing blind use"
-            )
+            raise TargetUnresolved(f"toggle state unreadable for {label!r}; refusing blind use")
         return _PlannedEffect(
             canonical_action="turn_off" if state else "turn_on",
             primary_label=label,
@@ -353,9 +329,7 @@ class AlfworldPermissionAdapter:
             resolved_primary=target,
         )
 
-    def _navigation_label(
-        self, args: dict[str, Any], planned: _PlannedEffect
-    ) -> str | None:
+    def _navigation_label(self, args: dict[str, Any], planned: _PlannedEffect) -> str | None:
         from homemaster.alfworld.tools import (
             navigation_target_for_action,
         )
@@ -364,9 +338,7 @@ class AlfworldPermissionAdapter:
         # The shared helper matches backend spellings (take/put); the plan
         # holds canonical spellings (pick_up/place). Convert once here so
         # declared navigation always equals the legacy execution path.
-        probe["action"] = _BACKEND_ACTIONS.get(
-            planned.canonical_action, planned.canonical_action
-        )
+        probe["action"] = _BACKEND_ACTIONS.get(planned.canonical_action, planned.canonical_action)
         return navigation_target_for_action(probe)
 
     def _build_request(
@@ -474,9 +446,7 @@ class AlfworldPermissionAdapter:
             primary.object_id,
             _StepCall(
                 kind="manipulate",
-                action=_BACKEND_ACTIONS.get(
-                    planned.canonical_action, planned.canonical_action
-                ),
+                action=_BACKEND_ACTIONS.get(planned.canonical_action, planned.canonical_action),
                 args=locked_args,
             ),
         )
@@ -519,9 +489,7 @@ class AlfworldPermissionAdapter:
         )
         self._by_request.setdefault(request_id, set()).add(binding_ref)
 
-    async def execute(
-        self, binding_ref: str, context: ToolExecutionContext
-    ) -> ToolExecutionResult:
+    async def execute(self, binding_ref: str, context: ToolExecutionContext) -> ToolExecutionResult:
         backend = self._backend_for(context)
         op = self._ops.get(binding_ref)
         if op is None:
@@ -529,9 +497,7 @@ class AlfworldPermissionAdapter:
         if op.call.kind == "go_to":
             receipt = await backend.go_to(op.call.label)
         else:
-            receipt = await backend.manipulate(
-                action=op.call.action, args=dict(op.call.args)
-            )
+            receipt = await backend.manipulate(action=op.call.action, args=dict(op.call.args))
         op.last_receipt = receipt
         return _result_for_receipt(op, receipt)
 
@@ -601,9 +567,7 @@ class ThorBackendView:
     def scene_revision(self) -> str:
         return f"{self._env.generation}:{self._env.state_sequence}"
 
-    def resolve_target(
-        self, label: str, *, allowed: frozenset[str]
-    ) -> BackendTarget | None:
+    def resolve_target(self, label: str, *, allowed: frozenset[str]) -> BackendTarget | None:
         from homemaster.alfworld.grounding import (
             resolve_authoritative,
         )
@@ -649,9 +613,7 @@ class ThorBackendView:
         )
         return _receipt_from_step(result)
 
-    async def manipulate(
-        self, *, action: str, args: Mapping[str, Any]
-    ) -> BackendReceipt:
+    async def manipulate(self, *, action: str, args: Mapping[str, Any]) -> BackendReceipt:
         if str(getattr(self._env, "env_type", "AlfredThorEnv")) != "AlfredThorEnv":
             return BackendReceipt(
                 ok=None,
@@ -699,9 +661,7 @@ def _locked_args(
     nav_label: str | None,
 ) -> dict[str, Any]:
     locked: dict[str, Any] = {
-        "action": _BACKEND_ACTIONS.get(
-            planned.canonical_action, planned.canonical_action
-        )
+        "action": _BACKEND_ACTIONS.get(planned.canonical_action, planned.canonical_action)
     }
     if isinstance(args.get("object"), str) and args["object"].strip():
         locked["object"] = primary.canonical_label

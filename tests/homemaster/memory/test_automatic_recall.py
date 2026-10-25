@@ -14,11 +14,14 @@ from homemaster.task_state.store import TaskStateStore
 
 
 def test_new_session_query_is_exact_user_text() -> None:
-    assert build_automatic_recall_query(
-        current_user_message="  保留两侧空格  ",
-        messages=[],
-        task_state_store=TaskStateStore(run_id="new"),
-    ) == "  保留两侧空格  "
+    assert (
+        build_automatic_recall_query(
+            current_user_message="  保留两侧空格  ",
+            messages=[],
+            task_state_store=TaskStateStore(run_id="new"),
+        )
+        == "  保留两侧空格  "
+    )
 
 
 def test_post_compact_query_has_stable_sections() -> None:
@@ -52,11 +55,7 @@ def test_post_micro_compact_query_keeps_empty_summary_section() -> None:
         current_user_message="继续",
         messages=[UserMessage.from_text("压缩后保留的历史")],
         task_state_store=TaskStateStore(run_id="micro"),
-    ) == (
-        "[Compact Summary]\n\n\n"
-        "[Current Task State]\n{}\n\n"
-        "[Current User Message]\n继续"
-    )
+    ) == ("[Compact Summary]\n\n\n[Current Task State]\n{}\n\n[Current User Message]\n继续")
 
 
 def test_request_context_uses_tenant_and_session() -> None:

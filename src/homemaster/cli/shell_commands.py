@@ -31,7 +31,7 @@ from homemaster.cli.keymap import KEY_HELP_LINES
 
 # An argument completer maps the current argument prefix to (value, meta) pairs.
 ArgCompleter = Callable[[str], Iterable[tuple[str, str]]]
-CommandHandler = Callable[["ShellContext", str], None]
+CommandHandler = Callable[["ShellContext", str], Any]
 
 # ``!cmd`` / ``{!cmd}`` guard rails: a local command is killed once it runs past
 # the wall-clock timeout or once its captured output exceeds either bound.
@@ -114,18 +114,14 @@ def slash_command(
     return decorator
 
 
-def find_command(
-    name: str, registry: Iterable[CommandSpec] | None = None
-) -> CommandSpec | None:
+def find_command(name: str, registry: Iterable[CommandSpec] | None = None) -> CommandSpec | None:
     for spec in REGISTRY if registry is None else registry:
         if spec.name == name or name in spec.aliases:
             return spec
     return None
 
 
-def suggest_command(
-    name: str, registry: Iterable[CommandSpec] | None = None
-) -> str | None:
+def suggest_command(name: str, registry: Iterable[CommandSpec] | None = None) -> str | None:
     specs = REGISTRY if registry is None else registry
     pool = [spec.name for spec in specs]
     pool.extend(alias for spec in specs for alias in spec.aliases)

@@ -21,14 +21,10 @@ from tests.homemaster.tools.test_support import ToolExecutionContext
 def _pctx(
     tmp_path: Path, run_id: str = "run-1", session_id: str = "session-1"
 ) -> ToolExecutionContext:
-    return ToolExecutionContext(
-        tmp_path, metadata={"session_id": session_id, "run_id": run_id}
-    )
+    return ToolExecutionContext(tmp_path, metadata={"session_id": session_id, "run_id": run_id})
 
 
-def _checker(
-    store: PermissionStore, clock: FakeClock, **settings: object
-) -> PermissionChecker:
+def _checker(store: PermissionStore, clock: FakeClock, **settings: object) -> PermissionChecker:
     return PermissionChecker(
         PermissionSettingsConfig(**settings),  # type: ignore[arg-type]
         store=store,
@@ -55,9 +51,7 @@ def test_physical_missing_ignores_tool_modes(
         request=request, context=_pctx(tmp_path, run_id=f"run-{mode.value}")
     )
     assert verdict.allowed is False
-    assert verdict.missing_item_ids == tuple(
-        item.item_id for item in request.requirements
-    )
+    assert verdict.missing_item_ids == tuple(item.item_id for item in request.requirements)
 
 
 def test_default_mode_no_longer_pops_generic_confirmation(tmp_path: Path) -> None:
@@ -97,9 +91,7 @@ def test_grant_covers_same_key_after_rename_and_move(
         first.requirements[0].location,
     )
     store.create_request(moved)
-    verdict = _checker(store, clock).evaluate_physical(
-        request=moved, context=_pctx(tmp_path)
-    )
+    verdict = _checker(store, clock).evaluate_physical(request=moved, context=_pctx(tmp_path))
     assert verdict == PhysicalDecision(True, (), "household permission holds")
 
 
@@ -162,9 +154,7 @@ def test_area_missing_survives_item_grant(
     retry = make_combo_request(clock, "areadst")
     store.create_request(retry)
     enter2, pick2 = (item.item_id for item in retry.requirements)
-    verdict = _checker(store, clock).evaluate_physical(
-        request=retry, context=_pctx(tmp_path)
-    )
+    verdict = _checker(store, clock).evaluate_physical(request=retry, context=_pctx(tmp_path))
     assert verdict.allowed is False
     assert verdict.missing_item_ids == (pick2,)
     assert enter2 not in verdict.missing_item_ids
@@ -184,9 +174,7 @@ def test_once_valid_only_before_terminal(
         "sub-oncelife",
     )
     checker = _checker(store, clock)
-    assert checker.evaluate_physical(
-        request=request, context=_pctx(tmp_path)
-    ).allowed is True
+    assert checker.evaluate_physical(request=request, context=_pctx(tmp_path)).allowed is True
     step = request.steps[0]
     store.claim_step(request.request_id, step.step_id, request.revision)
     store.finish_step(
@@ -205,9 +193,7 @@ def test_once_valid_only_before_terminal(
     store.create_request(again)
     verdict = checker.evaluate_physical(request=again, context=_pctx(tmp_path))
     assert verdict.allowed is False
-    assert verdict.missing_item_ids == tuple(
-        item.item_id for item in again.requirements
-    )
+    assert verdict.missing_item_ids == tuple(item.item_id for item in again.requirements)
 
 
 @pytest.mark.parametrize(
@@ -225,9 +211,7 @@ def test_dead_requests_deny(
         clock.advance(600)
     elif setup == "stale_revision":
         request = request.model_copy(update={"revision": request.revision + 1})
-    verdict = _checker(store, clock).evaluate_physical(
-        request=request, context=_pctx(tmp_path)
-    )
+    verdict = _checker(store, clock).evaluate_physical(request=request, context=_pctx(tmp_path))
     assert verdict.allowed is False
     assert verdict.missing_item_ids == ()
 
@@ -247,17 +231,13 @@ def test_rejected_scope_suppressed_within_run(
     second_run = _pctx(tmp_path, run_id="run-2")
     asked = checker.evaluate_physical(request=request, context=second_run)
     assert asked.allowed is False
-    assert asked.missing_item_ids == tuple(
-        item.item_id for item in request.requirements
-    )
+    assert asked.missing_item_ids == tuple(item.item_id for item in request.requirements)
 
 
 def test_evaluate_without_store_raises(tmp_path: Path, clock: FakeClock) -> None:
     checker = PermissionChecker(PermissionSettingsConfig(), clock=clock)
     with pytest.raises(RuntimeError):
-        checker.evaluate_physical(
-            request=make_request(clock, "nostore"), context=_pctx(tmp_path)
-        )
+        checker.evaluate_physical(request=make_request(clock, "nostore"), context=_pctx(tmp_path))
 
 
 def test_allow_all_physical_raises(tmp_path: Path, clock: FakeClock) -> None:

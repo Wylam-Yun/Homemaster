@@ -27,9 +27,7 @@ class ObjectObservationRead:
             return
         if not isinstance(self.visible, bool) or not isinstance(self.strict_visible, bool):
             raise ValueError("ok observation requires boolean visibility fields")
-        if self.bbox_area is not None and (
-            not math.isfinite(self.bbox_area) or self.bbox_area < 0
-        ):
+        if self.bbox_area is not None and (not math.isfinite(self.bbox_area) or self.bbox_area < 0):
             raise ValueError("observation bbox area must be finite and non-negative")
         expected = self.visible and self.bbox_area is not None and self.bbox_area > 0
         if self.strict_visible is not expected:

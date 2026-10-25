@@ -42,8 +42,7 @@ def test_httpx_transport_errors_map_to_transient_network(exc_name: str) -> None:
 def test_remote_protocol_error_matches_production_shape() -> None:
     exc = _transport(
         "RemoteProtocolError",
-        "peer closed connection without sending complete message body "
-        "(incomplete chunked read)",
+        "peer closed connection without sending complete message body (incomplete chunked read)",
     )
     mapped = map_sdk_error(exc)
     assert isinstance(mapped, LLMNetworkError)

@@ -54,9 +54,7 @@ def test_default_home_surface_has_exactly_seven_memory_tools() -> None:
 
 
 def test_benchmark_memory_profiles_keep_legacy_and_canonical_memory_tools() -> None:
-    readonly = set(
-        build_tool_registry(environment="alfworld", memory_mode="readonly").all_names()
-    )
+    readonly = set(build_tool_registry(environment="alfworld", memory_mode="readonly").all_names())
     full = set(build_tool_registry(environment="alfworld", memory_mode="full").all_names())
     assert "memory_retriever" in readonly
     assert "memory_writer" not in readonly
@@ -113,9 +111,7 @@ def test_memory_tool_schemas_expose_direct_flat_add_and_legacy_structured_update
     assert add_schema["properties"]["memory_type"]["enum"] == ["fact", "procedure"]
     search_schema = by_name["mindmemos_search"]
     search_type_schema = search_schema["properties"]["memory_type"]
-    search_type_enum = next(
-        item["enum"] for item in search_type_schema["anyOf"] if "enum" in item
-    )
+    search_type_enum = next(item["enum"] for item in search_type_schema["anyOf"] if "enum" in item)
     assert search_type_enum == [
         "profile",
         "fact",
@@ -155,9 +151,7 @@ def test_add_memory_accepts_exact_content_and_rejects_legacy_record() -> None:
 
     assert validated.content == "  probe is in cabinet  "
     with pytest.raises(ValidationError):
-        AddMemoryInput.model_validate(
-            {"memory_type": "fact", "record": {"memory_type": "fact"}}
-        )
+        AddMemoryInput.model_validate({"memory_type": "fact", "record": {"memory_type": "fact"}})
 
 
 @pytest.mark.asyncio
@@ -473,12 +467,9 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
     tool_trace = tool_trace_result.data["records"][0]
     assert tool_trace["memory_id"] == "tool-trace-1"
     assert tool_trace["memory_type"] == "tool_trace"
-    assert tool_trace["content"] == (
-        "terminal returned exit code 7 for the deployment check"
-    )
+    assert tool_trace["content"] == ("terminal returned exit code 7 for the deployment check")
     assert all(
-        diagnostic["memory_id_hash"]
-        != hashlib.sha256(b"tool-trace-1").hexdigest()[:16]
+        diagnostic["memory_id_hash"] != hashlib.sha256(b"tool-trace-1").hexdigest()[:16]
         for diagnostic in tool_trace_result.data["diagnostics"]
     )
 
@@ -521,9 +512,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         def __init__(self) -> None:
             self.next_id = 1
 
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             memory_id = f"raw-direct-{self.next_id}"
             self.next_id += 1
             calls.append(
@@ -569,7 +558,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
                 created_at=None,
                 update_at=None,
                 content=(
-                    f'{current["subject"]["name"]} 的 {current["predicate"]} 是 '
+                    f"{current['subject']['name']} 的 {current['predicate']} 是 "
                     + json.dumps(current["value"], ensure_ascii=False)
                 ),
                 status=statuses[raw_id],
@@ -700,9 +689,7 @@ async def test_mindmemos_add_waits_for_storage_but_not_background_enrichment(
     enrichment_release = asyncio.Event()
 
     class Store(EmbeddedMindMemOS):
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             assert content == "  Aurora-A18 uses uv.  "
             assert memory_type == "fact"
             assert evidence_kind == "user_statement"
@@ -789,9 +776,7 @@ async def test_mindmemos_add_cannot_use_evidence_from_an_earlier_run(tmp_path: P
     calls = 0
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             nonlocal calls
             del content, memory_type, provenance_seq, evidence_kind, context
             calls += 1
@@ -1147,14 +1132,14 @@ async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Pat
     context = _with_services(
         context,
         memory_feedback_context=build_feedback_context_snapshot(
-        [UserMessage.from_text("I use uv, not conda.")],
-        automatic_recalled_memories=[
-            MemorySearchItem(
-                id="old",
-                memory="User uses conda.",
-                last_update_at="2026-08-01 00:00:00",
-            )
-        ],
+            [UserMessage.from_text("I use uv, not conda.")],
+            automatic_recalled_memories=[
+                MemorySearchItem(
+                    id="old",
+                    memory="User uses conda.",
+                    last_update_at="2026-08-01 00:00:00",
+                )
+            ],
         ),
     )
 
@@ -1237,21 +1222,19 @@ async def test_feedback_rejects_schema_update_when_record_json_stays_stale(tmp_p
     context = _with_services(
         context,
         memory_feedback_context=build_feedback_context_snapshot(
-        [UserMessage.from_text("Online uses uv; offline uses Poetry.")],
-        automatic_recalled_memories=[
-            MemorySearchItem(
-                id="old",
-                memory=old.content,
-                last_update_at="2026-08-01 00:00:00",
-                structured_record=old_record,
-            )
-        ],
+            [UserMessage.from_text("Online uses uv; offline uses Poetry.")],
+            automatic_recalled_memories=[
+                MemorySearchItem(
+                    id="old",
+                    memory=old.content,
+                    last_update_at="2026-08-01 00:00:00",
+                    structured_record=old_record,
+                )
+            ],
         ),
     )
 
-    result = await executor.execute(
-        {"feedback": "Online uses uv; offline uses Poetry."}, context
-    )
+    result = await executor.execute({"feedback": "Online uses uv; offline uses Poetry."}, context)
 
     assert not result.success
     assert result.error.code == "memory_feedback_failed"
@@ -1321,14 +1304,14 @@ async def test_feedback_rejects_invalid_recalled_raw_without_backend_mutation(
         context,
         run_context=SimpleNamespace(event_sink=sink),
         memory_feedback_context=build_feedback_context_snapshot(
-        [UserMessage.from_text("correct it")],
-        automatic_recalled_memories=[
-            MemorySearchItem(
-                id="raw-1",
-                memory="old content",
-                last_update_at="2026-08-01 00:00:00",
-            )
-        ],
+            [UserMessage.from_text("correct it")],
+            automatic_recalled_memories=[
+                MemorySearchItem(
+                    id="raw-1",
+                    memory="old content",
+                    last_update_at="2026-08-01 00:00:00",
+                )
+            ],
         ),
     )
 
@@ -1343,9 +1326,7 @@ async def test_feedback_rejects_invalid_recalled_raw_without_backend_mutation(
     ]
 
 
-def _feedback_tool_context(
-    tmp_path: Path, store: EmbeddedMindMemOS
-) -> ToolExecutionContext:
+def _feedback_tool_context(tmp_path: Path, store: EmbeddedMindMemOS) -> ToolExecutionContext:
     ledger = MemoryEvidenceLedger(tmp_path / "feedback-evidence.sqlite3")
     ledger.start()
     ledger.register(

@@ -737,7 +737,9 @@ def _run_thor_macro(
 
     def failure(message: str) -> _ThorActionResult:
         return _ThorActionResult(
-            success=False, feedback=message, backend_actions=backend_actions,
+            success=False,
+            feedback=message,
+            backend_actions=backend_actions,
             resolved=_resolved_payload(resolved),
         )
 
@@ -758,8 +760,7 @@ def _run_thor_macro(
         metadata = getattr(thor_env.last_event, "metadata", {})
         inventory = metadata.get("inventoryObjects")
         inventory_ids = (
-            {item.get("objectId") for item in inventory}
-            if isinstance(inventory, list) else None
+            {item.get("objectId") for item in inventory} if isinstance(inventory, list) else None
         )
         valid = obj is not None
         if expected is not None:
@@ -768,7 +769,9 @@ def _run_thor_macro(
             target_id = str(action["receptacleObjectId"])
             target = _object_by_id(thor_env, target_id)
             valid = (
-                valid and inventory_ids == set() and obj.get("isPickedUp") is False
+                valid
+                and inventory_ids == set()
+                and obj.get("isPickedUp") is False
                 and target_id in (obj.get("parentReceptacles") or [])
                 and target is not None
                 and object_id in (target.get("receptacleObjectIds") or [])
@@ -791,7 +794,9 @@ def _run_thor_macro(
         ):
             return failure(f"execution_state_uncertain: native {processed_set} predicate not met.")
     return _ThorActionResult(
-        success=True, feedback=success_feedback, backend_actions=backend_actions,
+        success=True,
+        feedback=success_feedback,
+        backend_actions=backend_actions,
         resolved=_resolved_payload(resolved),
     )
 

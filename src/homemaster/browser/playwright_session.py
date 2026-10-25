@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -34,6 +35,8 @@ from homemaster.browser.targets import (
     TargetResolutionError,
     resolve_semantic,
 )
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -422,7 +425,10 @@ class PlaywrightBrowserSession:
                         raise BrowserSessionError(
                             "option_not_unique",
                             "option must match exactly one label or value",
-                            details={"requested": requested, "available": [dict(item) for item in element.options[:20]]},
+                            details={
+                                "requested": requested,
+                                "available": [dict(item) for item in element.options[:20]],
+                            },
                         )
                     chosen_items.append(next(iter(unique.values())))
                 if not bool(element.compound.get("multiple", False)) and len(chosen_items) != 1:
@@ -431,7 +437,9 @@ class PlaywrightBrowserSession:
                         "select does not accept multiple options",
                     )
                 values = [str(item["value"]) for item in chosen_items]
-                await element.handle.select_option(value=values, timeout=self.policy.action_timeout_ms)
+                await element.handle.select_option(
+                    value=values, timeout=self.policy.action_timeout_ms
+                )
                 actual_state = await current_state(element)
                 actual = (
                     list(actual_state.get("selectedValues", []))
@@ -462,7 +470,17 @@ class PlaywrightBrowserSession:
                         raise BrowserSessionError(
                             "option_not_unique",
                             "ARIA option must match exactly one accessible name",
-                            details={"requested": requested, "matches": [str(option_state.get("name", "")) for _, option_state in current_matches], "available": [str(option_state.get("name", "")) for _, option_state in available[:20]]},
+                            details={
+                                "requested": requested,
+                                "matches": [
+                                    str(option_state.get("name", ""))
+                                    for _, option_state in current_matches
+                                ],
+                                "available": [
+                                    str(option_state.get("name", ""))
+                                    for _, option_state in available[:20]
+                                ],
+                            },
                             backend_attempted=True,
                         )
                     matches.extend(current_matches)
@@ -492,9 +510,19 @@ class PlaywrightBrowserSession:
         return await self._execute(
             "select",
             (
-                {"target": dict(target_value), "option": option_values[0], "options": option_values, "match": match_mode}
+                {
+                    "target": dict(target_value),
+                    "option": option_values[0],
+                    "options": option_values,
+                    "match": match_mode,
+                }
                 if modern_target
-                else {"snapshot_id": snapshot_id, "element_id": element_id, "option": option, "match": match_mode}
+                else {
+                    "snapshot_id": snapshot_id,
+                    "element_id": element_id,
+                    "option": option,
+                    "match": match_mode,
+                }
             ),
             action,
             timeout_ms=self.policy.action_timeout_ms,
@@ -1176,9 +1204,7 @@ class PlaywrightBrowserSession:
                     "readback_mismatch", "target is not hovered", backend_attempted=True
                 )
             postcondition = await self._verify_expect(kwargs.get("expect"))
-            return self._receipt(
-                element, hovered=True, postcondition=postcondition, match=level
-            )
+            return self._receipt(element, hovered=True, postcondition=postcondition, match=level)
 
         return await self._execute(
             "hover",
@@ -1275,7 +1301,9 @@ class PlaywrightBrowserSession:
                     before = await container.handle.evaluate(
                         "el => ({x:el.scrollLeft,y:el.scrollTop,h:el.scrollHeight,w:el.scrollWidth})"
                     )
-                    await container.handle.evaluate("(el, delta) => el.scrollBy(delta.x, delta.y)", {"x": dx, "y": dy})
+                    await container.handle.evaluate(
+                        "(el, delta) => el.scrollBy(delta.x, delta.y)", {"x": dx, "y": dy}
+                    )
                     after = await container.handle.evaluate(
                         "el => ({x:el.scrollLeft,y:el.scrollTop,h:el.scrollHeight,w:el.scrollWidth})"
                     )
@@ -1481,9 +1509,7 @@ class PlaywrightBrowserSession:
                 self._dialog_event = asyncio.Event()
                 element, _, match = await self._resolve_target(trigger, writable=True)
                 click_task = asyncio.create_task(
-                    element.handle.click(
-                        no_wait_after=True, timeout=self.policy.action_timeout_ms
-                    )
+                    element.handle.click(no_wait_after=True, timeout=self.policy.action_timeout_ms)
                 )
                 try:
                     await asyncio.wait_for(
@@ -1573,7 +1599,11 @@ class PlaywrightBrowserSession:
             if isinstance(fields, (list, tuple)):
                 allowed = {str(field) for field in fields}
                 events = [
-                    {key: value for key, value in item.items() if key in allowed or key == "request_ref"}
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key in allowed or key == "request_ref"
+                    }
                     for item in events
                 ]
             cursor = query.get("cursor")
@@ -1594,7 +1624,9 @@ class PlaywrightBrowserSession:
             return {
                 "mode": "list",
                 "requests": selected,
-                "next_cursor": selected[-1].get("request_ref") if selected else str(cursor or "") or None,
+                "next_cursor": selected[-1].get("request_ref")
+                if selected
+                else str(cursor or "") or None,
             }
 
         return await self._execute(
@@ -1761,7 +1793,9 @@ class PlaywrightBrowserSession:
                 "title": await self._page.title(),
                 "rendering": "dom",
                 "anti_bot": anti_bot_terms,
-                "api_candidates": sorted(candidates, key=lambda item: int(item["score"]), reverse=True),
+                "api_candidates": sorted(
+                    candidates, key=lambda item: int(item["score"]), reverse=True
+                ),
                 "recommendation": "inspect or network",
             }
 
@@ -1812,9 +1846,7 @@ class PlaywrightBrowserSession:
             return {
                 "messages": selected,
                 "next_cursor": (
-                    selected[-1].get("cursor")
-                    if selected
-                    else str(cursor or "") or None
+                    selected[-1].get("cursor") if selected else str(cursor or "") or None
                 ),
             }
 
@@ -2075,9 +2107,7 @@ class PlaywrightBrowserSession:
                 "target identity changed after inspection",
                 hint="The page re-rendered and this ref no longer identifies the same element. Re-run browser_inspect and pick a fresh target.",
             )
-        state = await self._prepare_actionable(
-            element, require_editable=require_editable
-        )
+        state = await self._prepare_actionable(element, require_editable=require_editable)
         return element, state
 
     async def _resolve_target(
@@ -2212,9 +2242,7 @@ class PlaywrightBrowserSession:
     ) -> dict[str, object]:
         if not writable:
             return dict(state)
-        return await self._prepare_actionable(
-            element, require_editable=require_editable
-        )
+        return await self._prepare_actionable(element, require_editable=require_editable)
 
     async def _prepare_actionable(
         self, element: BrowserElement, *, require_editable: bool = False
@@ -2383,7 +2411,7 @@ class PlaywrightBrowserSession:
                 raise BrowserSessionError(
                     "invalid_condition",
                     "element_state requires target",
-                    hint="Pass the condition object itself, not nested inside another condition key, and include its target field (e.g. {\"kind\": \"element_state\", \"target\": {...}, \"state\": \"visible\"}).",
+                    hint='Pass the condition object itself, not nested inside another condition key, and include its target field (e.g. {"kind": "element_state", "target": {...}, "state": "visible"}).',
                 )
             try:
                 element, state, _ = await self._resolve_target(target, writable=False)
@@ -2469,7 +2497,11 @@ class PlaywrightBrowserSession:
     async def _drag_handles(self, source: Any, destination: Any) -> None:
         source_frame = await source.owner_frame()
         destination_frame = await destination.owner_frame()
-        if source_frame is None or destination_frame is None or source_frame is not destination_frame:
+        if (
+            source_frame is None
+            or destination_frame is None
+            or source_frame is not destination_frame
+        ):
             raise BrowserSessionError(
                 "unsupported_control", "drag source and destination must be in the same frame"
             )
@@ -2483,21 +2515,15 @@ class PlaywrightBrowserSession:
             destination_token,
         )
         try:
-            source_locator = source_frame.locator(
-                f'[data-homemaster-drag-token="{source_token}"]'
-            )
+            source_locator = source_frame.locator(f'[data-homemaster-drag-token="{source_token}"]')
             destination_locator = source_frame.locator(
                 f'[data-homemaster-drag-token="{destination_token}"]'
             )
-            await source_locator.drag_to(
-                destination_locator, timeout=self.policy.action_timeout_ms
-            )
+            await source_locator.drag_to(destination_locator, timeout=self.policy.action_timeout_ms)
         finally:
             for handle in (source, destination):
                 try:
-                    await handle.evaluate(
-                        "el => el.removeAttribute('data-homemaster-drag-token')"
-                    )
+                    await handle.evaluate("el => el.removeAttribute('data-homemaster-drag-token')")
                 except Exception:
                     pass
 
@@ -2611,9 +2637,11 @@ class PlaywrightBrowserSession:
     def _capture_dialog(self, dialog: Any) -> None:
         if self._pending_dialog is not None:
             try:
-                asyncio.create_task(dialog.dismiss())
+                dismiss_task = asyncio.create_task(dialog.dismiss())
             except Exception:
                 pass
+            else:
+                dismiss_task.add_done_callback(_log_dialog_dismiss_failure)
             return
         self._pending_dialog = dialog
         if self._dialog_event is not None:
@@ -3063,6 +3091,15 @@ def _html_to_markdown(value: str) -> str:
     parser.feed(value)
     text = "".join(parser.parts)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _log_dialog_dismiss_failure(task: asyncio.Task[None]) -> None:
+    """Surface fire-and-forget dialog dismissal failures at debug level."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.debug("dialog dismiss failed", exc_info=exc)
 
 
 __all__ = ["PlaywrightBrowserSession"]

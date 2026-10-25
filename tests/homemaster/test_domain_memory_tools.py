@@ -51,6 +51,8 @@ def _tool_context(tmp_path: Path, run_context: RunContext) -> ToolExecutionConte
         working_directory=tmp_path.resolve(),
         services={"run_context": run_context},
     )
+
+
 @pytest.mark.asyncio
 async def test_memory_writer_requires_proposal(tmp_path: Path) -> None:
     registry = build_home_tool_registry()
@@ -101,15 +103,17 @@ async def test_memory_writer_accepts_valid_proposal(tmp_path: Path) -> None:
 async def test_memory_writer_persists_runtime_overlay(tmp_path: Path) -> None:
     memory_path = tmp_path / "memory.json"
     memory_path.write_text(
-        json.dumps({
-            "objects": [
-                {
-                    "object_category": "cup",
-                    "anchor": {"room_id": "kitchen", "anchor_id": "kitchen:cup:1"},
-                    "belief_state": "present",
-                }
-            ]
-        }),
+        json.dumps(
+            {
+                "objects": [
+                    {
+                        "object_category": "cup",
+                        "anchor": {"room_id": "kitchen", "anchor_id": "kitchen:cup:1"},
+                        "belief_state": "present",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
 

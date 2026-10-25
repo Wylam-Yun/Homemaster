@@ -194,8 +194,7 @@ class WebConfirmationHandler:
                 "request_status": resolution.request_status,
                 "approved": resolution.request_status == "ready",
                 "items": [
-                    {"item_id": item.item_id, "choice": item.choice}
-                    for item in resolution.items
+                    {"item_id": item.item_id, "choice": item.choice} for item in resolution.items
                 ],
                 "subject_id": _subject_id(context),
             },
@@ -292,9 +291,7 @@ class WebConfirmationHandler:
         async with self._lock:
             pending = self._pending.pop(approval_id, None)
         if pending is not None and not pending.future.done():
-            pending.future.set_exception(
-                ApprovalCancelled(f"approval {approval_id} was cancelled")
-            )
+            pending.future.set_exception(ApprovalCancelled(f"approval {approval_id} was cancelled"))
         del submission_id
         return status
 
@@ -343,9 +340,7 @@ class WebConfirmationHandler:
                 if self._pending.pop(approval_id, None) is not pending:
                     continue
             if not pending.future.done():
-                pending.future.set_exception(
-                    ApprovalCancelled("browser disconnected")
-                )
+                pending.future.set_exception(ApprovalCancelled("browser disconnected"))
             released += 1
         return released
 
@@ -365,9 +360,7 @@ class WebConfirmationHandler:
         for approval_id, item in pending:
             if store is not None:
                 try:
-                    status = store.cancel(
-                        item.request_id, "confirmation handler closed"
-                    )
+                    status = store.cancel(item.request_id, "confirmation handler closed")
                 except Exception:
                     status = "cancelled"
                 if status in _COMMITTED_REQUEST_STATUSES:

@@ -72,11 +72,7 @@ class MemoryAddQueue:
 
     @property
     def started(self) -> bool:
-        return (
-            self._worker is not None
-            and not self._worker.done()
-            and not self._closed
-        )
+        return self._worker is not None and not self._worker.done() and not self._closed
 
     def _admission_open(self) -> bool:
         """External admission plus worker re-entrancy during shutdown drain.
@@ -283,9 +279,7 @@ class MemoryAddQueue:
                     "session_id": getattr(context, "session_id", None),
                     "run_id": job.run_id,
                     "request_id": getattr(context, "request_id", None),
-                    "duration_ms": round(duration_ms, 3)
-                    if duration_ms is not None
-                    else None,
+                    "duration_ms": round(duration_ms, 3) if duration_ms is not None else None,
                     "memory_id": memory_id,
                     "error": error,
                 },
@@ -312,9 +306,7 @@ class MemoryAddQueue:
                     "job_type": job.job_type,
                     "status": status,
                     "session_id": job.session_id,
-                    "duration_ms": round(duration_ms, 3)
-                    if duration_ms is not None
-                    else None,
+                    "duration_ms": round(duration_ms, 3) if duration_ms is not None else None,
                     "error": error,
                 },
             )

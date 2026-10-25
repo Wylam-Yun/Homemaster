@@ -520,9 +520,7 @@ class AlfworldBenchmarkRunner:
             seed=self.config.seed,
         )
 
-    def _write_worker_manifest(
-        self, selections: tuple[TrialSelectionEntry, ...]
-    ) -> Path:
+    def _write_worker_manifest(self, selections: tuple[TrialSelectionEntry, ...]) -> Path:
         path = self.run_dir / "worker-trial-manifest.json"
         payload = {
             "schema_version": "alfworld-trial-selection-v1",
@@ -627,7 +625,7 @@ class AlfworldBenchmarkRunner:
             env=build_alfworld_batch_env(config),
             episode_prefix=config.split,
             seed=config.seed,
-                    )
+        )
 
 
 def _setup_terminal_episode_result(

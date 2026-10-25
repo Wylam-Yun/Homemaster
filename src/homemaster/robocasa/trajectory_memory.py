@@ -1,4 +1,4 @@
-"""RoboCasa trajectory memory records (parallel to the ALFWorld pipeline)."""
+"""RoboCasa trajectory memory records (parallel to the ALFWorld trajectory memory)."""
 
 from __future__ import annotations
 
@@ -129,8 +129,7 @@ def extract_failure_guidance(
     errors = {
         str(step.payload.get("result", {}).get("error"))
         for step in steps
-        if isinstance(step.payload.get("result"), dict)
-        and step.payload["result"].get("error")
+        if isinstance(step.payload.get("result"), dict) and step.payload["result"].get("error")
     }
     if any("grasp" in error for error in errors):
         summary.append("grasp_failure")

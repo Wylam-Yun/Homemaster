@@ -47,9 +47,7 @@ async def _canonical_run_events(tmp_path: Path) -> list[RuntimeEvent]:
         executor=executor,
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "say hi", settings=as_harness._settings(tmp_path)
-    )
+    result = await runtime.run(session, "say hi", settings=as_harness._settings(tmp_path))
     assert result.status == "replied"
     return list(result.events)
 
@@ -62,9 +60,7 @@ async def test_real_run_projects_the_locked_web_event_sequence(
     projection = WebEventProjection(include_thinking=True)
 
     projected = [
-        web_event
-        for event in events
-        for web_event in projection.project(event, request_id="req-1")
+        web_event for event in events for web_event in projection.project(event, request_id="req-1")
     ]
 
     # The whole browser-visible sequence, wire shape and order.
@@ -190,9 +186,7 @@ async def test_stream_surface_golden_and_no_internal_type_fallback(
 ) -> None:
     events = await _canonical_run_events(tmp_path)
     stream = [
-        projected
-        for event in events
-        if (projected := project_stream_event(event)) is not None
+        projected for event in events if (projected := project_stream_event(event)) is not None
     ]
 
     assert [type(item) for item in stream] == [

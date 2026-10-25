@@ -131,8 +131,10 @@ class MemoryEvidenceLedger:
     ) -> tuple[MemoryEvidence, ...]:
         """Return successful evidence owned by the current execution scope."""
 
-        rows = self._require_connection().execute(
-            """SELECT ref, provenance_seq, kind, tenant_id, session_id, run_id,
+        rows = (
+            self._require_connection()
+            .execute(
+                """SELECT ref, provenance_seq, kind, tenant_id, session_id, run_id,
                       turn_id, tool_call_id
                FROM memory_evidence
                WHERE kind = ? AND tenant_id = ? AND session_id = ?
@@ -140,8 +142,10 @@ class MemoryEvidenceLedger:
                  AND status = 'success'
                  AND verification IN ('passed', 'read_observation')
                ORDER BY provenance_seq""",
-            (kind, tenant_id, session_id, run_id, turn_id),
-        ).fetchall()
+                (kind, tenant_id, session_id, run_id, turn_id),
+            )
+            .fetchall()
+        )
         return tuple(MemoryEvidence(*row) for row in rows)
 
     def _get(self, ref: str) -> MemoryEvidence:

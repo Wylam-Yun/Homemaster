@@ -736,17 +736,12 @@ async def _read_raw_content(config: Any, memory_id: str) -> str | None:
         await store.start()
         if not store.available:
             raise RuntimeError(store.unavailable_cause or "MindMemOS is unavailable")
-        from mindmemos.typing import MemoryRequestContext
+        from homemaster.memory.automatic_recall import build_mindmemos_request_context
 
-        context = MemoryRequestContext(
+        context = build_mindmemos_request_context(
             request_id=f"benchmark-verify-{memory_id}",
-            account_id="local",
-            project_id="local",
-            api_key_uuid="embedded-local",
-            user_id="local",
-            app_id="homemaster",
+            tenant_id="local",
             session_id=None,
-            agent_id="homemaster",
         )
         raw = await store.get_raw(memory_id, context)
         if raw is None or getattr(raw, "status", None) != "active":

@@ -67,9 +67,7 @@ class WebEventProjection:
         if event.type == "assistant.reply":
             reply = payload.get("reply")
             if isinstance(reply, str) and reply:
-                return (
-                    self._web_event(event, request_id, "answer.snapshot", {"text": reply}),
-                )
+                return (self._web_event(event, request_id, "answer.snapshot", {"text": reply}),)
             return ()
         if event.type == "runtime.turn_completed":
             question = payload.get("question")
@@ -156,9 +154,7 @@ class WebEventProjection:
             )
         text = payload.get("text_delta")
         if isinstance(text, str) and text:
-            projected.append(
-                self._web_event(event, request_id, "answer.delta", {"text": text})
-            )
+            projected.append(self._web_event(event, request_id, "answer.delta", {"text": text}))
         return tuple(projected)
 
     def _project_tool_started(

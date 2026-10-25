@@ -42,13 +42,13 @@ from homemaster.cli.gateway_command import (
 from homemaster.config import GatewayConfig, HomeMasterConfig
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.gateway.auth import AuthenticatedPrincipal
 from homemaster.gateway.confirmation import FeishuApprovalRoute, FeishuGatewayConfirmationHandler
 from homemaster.gateway.runtime import (
     GatewayRuntime,
     build_gateway_assembly,
     repair_recovered_messages,
 )
+from homemaster.tools.contracts import AuthenticatedPrincipal
 
 
 @dataclass
@@ -489,9 +489,7 @@ async def test_gateway_binds_and_unbinds_exact_feishu_generation_around_run(tmp_
         confirmation_handler=handler,
     )
     inbound = InboundMessage(
-        identity=ChannelIdentity(
-            "tenant-a", "feishu", "ou-owner", "ou-owner", chat_type="private"
-        ),
+        identity=ChannelIdentity("tenant-a", "feishu", "ou-owner", "ou-owner", chat_type="private"),
         principal=AuthenticatedPrincipal("tenant-a", "owner", "feishu"),
         content="hello",
         correlation_id="om-source",

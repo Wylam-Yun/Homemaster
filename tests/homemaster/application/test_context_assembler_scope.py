@@ -33,10 +33,7 @@ def _assembler() -> ContextAssembler:
 
 def _text(context) -> str:
     return "\n".join(
-        block.text
-        for message in context.messages
-        for block in message.content
-        if block.text
+        block.text for message in context.messages for block in message.content if block.text
     )
 
 

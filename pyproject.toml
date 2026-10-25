@@ -42,7 +42,6 @@ dependencies = [
   "pypdf",
   "python-datauri",
   "python-frontmatter",
-  "python-socketio",
   "requests>=2.32",
   "shortuuid",
   "tree_sitter",
@@ -74,9 +73,6 @@ dev = [
 browser = [
   "playwright>=1.45,<2.0",
 ]
-mcp = [
-    "mcp>=1.0,<2",
-]
 gateway = [
   "lark-oapi>=1.7.1,<2",
 ]
@@ -89,7 +85,12 @@ homemaster = "homemaster.cli.app:app"
 # enter wheel Requires-Dist — the package itself is bundled via
 # packages.find below.
 [dependency-groups]
-dev = ["mindmemos"]
+dev = [
+    "mindmemos",
+    "mypy>=1.20,<2",
+    "types-croniter>=4.0",
+    "types-pyyaml>=6.0",
+]
 
 [tool.uv.sources]
 mindmemos = { path = "third_party/MindMemOS/src/mindmemos" }
@@ -101,9 +102,10 @@ build-backend = "setuptools.build_meta:__legacy__"
 [tool.setuptools.packages.find]
 where = ["src", "third_party/MindMemOS/src/mindmemos"]
 include = ["homemaster*", "mindmemos*", "agentscope*"]
-exclude = [
-  "homemaster.cli.benchmark_alfworld",
-]
+# NOTE: homemaster.cli.benchmark_alfworld is a module inside the cli package, so
+# it ships in the wheel regardless (packages.find only matches packages). Its
+# benchmark command lazily fails when workers/ is absent from the install —
+# that is expected for wheel consumers.
 
 [tool.setuptools]
 license-files = ["THIRD_PARTY_NOTICES.md"]
@@ -161,10 +163,15 @@ agentscope = [
 asyncio_mode = "strict"
 pythonpath = [".", "src"]
 testpaths = ["tests"]
+# Live-marked tests call real external APIs/services (they gate on local
+# config credentials, then spend real money / depend on account state).
+# They are opt-in: `pytest -m live_api` still selects them because a
+# command-line -m overrides this addopts -m.
+addopts = ["-m", "not live_api and not live_memory and not live_alfworld"]
 markers = [
   "live_api: runs tests that call real external APIs",
   "live_alfworld: runs tests that require an installed ALFWorld dataset/environment",
-  "live_mcp: runs tests that require live MCP servers or transports",
+  "live_memory: runs tests that require live memory services (Neo4j/Qdrant/MindMemOS)",
   "stress: runs extended concurrency, backpressure, and leak tests",
 ]
 
@@ -184,3 +191,31 @@ select = ["E", "F", "I", "UP", "B"]
 # Browser schemas preserve locked provider descriptions; session embeds page-side JavaScript.
 "src/homemaster/browser/playwright_session.py" = ["E501"]
 "src/homemaster/tools/browser/**" = ["E501"]
+
+# Optional type checker — pragmatic baseline only. Core contracts are
+# intentionally Any-typed, so strict mode stays off; per-module strictness is
+# tightened later. Run: `uv run mypy` or `.venv/bin/python -m mypy`.
+[tool.mypy]
+packages = ["homemaster"]
+mypy_path = "src"
+python_version = "3.11"
+# Vendored / generated trees are not first-party sources.
+exclude = "(src/agentscope/|third_party/|src/homemaster/browser/vendor/|src/homemaster/browser/generated/)"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+
+# Baseline opt-outs: subtrees dominated by external-boundary friction (THOR
+# controller objects, MindMemOS client payloads, Playwright JS bridge) stay
+# unchecked until they are tightened per-module — re-enable by deleting the
+# module pattern below.
+[[tool.mypy.overrides]]
+module = [
+  "homemaster.alfworld.benchmark.*",
+  "homemaster.memory",
+  "homemaster.memory.*",
+  "homemaster.browser",
+  "homemaster.browser.*",
+  "homemaster.tools.browser.*",
+]
+ignore_errors = true

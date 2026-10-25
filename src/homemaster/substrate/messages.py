@@ -164,7 +164,7 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
             out.append(Msg(role="user", name=_USER_NAME, content=blocks, metadata=metadata))
             current_reply = None
         elif isinstance(message, AssistantMessage):
-            blocks: list = []
+            blocks = []
             if message.reasoning_content:
                 blocks.append(ThinkingBlock(thinking=message.reasoning_content))
             for blk in message.content:
@@ -375,8 +375,7 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
                 # already records the failure — so the mirror stays
                 # consistent instead of poisoning every subsequent sync.
                 log.warning(
-                    "tool_call %r carried malformed JSON arguments; "
-                    "mirroring with empty arguments",
+                    "tool_call %r carried malformed JSON arguments; mirroring with empty arguments",
                     block.id,
                 )
                 arguments = {}
@@ -443,11 +442,7 @@ _REGENERATED_KEYS = frozenset({"id", "created_at", "finished_at"})
 def _scrub_regenerated(value: object) -> object:
     """Drop regenerated id/timestamp fields from nested block payloads."""
     if isinstance(value, dict):
-        return {
-            k: _scrub_regenerated(v)
-            for k, v in value.items()
-            if k not in _REGENERATED_KEYS
-        }
+        return {k: _scrub_regenerated(v) for k, v in value.items() if k not in _REGENERATED_KEYS}
     if isinstance(value, list):
         return [_scrub_regenerated(v) for v in value]
     return value

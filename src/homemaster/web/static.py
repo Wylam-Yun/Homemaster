@@ -15,9 +15,7 @@ def mount_web_static(app: FastAPI, *, root: Path = _DEFAULT_ROOT) -> None:
 
     resolved = root.resolve()
     if not (resolved / "index.html").is_file():
-        raise RuntimeError(
-            "HomeMaster Web Console build is missing; run 'cd web && npm run build'"
-        )
+        raise RuntimeError("HomeMaster Web Console build is missing; run 'cd web && npm run build'")
     app.mount("/", StaticFiles(directory=resolved, html=True), name="web-console")
 
 

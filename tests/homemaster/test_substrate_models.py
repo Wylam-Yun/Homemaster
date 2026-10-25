@@ -58,9 +58,7 @@ def test_openai_profile_maps_fields() -> None:
 
 def test_openai_auth_token_rejected() -> None:
     with pytest.raises(ValueError, match="auth_token"):
-        chat_model_from_profile(
-            _profile(api_format="openai", auth_type="auth_token")
-        )
+        chat_model_from_profile(_profile(api_format="openai", auth_type="auth_token"))
 
 
 def test_non_chat_kind_rejected() -> None:

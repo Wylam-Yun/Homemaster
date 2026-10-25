@@ -240,9 +240,7 @@ class HomeServerClient:
         sid = session_id or self._session_id
         if not sid:
             raise ValueError("history() requires a session_id")
-        payload = _coalesce_body(
-            await self._request("GET", f"/api/sessions/{sid}/history")
-        )
+        payload = _coalesce_body(await self._request("GET", f"/api/sessions/{sid}/history"))
         messages = payload.get("messages", [])
         return [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
 
@@ -273,9 +271,7 @@ class HomeServerClient:
         for attempt in range(_NOT_READY_RETRY_LIMIT):
             try:
                 return _coalesce_body(
-                    await self._request(
-                        "POST", f"/api/sessions/{sid}/messages", json_body=body
-                    )
+                    await self._request("POST", f"/api/sessions/{sid}/messages", json_body=body)
                 )
             except EventStreamNotReadyError as exc:
                 # Server-side race: the stream response started but the hub has
@@ -321,9 +317,7 @@ class HomeServerClient:
         if not sid:
             raise ValueError("set_mode() requires a session_id")
         return _coalesce_body(
-            await self._request(
-                "POST", f"/api/sessions/{sid}/mode", json_body={"ui_mode": ui_mode}
-            )
+            await self._request("POST", f"/api/sessions/{sid}/mode", json_body={"ui_mode": ui_mode})
         )
 
     async def list_approvals(self, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -357,8 +351,10 @@ class HomeServerClient:
         """POST /api/approvals/{id} with one v2 per-item submission."""
 
         items = [
-            {"item_id": item[0] if isinstance(item, tuple) else item["item_id"],
-             "choice": item[1] if isinstance(item, tuple) else item["choice"]}
+            {
+                "item_id": item[0] if isinstance(item, tuple) else item["item_id"],
+                "choice": item[1] if isinstance(item, tuple) else item["choice"],
+            }
             for item in decisions
         ]
         body = {
@@ -383,9 +379,7 @@ class HomeServerClient:
             "request_revision": request_revision,
         }
         return _coalesce_body(
-            await self._request(
-                "POST", f"/api/approvals/{approval_id}/cancel", json_body=body
-            )
+            await self._request("POST", f"/api/approvals/{approval_id}/cancel", json_body=body)
         )
 
     async def list_questions(self, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -700,9 +694,7 @@ def _classify_connect_error(exc: BaseException, base_url: str) -> ServerError:
             return StreamClosedError(
                 f"the server rejected the session event subscription (HTTP {exc.status})"
             )
-    return ServerUnavailableError(
-        f"cannot reach HomeMaster event stream at {base_url}: {exc}"
-    )
+    return ServerUnavailableError(f"cannot reach HomeMaster event stream at {base_url}: {exc}")
 
 
 __all__ = [

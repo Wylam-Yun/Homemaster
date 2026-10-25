@@ -45,9 +45,7 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert config.memory.embedding_provider_name == "MemoryEmbedding"
     assert config.memory.embedding_dimensions == 4096
     assert config.memory.dreaming_memory_threshold == 8
-    assert config.memory.mindmemos_qdrant_path == (
-        config.memory.data_root / "mindmemos" / "qdrant"
-    )
+    assert config.memory.mindmemos_qdrant_path == (config.memory.data_root / "mindmemos" / "qdrant")
     assert config.memory.evidence_db_path == config.memory.data_root / "evidence.sqlite3"
     assert not hasattr(config.memory, "mem0")
     assert not hasattr(config.memory, "backend")
@@ -148,9 +146,7 @@ def test_memory_mode_and_legacy_enabled_combination_matrix(
     # A plain mode key never warns.
     assert HomeMasterConfig(memory={"mode": "files"}).memory.mode == "files"
     assert not [
-        warning
-        for warning in recwarn.list
-        if issubclass(warning.category, DeprecationWarning)
+        warning for warning in recwarn.list if issubclass(warning.category, DeprecationWarning)
     ]
     # A consistent enabled+mode pair still warns once and resolves to files.
     with pytest.warns(DeprecationWarning):
@@ -176,9 +172,7 @@ def test_memory_mode_and_legacy_enabled_combination_matrix(
         ({"mode": "bogus"}, "Input should be 'files' or 'full'"),
     ],
 )
-def test_memory_mode_rejects_invalid_combinations(
-    payload: dict[str, object], message: str
-) -> None:
+def test_memory_mode_rejects_invalid_combinations(payload: dict[str, object], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         HomeMasterConfig(memory=payload)
 
@@ -269,9 +263,7 @@ def test_memory_qdrant_managed_local_rejects_equal_ports(tmp_path: Path) -> None
 
 def test_memory_qdrant_rejects_out_of_range_ports() -> None:
     with pytest.raises(ValidationError):
-        HomeMasterConfig(
-            memory={"qdrant": {"mode": "server", "grpc_port": 70000}}
-        )
+        HomeMasterConfig(memory={"qdrant": {"mode": "server", "grpc_port": 70000}})
 
 
 def test_memory_qdrant_home_is_anchored_to_config_dir(tmp_path: Path) -> None:
@@ -319,9 +311,9 @@ def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
         "omegaconf",
         "litellm",
     ):
-        assert all(
-            not item.startswith(prefix) for item in dependencies
-        ), f"{prefix} must not be a core dependency"
+        assert all(not item.startswith(prefix) for item in dependencies), (
+            f"{prefix} must not be a core dependency"
+        )
     assert "qdrant-client==1.18.0" in memory_extra
     assert "spacy==3.8.14" in memory_extra
     assert (

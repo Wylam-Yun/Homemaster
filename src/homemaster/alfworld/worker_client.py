@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -327,7 +328,7 @@ class AlfworldWorkerClient:
         return self._decode_step_response(response)
 
     async def screenshot(self) -> bytes:
-        response = await __import__("asyncio").to_thread(self._request, "observe", {})
+        response = await asyncio.to_thread(self._request, "observe", {})
         state = response.result.get("state")
         artifact = state.get("frame_artifact") if isinstance(state, dict) else None
         if not isinstance(artifact, dict):
@@ -431,16 +432,19 @@ class AlfworldWorkerClient:
                 error=str((response.error or {}).get("message", "worker set_task failed")),
             )
         try:
-            _validate_worker_trial_identity(response.result, {
-                key: payload[key]
-                for key in (
-                    "trial_id",
-                    "trial_sha256",
-                    "expected_logical_scene",
-                    "goal_identity",
-                    "goal_fingerprint",
-                )
-            })
+            _validate_worker_trial_identity(
+                response.result,
+                {
+                    key: payload[key]
+                    for key in (
+                        "trial_id",
+                        "trial_sha256",
+                        "expected_logical_scene",
+                        "goal_identity",
+                        "goal_fingerprint",
+                    )
+                },
+            )
         except AlfworldWorkerError as exc:
             return BackendReceipt(
                 "set_task",
@@ -719,9 +723,7 @@ def _defer_sigint(counter: list[int]) -> Iterator[None]:
         signal.signal(signal.SIGINT, previous)
 
 
-def _validate_worker_trial_identity(
-    result: dict[str, Any], expected: dict[str, str]
-) -> None:
+def _validate_worker_trial_identity(result: dict[str, Any], expected: dict[str, str]) -> None:
     mismatches = {
         key: (expected_value, result.get(key))
         for key, expected_value in expected.items()

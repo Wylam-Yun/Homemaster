@@ -13,39 +13,18 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any
 
-from homemaster.channels.contracts import DeliveryReceipt
-
-
-class ApprovalDecision(StrEnum):
-    APPROVE = "approve"
-    DENY = "deny"
-
-
-class ApprovalResolveStatus(StrEnum):
-    RESOLVED = "resolved"
-    UNKNOWN = "unknown"
-    UNAUTHORIZED = "unauthorized"
-    STALE = "stale"
-
-
-@dataclass(frozen=True)
-class ApprovalRequest:
-    """Legacy card payload kept for the channel renderer.
-
-    V3.4 issues no Feishu cards for household approvals, so the gateway
-    handler never constructs one; the type remains for the existing
-    channel rendering path and its tests.
-    """
-
-    approval_id: str
-    tool_name: str
-    arguments: dict[str, object]
-    cwd: str
-    reason: str
-    subject_id: str
+# Approval card vocabulary lives in the channel contract module so the Feishu
+# channel impl can consume it without importing the gateway package
+# (channels → gateway would create a package cycle); re-exported here for
+# backward compatibility.
+from homemaster.channels.contracts import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalResolveStatus,
+    DeliveryReceipt,
+)
 
 
 @dataclass(frozen=True)

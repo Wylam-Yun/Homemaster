@@ -123,9 +123,7 @@ def _python_environment_check() -> DoctorCheck:
 # ``memory`` optional extra, so the files tier must never require them.
 # ``fastembed`` is no longer a dependency at all: MindMemOS sparse vectors
 # are self-encoded, so it appears on neither tier's import surface.
-_FULL_TIER_IMPORT_MODULES = frozenset(
-    {"jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"}
-)
+_FULL_TIER_IMPORT_MODULES = frozenset({"jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"})
 
 
 def _configured_memory_mode(path: Path) -> str:
@@ -140,9 +138,7 @@ def _configured_memory_mode(path: Path) -> str:
 
 def _memory_mode_check(memory_mode: str) -> DoctorCheck:
     suffix = (
-        "MindMemOS full-tier checks skipped"
-        if memory_mode == "files"
-        else "full MindMemOS tier"
+        "MindMemOS full-tier checks skipped" if memory_mode == "files" else "full MindMemOS tier"
     )
     return DoctorCheck(
         name="memory_mode",
@@ -252,10 +248,9 @@ def _alfworld_binding_check() -> DoctorCheck:
             name="alfworld_binding",
             status="FAIL",
             message=f"ALFWorld binding/import check failed: {type(exc).__name__}",
-        suggestion=(
-            "Recreate the isolated worker environment from "
-            "config/alfworld/requirements.lock."
-        ),
+            suggestion=(
+                "Recreate the isolated worker environment from config/alfworld/requirements.lock."
+            ),
             details={"binding": str(binding), "error": str(exc)},
         )
     return DoctorCheck(
@@ -394,9 +389,7 @@ def _config_check(config_source: str, *, memory_mode: str = "full", path: Path) 
             "memory_mode": memory_mode,
             "chat_provider": chat_provider.public_summary(),
             "embedding_provider": (
-                embedding_provider.public_summary()
-                if embedding_provider is not None
-                else None
+                embedding_provider.public_summary() if embedding_provider is not None else None
             ),
             "field_sources": {
                 "default_provider": config.field_source("providers.default"),
@@ -461,12 +454,9 @@ def _memory_backend_check(path: Path) -> DoctorCheck:
         return DoctorCheck(
             name="memory_backend",
             status="WARN",
-            message=(
-                f"memory.mode={config.memory.mode!r} does not compose the MindMemOS backend"
-            ),
+            message=(f"memory.mode={config.memory.mode!r} does not compose the MindMemOS backend"),
             impact=(
-                "the six mindmemos_* memory tools are unavailable; "
-                "file memory remains independent"
+                "the six mindmemos_* memory tools are unavailable; file memory remains independent"
             ),
             suggestion="Set memory.mode to full to use the MindMemOS backend.",
             details={"memory_mode": config.memory.mode, "enabled": config.memory.enabled},
@@ -611,9 +601,7 @@ def _live_provider_checks(*, memory_mode: str = "full", path: Path) -> list[Doct
 def _live_mimo_smoke(path: Path) -> DoctorCheck:
     try:
         config = load_config(path)
-        provider = config.get_provider(
-            config.runtime_defaults.default_provider_name, kind="chat"
-        )
+        provider = config.get_provider(config.runtime_defaults.default_provider_name, kind="chat")
         client = AsLLMClient(provider)
 
         async def smoke():

@@ -178,18 +178,18 @@ taskset: 一个 scene + 多个 goal + 一个连续 session
 - `homemaster.alfworld` 不创建 Provider、AgentRuntime 或 Memory backend；
 - ALFWorld worker 不 import `homemaster`、主环境 `site-packages` 或 MindMemOS；
 - HomeMaster 与 worker 不通过随机端口、token、loopback HTTP 或共享主库源码通信；
-- benchmark runner 不直接构造 `LLMClient`、`ToolRegistry` 或 `AgentRuntime`；
-- Web、Feishu、ALFWorld 不依赖 `homemaster.cli.composition`；
+- benchmark runner 不直接构造 `AsLLMClient`/`ChatModelBase`、`ToolRegistry` 或 `AsAgentRuntime`；
+- Web、Feishu、ALFWorld 统一经 `homemaster.application.composition` 组装（旧 `homemaster.cli.composition` 已删除）；
 - 不支持 `AlfredTWEnv`、TextWorld 或 legacy THOR action path。
 
 ## 6. 当前代码迁移对照
 
 | 目标层 | 当前主要位置 | 迁移方向 |
 |---|---|---|
-| 入口层 | `cli/`, `web/`, `gateway/`, `benchmarking/alfworld/runner.py` | 保留入口职责，删除公共组装逻辑 |
-| Application Composition | `cli/composition.py` | 移到 `application/composition/`，不保留旧兼容入口 |
+| 入口层 | `cli/`, `web/`, `gateway/`, `alfworld/benchmark/runner.py` | 保留入口职责，删除公共组装逻辑 |
+| Application Composition | `application/composition/` | 唯一组装入口（旧 `cli/composition.py` 已删除） |
 | Application Runtime | `application/runtime.py`, `application/factory.py` | 保留，收紧依赖接口 |
-| Agent Runtime | `agent/generic_runtime.py` | 保留唯一 Agent loop |
+| Agent Runtime | `substrate/runtime.py`（`AsAgentRuntime`） | 保留唯一 Agent loop |
 | 通用能力 | `providers/`, `tools/`, `memory/`, `mcp/`, `skills/`, `events/` | 由 composition 组装，由 Runtime 使用和管理生命周期 |
 | ALFWorld Harness | `alfworld/harness.py`, `backend.py`, `lifecycle.py`, `scene.py`, `actions.py`, `outcomes.py` | 单一 Oracle Harness；`benchmark/worker_adapter.py` 只负责隔离 worker 的生命周期绑定 |
 | Benchmark 编排 | `alfworld/benchmark/runner.py` | episode/taskset 共用 Application event-loop owner 和 typed outcome |
