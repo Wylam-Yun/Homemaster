@@ -1,5 +1,11 @@
 # Unreleased
 
+- Plan evidence cleanup: removed ~335 generated evidence artifacts
+  (`png`/`json`/`jsonl`/`log`/`lock`/…) under `plan/` — 47MB → 3.4MB.
+  All Markdown plan/design documents are preserved; release-gate
+  baselines (`plan/V1.9/baseline/`, manifests) and evidence files still
+  referenced by tests/scripts/docs are kept. Live-verify scripts
+  regenerate their evidence on the next run.
 - Repository audit remediation: `.gitignore` rules anchored to the repo
   root, vendored `dist/` bundles the runtime serves are checked in, dead
   code removed, and documentation repaired — dead links retargeted
