@@ -246,6 +246,23 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
     }
   }, [api, buildPayload, form, isNew, onProvidersChanged, refresh, toast])
 
+  const setDefaultProvider = useCallback(async (provider: ProviderProfile) => {
+    try {
+      const result = await api.patchProvider(provider.name, { set_default: true })
+      toast.show({
+        title: `已将「${provider.name}」设为默认 provider`,
+        description: result.default !== undefined ? `当前默认 provider：${result.default}` : undefined,
+      })
+      await refresh()
+      onProvidersChanged?.()
+    } catch (error) {
+      toast.show({
+        title: `设置默认 provider 失败`,
+        description: error instanceof Error ? error.message : undefined,
+      })
+    }
+  }, [api, onProvidersChanged, refresh, toast])
+
   const remove = useCallback(async (provider: ProviderProfile) => {
     setDeleting(true)
     try {
@@ -309,6 +326,7 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
                 <div className={styles.cardTitle}>
                   <strong>{provider.name}</strong>
                   <span className={styles.badge}>{provider.kind || 'chat'}</span>
+                  {provider.is_default === true && <span className={styles.defaultBadge}>默认</span>}
                   <span className={styles.keyState} data-configured={provider.api_key_configured}>
                     {provider.api_key_configured ? `已配置 Key ×${provider.api_key_count}` : '未配置 Key'}
                   </span>
@@ -325,6 +343,9 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
                   <button type="button" onClick={() => { void listModels(provider.name) }}>
                     {modelsOpen ? '刷新模型列表' : '枚举可用模型'}
                   </button>
+                  {provider.is_default !== true && provider.kind !== 'embedding' && (
+                    <button type="button" onClick={() => { void setDefaultProvider(provider) }}>设为默认</button>
+                  )}
                   <button type="button" onClick={() => { openEdit(provider) }}>编辑</button>
                   <button
                     type="button"

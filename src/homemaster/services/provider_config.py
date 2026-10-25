@@ -520,7 +520,29 @@ class ProviderConfigService:
     def list_profiles(self) -> list[dict[str, Any]]:
         """Masked provider views — key material is never echoed."""
 
-        return [_profile_summary(item) for item in self._current_items()]
+        default_name = self._default_name()
+        profiles = [_profile_summary(item) for item in self._current_items()]
+        for profile in profiles:
+            profile["is_default"] = (
+                default_name is not None
+                and profile["name"].casefold() == default_name.casefold()
+            )
+        return profiles
+
+    def _default_name(self) -> str | None:
+        """Runtime default first, then the on-disk ``providers.default``."""
+
+        runtime_default = getattr(
+            getattr(self._runtime_config, "providers", None), "default", None
+        )
+        if isinstance(runtime_default, str) and runtime_default.strip():
+            return runtime_default.strip()
+        providers = self._read_existing().get("providers")
+        if isinstance(providers, Mapping):
+            configured = providers.get("default")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+        return None
 
     # -- writes ------------------------------------------------------------
 

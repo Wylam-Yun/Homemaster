@@ -179,6 +179,8 @@ export type ProviderProfile = {
   api_key_configured: boolean
   api_key_count: number
   keyless: boolean
+  /** Only present on GET /api/providers list entries (write responses omit it). */
+  is_default?: boolean
 }
 
 /** One selectable row from GET /api/provider-templates. */
@@ -256,6 +258,16 @@ export type SkillInfo = {
   source: string
   user_invocable: boolean
   enabled: boolean
+  /** Server-side delete eligibility (raw provenance === 'user'). */
+  deletable?: boolean
+}
+
+/** One rejected skill source reported alongside the skill list. */
+export type SkillIssueInfo = {
+  source: string
+  code: string
+  detail: string
+  path: string | null
 }
 
 export type MetaInfo = {
@@ -396,7 +408,7 @@ export class HomeMasterApi {
     return this.request(`/api/providers/${encodeURIComponent(name)}/models`)
   }
 
-  listSkills(): Promise<{ skills: SkillInfo[] }> {
+  listSkills(): Promise<{ skills: SkillInfo[]; issues?: SkillIssueInfo[] }> {
     return this.request('/api/skills')
   }
 

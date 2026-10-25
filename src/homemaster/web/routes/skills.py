@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import FastAPI
 
 from homemaster.skills.commands import resolve_skill_command
@@ -12,6 +15,8 @@ from homemaster.web._shared import (
 )
 from homemaster.web.context import WebAppContext
 from homemaster.web.schemas import SkillResolveRequest
+
+logger = logging.getLogger(__name__)
 
 
 def register(app: FastAPI, ctx: WebAppContext) -> None:
@@ -25,6 +30,16 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 503,
                 "skill_registry_unavailable",
                 "The skill registry is unavailable.",
+                retryable=True,
+            )
+        try:
+            await asyncio.to_thread(registry.refresh)
+        except Exception:
+            logger.exception("skill_registry_refresh_failed")
+            return _error(
+                503,
+                "skill_registry_unavailable",
+                "The skill registry could not be refreshed.",
                 retryable=True,
             )
         skills: list[dict[str, object]] = []
@@ -41,9 +56,18 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                     # Per-skill enablement is a P1 feature (skills.enabled.json);
                     # every registered skill is invocable today.
                     "enabled": True,
+                    # Deletion is limited to the configured user skill root;
+                    # the raw provenance decides, not the display label.
+                    "deletable": raw_source == "user",
                 }
             )
-        return {"skills": skills}
+        return {
+            "skills": skills,
+            "issues": [
+                {"source": issue.source, "code": issue.code, "detail": issue.detail, "path": issue.path}
+                for issue in registry.issues
+            ],
+        }
 
     @app.post("/api/skills/resolve")
     async def resolve_skill(body: SkillResolveRequest) -> object:

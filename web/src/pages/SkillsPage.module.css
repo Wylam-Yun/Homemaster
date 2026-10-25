@@ -9,6 +9,9 @@
 .refresh:disabled { opacity: .6; cursor: wait; }
 .error { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 18px; padding: 14px 16px; border: 1px solid var(--danger); border-radius: 12px; background: #32181d; color: #ffd9dd; }
 .error div { display: grid; gap: 3px; }.error span { font-size: 13px; }
+.issues { margin-bottom: 18px; padding: 14px 16px; border: 1px solid var(--warning); border-radius: 12px; background: #2d2416; color: #ffe3b3; }
+.issues ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+.issues code { font-size: 12px; }
 .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .card { display: grid; gap: 9px; min-width: 0; padding: 15px 17px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / .25); }
 .cardTop { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }

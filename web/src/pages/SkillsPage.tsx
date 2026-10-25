@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { SkillInfo } from '../api/http'
+import type { SkillInfo, SkillIssueInfo } from '../api/http'
 import styles from './SkillsPage.module.css'
 
 /** Structural subset of HomeMasterApi this page consumes (contract: GET /api/skills). */
 export type SkillsApi = {
-  listSkills(): Promise<{ skills: SkillInfo[] }>
+  listSkills(): Promise<{ skills: SkillInfo[]; issues?: SkillIssueInfo[] }>
 }
 
 export function SkillsPage({ api }: { api: SkillsApi }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null)
+  const [issues, setIssues] = useState<SkillIssueInfo[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -18,6 +19,7 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
     try {
       const listed = await api.listSkills()
       setSkills(listed.skills)
+      setIssues(listed.issues ?? [])
       setError(null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '技能列表加载失败。')
@@ -45,6 +47,19 @@ export function SkillsPage({ api }: { api: SkillsApi }) {
         <div className={styles.error} role="alert">
           <div><strong>技能列表加载失败</strong><span>{error}</span></div>
           <button type="button" onClick={() => { void refresh() }}>重新加载</button>
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div className={styles.issues} role="alert">
+          <strong>{issues.length} 个技能加载失败</strong>
+          <ul>
+            {issues.map((issue, index) => (
+              <li key={`${issue.source}:${issue.path ?? index}`}>
+                <code>{issue.path ?? issue.source}</code> — {issue.code}: {issue.detail}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

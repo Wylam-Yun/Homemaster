@@ -819,7 +819,7 @@ function AppShell() {
           <button type="button" aria-label="记忆管理" data-active={route.kind === 'memory' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/memory') }}><span>◇</span>记忆管理</button>
           <button type="button" aria-label="权限" data-active={route.kind === 'permissions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/permissions') }}><span>▣</span>权限</button>
           <button type="button" aria-label="技能" data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}><span>✦</span>技能</button>
-          <button type="button" aria-label="设置" data-active={route.kind === 'settings' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/settings') }}><span>⚙</span>设置</button>
+          <button type="button" aria-label="Provider" data-active={route.kind === 'settings' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/settings') }}><span>⚙</span>Provider</button>
         </div>
         <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); navigate('#/chat'); void newSession() }}>＋ 新建会话</button>
         <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
@@ -908,7 +908,7 @@ function AppShell() {
         <div className="local-note"><span>●</span> Loopback only{meta !== null ? ` · v${meta.version}` : ''}</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? '设置' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '全部会话' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? 'Provider' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '全部会话' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
         {route.kind === 'permissions' ? (
           <PermissionsPage api={api} refreshSignal={grantsSignal} />
         ) : route.kind === 'memory' ? (

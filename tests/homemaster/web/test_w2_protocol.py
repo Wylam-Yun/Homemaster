@@ -300,6 +300,7 @@ def test_providers_lists_profiles_without_leaking_keys() -> None:
                 "api_key_configured": True,
                 "api_key_count": 1,
                 "keyless": False,
+                "is_default": True,
             },
             {
                 "name": "backup",
@@ -311,6 +312,7 @@ def test_providers_lists_profiles_without_leaking_keys() -> None:
                 "api_key_configured": False,
                 "api_key_count": 0,
                 "keyless": False,
+                "is_default": False,
             },
         ]
     }

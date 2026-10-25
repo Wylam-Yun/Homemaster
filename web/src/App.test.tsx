@@ -540,7 +540,7 @@ describe('App P0 routing and wiring', () => {
     expect(window.location.hash).toBe('#/skills')
     expect(await screen.findByText('cleanup')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Provider' }))
     expect(await screen.findByRole('heading', { name: 'Provider 设置' })).toBeVisible()
     expect(window.location.hash).toBe('#/settings')
 
