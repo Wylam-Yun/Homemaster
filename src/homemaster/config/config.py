@@ -138,9 +138,7 @@ class ProviderProfileConfig(BaseModel):
     # Dead field kept only so ``extra="forbid"`` does not reject older
     # configs: the substrate no longer selects a transport. ``load_config``
     # warns once per provider when a config source still sets it.
-    transport: TransportName = Field(
-        default="raw_http", json_schema_extra={"deprecated": True}
-    )
+    transport: TransportName = Field(default="raw_http", json_schema_extra={"deprecated": True})
     base_url: str
     model: str
     api_keys: tuple[str, ...] = Field(default_factory=tuple)
@@ -482,8 +480,7 @@ class MemoryQdrantConfig(BaseModel):
                 )
             if self.rest_port == self.grpc_port:
                 raise ValueError(
-                    "memory.qdrant.rest_port and grpc_port must differ under "
-                    "managed_local"
+                    "memory.qdrant.rest_port and grpc_port must differ under managed_local"
                 )
         return self
 
@@ -590,9 +587,7 @@ class MemoryConfig(BaseModel):
         if has_data_root and legacy_fields:
             raise ValueError("memory.data_root cannot be combined with legacy memory path fields")
 
-        data_root = _private_absolute_path(
-            Path(data.get("data_root", _default_memory_data_root()))
-        )
+        data_root = _private_absolute_path(Path(data.get("data_root", _default_memory_data_root())))
         files_source = Path(
             data.pop(
                 "root",

@@ -34,9 +34,7 @@ def _provider(name: str, *, kind: str) -> ProviderProfileConfig:
         model="test-model",
         api_keys=["test-key"],
         kind=kind,
-        embedding_url=(
-            "https://provider.invalid/v1/embeddings" if kind == "embedding" else None
-        ),
+        embedding_url=("https://provider.invalid/v1/embeddings" if kind == "embedding" else None),
     )
 
 

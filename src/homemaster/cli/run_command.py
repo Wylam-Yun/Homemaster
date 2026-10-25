@@ -325,9 +325,7 @@ def remote_result_envelope(
     session_id: str,
 ) -> dict[str, Any]:
     payload = (
-        terminal.get("payload")
-        if terminal and isinstance(terminal.get("payload"), dict)
-        else {}
+        terminal.get("payload") if terminal and isinstance(terminal.get("payload"), dict) else {}
     )
     status = terminal_status(terminal) if terminal is not None else "failed"
     return {

@@ -35,6 +35,7 @@ from homemaster.alfworld.types import (
 
 class AlfworldAdapterStateMixin:
     """Step loop, goal advancement, and external state reads."""
+
     # ------------------------------------------------------------------
     # Long-horizon: advance to the next goal WITHOUT resetting the scene.
     # ------------------------------------------------------------------

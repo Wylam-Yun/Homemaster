@@ -34,9 +34,7 @@ async def test_enqueue_returns_before_terminal_add_and_close_waits_for_it(tmp_pa
     release = asyncio.Event()
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             assert content == _content("apple")
             assert memory_type == "fact"
             assert provenance_seq == 7
@@ -81,9 +79,7 @@ async def test_jobs_run_fifo_one_at_a_time_and_failure_does_not_stop_worker(
     calls: list[str] = []
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             nonlocal active, maximum_active
             del memory_type, provenance_seq, evidence_kind, context
             active += 1
@@ -145,9 +141,7 @@ async def test_flat_adds_and_session_work_share_one_fifo(tmp_path: Path) -> None
         active -= 1
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             del memory_type, provenance_seq, evidence_kind, context
             name = content.split()[0]
             await enter(f"add:{name}")
@@ -183,11 +177,7 @@ async def test_flat_adds_and_session_work_share_one_fifo(tmp_path: Path) -> None
     assert calls == ["add:before", "finalize:session-a", "add:after"]
     assert maximum_active == 1
     rows = [json.loads(line) for line in audit_path.read_text().splitlines()]
-    work_states = [
-        row["payload"]["status"]
-        for row in rows
-        if row["event"] == "memory_work_job"
-    ]
+    work_states = [row["payload"]["status"] for row in rows if row["event"] == "memory_work_job"]
     assert work_states == ["queued", "processing", "completed"]
 
 
@@ -196,9 +186,7 @@ async def test_failed_session_work_does_not_stop_later_add(tmp_path: Path) -> No
     calls: list[str] = []
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             del memory_type, provenance_seq, evidence_kind, context
             name = content.split()[0]
             calls.append(f"add:{name}")
@@ -232,8 +220,7 @@ async def test_failed_session_work_does_not_stop_later_add(tmp_path: Path) -> No
     failed = [
         row["payload"]
         for row in rows
-        if row["event"] == "memory_work_job"
-        and row["payload"]["status"] == "failed"
+        if row["event"] == "memory_work_job" and row["payload"]["status"] == "failed"
     ]
     assert failed == [
         {
@@ -282,9 +269,7 @@ async def test_accepted_job_outlives_submitting_task_cancellation(tmp_path: Path
     completed = asyncio.Event()
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             del content, memory_type, provenance_seq, evidence_kind, context
             started.set()
             await release.wait()
@@ -351,9 +336,7 @@ async def test_audit_sink_failure_neither_kills_worker_nor_hangs_aclose(
     class Store:
         calls = 0
 
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             Store.calls += 1
             return {"memory_id": f"memory-{Store.calls}"}
 
@@ -391,9 +374,7 @@ async def test_dead_worker_fails_closed_and_aclose_does_not_hang(
         """Simulates a worker killed by a BaseException the loop can contain."""
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             raise FatalWorkerError("worker dies hard")
 
     queue = MemoryAddQueue(Store(), audit_path=tmp_path / "jobs.jsonl")
@@ -438,9 +419,7 @@ async def test_stranded_job_is_audited_as_dropped_on_aclose(
     gate = asyncio.Event()
 
     class Store:
-        async def add_flat(
-            self, content, memory_type, *, provenance_seq, evidence_kind, context
-        ):
+        async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
             await gate.wait()
             raise FatalWorkerError("worker dies hard")
 
@@ -473,8 +452,7 @@ async def test_stranded_job_is_audited_as_dropped_on_aclose(
 
     rows = [json.loads(line) for line in audit_path.read_text().splitlines()]
     dropped = [
-        r for r in rows
-        if r["event"] == "memory_add_job" and r["payload"]["status"] == "dropped"
+        r for r in rows if r["event"] == "memory_add_job" and r["payload"]["status"] == "dropped"
     ]
     assert len(dropped) == 1
     assert dropped[0]["payload"]["provenance_seq"] == 2

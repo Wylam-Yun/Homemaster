@@ -140,8 +140,18 @@ def main() -> int:
                     "images": [image(workdir / "artifacts" / "agentview.png")],
                 },
             )
-        elif op in {"skill", "arm", "navigate", "move_to", "move_delta", "rotate_pitch",
-                    "set_gripper", "release", "scripted_grasp", "move_base"}:
+        elif op in {
+            "skill",
+            "arm",
+            "navigate",
+            "move_to",
+            "move_delta",
+            "rotate_pitch",
+            "set_gripper",
+            "release",
+            "scripted_grasp",
+            "move_base",
+        }:
             state["step_index"] += 1
             skills += 1
             if skills >= succeeded_after:

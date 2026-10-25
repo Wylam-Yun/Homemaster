@@ -3,4 +3,5 @@ include protocols/alfworld-v1.schema.json
 include config/alfworld/requirements.lock
 include config/homemaster.example.yaml
 recursive-include workers/alfworld_worker *.py
+recursive-include workers/robocasa_worker *.py
 include config/runtime-assets.lock.json

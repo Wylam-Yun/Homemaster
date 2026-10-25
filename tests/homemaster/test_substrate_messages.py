@@ -49,9 +49,7 @@ def test_user_message_round_trip_text_only() -> None:
 
 def test_user_message_round_trip_multimodal() -> None:
     original = [
-        UserMessage(
-            content=[ContentBlock(text="look"), _image_block(), ContentBlock(text="?")]
-        )
+        UserMessage(content=[ContentBlock(text="look"), _image_block(), ContentBlock(text="?")])
     ]
     converted = to_agent_scope(original)
     assert len(converted) == 1
@@ -147,7 +145,7 @@ def test_from_agent_scope_tolerates_non_dict_tool_input() -> None:
     msg = Msg(
         role="assistant",
         name="a",
-        content=[ToolCallBlock(id="c1", name="t", input='[1, 2]')],
+        content=[ToolCallBlock(id="c1", name="t", input="[1, 2]")],
     )
     converted = from_agent_scope([msg])
     assert converted[0].tool_calls[0].arguments == {}

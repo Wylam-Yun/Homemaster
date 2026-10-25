@@ -63,44 +63,53 @@ class ScriptedModel(ChatModelBase):
 class Rig:
     """Real device subprocess + real store/checker/executor under AS agent."""
 
-    def __init__(self, tmp_path, *, settings: PermissionSettingsConfig | None = None,
-                 rules: dict[tuple[str, str], str] | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path,
+        *,
+        settings: PermissionSettingsConfig | None = None,
+        rules: dict[tuple[str, str], str] | None = None,
+    ) -> None:
         self.device = DeviceProcess()
         self.adapter = HomeDeviceAdapter(self.device)
         tool = FunctionTool(
-            name="home_device", description="Household device.",
-            input_schema={"type": "object"}, execute=_boom,
-            physical=True, physical_adapter=self.adapter,
+            name="home_device",
+            description="Household device.",
+            input_schema={"type": "object"},
+            execute=_boom,
+            physical=True,
+            physical_adapter=self.adapter,
         )
         registry = ToolRegistry()
         registry.register(tool)
         self.clock = FakeClock()
-        self.store = PermissionStore.open(
-            tmp_path / "spike.sqlite3", clock=self.clock
-        )
+        self.store = PermissionStore.open(tmp_path / "spike.sqlite3", clock=self.clock)
         self.checker = PermissionChecker(
             settings or PermissionSettingsConfig(),
-            store=self.store, clock=self.clock,
+            store=self.store,
+            clock=self.clock,
         )
         self.handler = DecisionHandler(self.store)
         for (action, resource), choice in (rules or {}).items():
             self.handler.allow(action, resource, choice)
         self.executor = ToolExecutor(
-            registry, permission_checker=self.checker,
-            confirmation_handler=self.handler, permission_store=self.store,
+            registry,
+            permission_checker=self.checker,
+            confirmation_handler=self.handler,
+            permission_store=self.store,
         )
         self.scope = RunScope(
-            session_id="bb-session", run_id="bb-run",
-            permission_subject=PermissionSubject(
-                subject_id="test", channel="pytest"
-            ),
+            session_id="bb-session",
+            run_id="bb-run",
+            permission_subject=PermissionSubject(subject_id="test", channel="pytest"),
             working_directory=tmp_path,
         )
         self.as_tool = HomeToolAdapter(tool, self.executor, self.scope)
 
     def agent(self, script: list[list[Any]]) -> Agent:
         return Agent(
-            name="hm", system_prompt="test agent",
+            name="hm",
+            system_prompt="test agent",
             model=ScriptedModel(script),
             toolkit=Toolkit(tools=[self.as_tool]),
             middlewares=[RunScopeMiddleware()],
@@ -127,10 +136,13 @@ class Rig:
 
 def _take_script(obj: str = "cup-a") -> list[list[Any]]:
     return [
-        [ToolCallBlock(
-            id="tc-1", name="home_device",
-            input=f'{{"op": "take", "object": "{obj}"}}',
-        )],
+        [
+            ToolCallBlock(
+                id="tc-1",
+                name="home_device",
+                input=f'{{"op": "take", "object": "{obj}"}}',
+            )
+        ],
         [TextBlock(text="done")],
     ]
 
@@ -140,9 +152,7 @@ async def test_approved_physical_call_reaches_device(tmp_path) -> None:
     rig = Rig(tmp_path, rules={("pick_up", "cup-a"): "allow_once"})
     try:
         agent = rig.agent(_take_script())
-        await agent.reply(
-            Msg(name="u", role="user", content=[TextBlock(text="拿杯子")])
-        )
+        await agent.reply(Msg(name="u", role="user", content=[TextBlock(text="拿杯子")]))
         # Black-box: the subprocess world actually changed.
         assert rig.world()["objects"]["cup-a"]["held"] is True
         assert rig.world()["ops"]["pick_up"] == 1
@@ -169,9 +179,7 @@ async def test_denied_tool_never_reaches_device(tmp_path) -> None:
     )
     try:
         agent = rig.agent(_take_script())
-        await agent.reply(
-            Msg(name="u", role="user", content=[TextBlock(text="拿杯子")])
-        )
+        await agent.reply(Msg(name="u", role="user", content=[TextBlock(text="拿杯子")]))
         assert rig.world()["objects"]["cup-a"]["held"] is False
         assert rig.world()["ops"]["pick_up"] == 0
         result = rig.result_block(agent)
@@ -187,9 +195,7 @@ async def test_approval_cancelled_blocks_device(tmp_path) -> None:
     rig = Rig(tmp_path)
     try:
         agent = rig.agent(_take_script())
-        await agent.reply(
-            Msg(name="u", role="user", content=[TextBlock(text="拿杯子")])
-        )
+        await agent.reply(Msg(name="u", role="user", content=[TextBlock(text="拿杯子")]))
         assert rig.world()["objects"]["cup-a"]["held"] is False
         assert rig.world()["ops"]["pick_up"] == 0
         result = rig.result_block(agent)
@@ -205,14 +211,13 @@ async def test_approval_cancelled_blocks_device(tmp_path) -> None:
 async def test_backend_error_after_start_is_outcome_unknown(tmp_path) -> None:
     rig = Rig(tmp_path, rules={("pick_up", "cup-a"): "allow_once"})
     try:
+
         def _raise(binding_ref: str) -> None:
             raise RuntimeError("backend exploded after lease")
 
         rig.adapter.on_execute = _raise
         agent = rig.agent(_take_script())
-        await agent.reply(
-            Msg(name="u", role="user", content=[TextBlock(text="拿杯子")])
-        )
+        await agent.reply(Msg(name="u", role="user", content=[TextBlock(text="拿杯子")]))
         result = rig.result_block(agent)
         hm = result.metadata["hm"]
         assert hm["status"] == "outcome_unknown", hm
@@ -229,9 +234,7 @@ async def test_navigated_take_runs_two_steps(tmp_path) -> None:
     rig = Rig(tmp_path, rules={("pick_up", "cup-b"): "allow_once"})
     try:
         agent = rig.agent(_take_script("cup-b"))
-        await agent.reply(
-            Msg(name="u", role="user", content=[TextBlock(text="拿蓝杯子")])
-        )
+        await agent.reply(Msg(name="u", role="user", content=[TextBlock(text="拿蓝杯子")]))
         world = rig.world()
         assert world["objects"]["cup-b"]["held"] is True
         assert world["area"] == "bedroom"

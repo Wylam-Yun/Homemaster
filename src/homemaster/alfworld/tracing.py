@@ -36,8 +36,7 @@ class AlfworldToolDispatchObserver:
             "success": False,
             "error": "unclassified_execution_failure",
             "terminal": True,
-            "classification": self._outcome.classification
-            or "unclassified_execution_failure",
+            "classification": self._outcome.classification or "unclassified_execution_failure",
             "score_eligible": False,
             "detail": "The episode has already terminated.",
         }
@@ -53,9 +52,7 @@ class AlfworldToolDispatchObserver:
         data = getattr(result, "data", None)
         if not isinstance(data, Mapping) or data.get("terminal") is not True:
             return
-        classification = str(
-            data.get("classification") or "unclassified_execution_failure"
-        )
+        classification = str(data.get("classification") or "unclassified_execution_failure")
         self._outcome.mark_terminal(
             classification=classification,
             tool_call_id=tool_call.id,
@@ -126,37 +123,43 @@ class AlfworldTraceWriter:
         for index, message in enumerate(getattr(session, "messages", [])):
             role = getattr(message, "role", "")
             if role == "user":
-                self.write_model_event({
-                    "content": _content_trace_payload(getattr(message, "content", [])),
-                    "event": "user_message",
-                    "message_index": index,
-                })
+                self.write_model_event(
+                    {
+                        "content": _content_trace_payload(getattr(message, "content", [])),
+                        "event": "user_message",
+                        "message_index": index,
+                    }
+                )
             elif role == "assistant":
-                self.write_model_event({
-                    "event": "assistant_completed",
-                    "finish_reason": getattr(message, "finish_reason", None),
-                    "message_index": index,
-                    "reasoning_content": getattr(message, "reasoning_content", None),
-                    "text": getattr(message, "text", ""),
-                    "tool_calls": [
-                        {
-                            "arguments": call.arguments,
-                            "id": call.id,
-                            "name": call.name,
-                        }
-                        for call in getattr(message, "tool_calls", [])
-                    ],
-                    "usage": getattr(message, "usage", None),
-                })
+                self.write_model_event(
+                    {
+                        "event": "assistant_completed",
+                        "finish_reason": getattr(message, "finish_reason", None),
+                        "message_index": index,
+                        "reasoning_content": getattr(message, "reasoning_content", None),
+                        "text": getattr(message, "text", ""),
+                        "tool_calls": [
+                            {
+                                "arguments": call.arguments,
+                                "id": call.id,
+                                "name": call.name,
+                            }
+                            for call in getattr(message, "tool_calls", [])
+                        ],
+                        "usage": getattr(message, "usage", None),
+                    }
+                )
             elif role == "tool":
-                self.write_model_event({
-                    "content": _content_trace_payload(getattr(message, "content", [])),
-                    "event": "tool_result",
-                    "is_error": getattr(message, "is_error", False),
-                    "message_index": index,
-                    "name": getattr(message, "name", None),
-                    "tool_call_id": getattr(message, "tool_call_id", None),
-                })
+                self.write_model_event(
+                    {
+                        "content": _content_trace_payload(getattr(message, "content", [])),
+                        "event": "tool_result",
+                        "is_error": getattr(message, "is_error", False),
+                        "message_index": index,
+                        "name": getattr(message, "name", None),
+                        "tool_call_id": getattr(message, "tool_call_id", None),
+                    }
+                )
 
     def write_summary(self, summary: dict[str, Any]) -> None:
         self.summary_path.write_text(
@@ -197,23 +200,27 @@ class AlfworldTraceWriter:
         for event in model_events:
             if event.get("event") == "episode_started":
                 state = event.get("state", {})
-                lines.extend([
-                    "### Episode Started",
-                    "",
-                    f"- task: {state.get('task')}",
-                    f"- observation: {state.get('observation')}",
-                    f"- frame_path: {state.get('frame_path')}",
-                    "",
-                ])
+                lines.extend(
+                    [
+                        "### Episode Started",
+                        "",
+                        f"- task: {state.get('task')}",
+                        f"- observation: {state.get('observation')}",
+                        f"- frame_path: {state.get('frame_path')}",
+                        "",
+                    ]
+                )
             if event.get("event") in {"assistant_completed", "model.assistant_completed"}:
                 assistant_index += 1
                 payload = event.get("payload", event)
-                lines.extend([
-                    f"### Assistant Turn {assistant_index}",
-                    "",
-                    f"- finish_reason: {payload.get('finish_reason')}",
-                    f"- usage: {json.dumps(payload.get('usage'), ensure_ascii=False)}",
-                ])
+                lines.extend(
+                    [
+                        f"### Assistant Turn {assistant_index}",
+                        "",
+                        f"- finish_reason: {payload.get('finish_reason')}",
+                        f"- usage: {json.dumps(payload.get('usage'), ensure_ascii=False)}",
+                    ]
+                )
                 reasoning = payload.get("reasoning_content")
                 if reasoning:
                     lines.extend(["", "Reasoning:", "", str(reasoning)])
@@ -237,34 +244,39 @@ class AlfworldTraceWriter:
                     for item in content
                     if isinstance(item, dict) and item.get("type") == "image"
                 ]
-                lines.extend([
-                    "### Tool Result",
-                    "",
-                    f"- tool: {event.get('name') or payload.get('name')}",
-                    f"- is_error: {payload.get('is_error')}",
-                    f"- image_paths: {json.dumps(image_paths, ensure_ascii=False)}",
-                    "",
-                ])
+                lines.extend(
+                    [
+                        "### Tool Result",
+                        "",
+                        f"- tool: {event.get('name') or payload.get('name')}",
+                        f"- is_error: {payload.get('is_error')}",
+                        f"- image_paths: {json.dumps(image_paths, ensure_ascii=False)}",
+                        "",
+                    ]
+                )
         lines.extend(["## Environment Steps", ""])
         for step in _read_jsonl(self.trace_path):
-            lines.extend([
-                f"### Step {step.get('step_index')}",
-                "",
-                f"- tool_name: {step.get('tool_name')}",
-                f"- tool_args: {json.dumps(step.get('tool_args'), ensure_ascii=False)}",
-                f"- translated_command: {step.get('translated_command')}",
-                f"- reward: {step.get('reward')}",
-                f"- done: {step.get('done')}",
-                f"- won: {step.get('won')}",
-                f"- invalid_action_count: {step.get('invalid_action_count')}",
-                f"- frame_path: {step.get('frame_path')}",
-                "",
-                "Feedback:",
-                "",
-                str(step.get("feedback") or step.get("observation") or ""),
-                "",
-            ])
+            lines.extend(
+                [
+                    f"### Step {step.get('step_index')}",
+                    "",
+                    f"- tool_name: {step.get('tool_name')}",
+                    f"- tool_args: {json.dumps(step.get('tool_args'), ensure_ascii=False)}",
+                    f"- translated_command: {step.get('translated_command')}",
+                    f"- reward: {step.get('reward')}",
+                    f"- done: {step.get('done')}",
+                    f"- won: {step.get('won')}",
+                    f"- invalid_action_count: {step.get('invalid_action_count')}",
+                    f"- frame_path: {step.get('frame_path')}",
+                    "",
+                    "Feedback:",
+                    "",
+                    str(step.get("feedback") or step.get("observation") or ""),
+                    "",
+                ]
+            )
         self.trajectory_path.write_text("\n".join(lines), encoding="utf-8")
+
 
 def split_trace_bucket(split: str) -> str:
     mapping = {
@@ -305,11 +317,13 @@ def _content_trace_payload(blocks: list[Any]) -> list[dict[str, Any]]:
         if block_type == "image":
             source = getattr(block, "source", None) or {}
             metadata = getattr(block, "metadata", None) or {}
-            payload.append({
-                "media_type": source.get("media_type"),
-                "path": metadata.get("path"),
-                "type": "image",
-            })
+            payload.append(
+                {
+                    "media_type": source.get("media_type"),
+                    "path": metadata.get("path"),
+                    "type": "image",
+                }
+            )
         else:
             payload.append({"text": getattr(block, "text", ""), "type": "text"})
     return payload

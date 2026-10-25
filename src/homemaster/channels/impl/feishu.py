@@ -65,6 +65,8 @@ _TRUSTED_OWNER_CAPABILITIES = (
     "channel.feishu.group.create",
     "channel.feishu.group.rename",
 )
+
+
 def _emit_feishu_audit(
     action: str,
     target: str,

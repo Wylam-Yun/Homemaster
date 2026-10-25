@@ -85,11 +85,7 @@ def _server_owned_process_config(config: Any) -> Any:
     if not hasattr(observability, "model_copy"):
         return config
     return config.model_copy(
-        update={
-            "observability": observability.model_copy(
-                update={"interrupt_enabled": False}
-            )
-        }
+        update={"observability": observability.model_copy(update={"interrupt_enabled": False})}
     )
 
 
@@ -115,8 +111,8 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
-    _executor = getattr(bundle.application, 'tool_executor', None)
-    _store = getattr(_executor, 'permission_store', None)
+    _executor = getattr(bundle.application, "tool_executor", None)
+    _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
     memory_management_service = (
@@ -151,8 +147,8 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
-    _executor = getattr(bundle.application, 'tool_executor', None)
-    _store = getattr(_executor, 'permission_store', None)
+    _executor = getattr(bundle.application, "tool_executor", None)
+    _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
     memory_management_service = (
@@ -187,8 +183,8 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
-    _executor = getattr(bundle.application, 'tool_executor', None)
-    _store = getattr(_executor, 'permission_store', None)
+    _executor = getattr(bundle.application, "tool_executor", None)
+    _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
     memory_management_service = (

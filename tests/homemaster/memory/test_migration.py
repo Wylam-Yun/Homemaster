@@ -346,9 +346,7 @@ async def test_application_start_migrates_before_opening_owned_stores(
     async def _noop_close(self: object) -> None:
         return None
 
-    monkeypatch.setattr(
-        MemoryMigrationCoordinator, "ensure_ready", _recording_ensure_ready
-    )
+    monkeypatch.setattr(MemoryMigrationCoordinator, "ensure_ready", _recording_ensure_ready)
     monkeypatch.setattr(FileMemoryStore, "start", _recording_file_start)
     monkeypatch.setattr(MemoryEvidenceLedger, "start", _recording_evidence_start)
     monkeypatch.setattr(ManagedNeo4jRuntime, "start", _recording_neo4j_start)

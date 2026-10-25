@@ -215,10 +215,7 @@ def test_browser_registered_tools_lock_v31_surface_and_eval_gate() -> None:
             "target_ref",
         }
         assert "snapshot_id" not in definitions[name].input_schema["properties"]
-    assert all(
-        "requires_model_observation" not in tool.definition.to_dict()
-        for tool in safe
-    )
+    assert all("requires_model_observation" not in tool.definition.to_dict() for tool in safe)
 
 
 def test_provider_serialized_browser_contract_is_exact(tmp_path) -> None:
@@ -229,29 +226,21 @@ def test_provider_serialized_browser_contract_is_exact(tmp_path) -> None:
     scope = RunScope(
         session_id="schema",
         run_id="schema",
-        permission_subject=PermissionSubject(
-            subject_id="test", channel="pytest"
-        ),
+        permission_subject=PermissionSubject(subject_id="test", channel="pytest"),
         working_directory=tmp_path,
     )
-    adapters = [
-        HomeToolAdapter(from_registered_tool(tool), None, scope)
-        for tool in registered
-    ]
+    adapters = [HomeToolAdapter(from_registered_tool(tool), None, scope) for tool in registered]
     toolkit = Toolkit(tools=adapters)
     schemas = asyncio.run(toolkit.get_tool_schemas())
     functions = [item["function"] for item in schemas]
     assert tuple(item["name"] for item in functions) == (*SAFE_NAMES, "browser_eval")
     assert all(set(item) == {"name", "description", "parameters"} for item in functions)
     assert {
-        item["name"]: hashlib.sha256(item["description"].encode()).hexdigest()
-        for item in functions
+        item["name"]: hashlib.sha256(item["description"].encode()).hexdigest() for item in functions
     } == DESCRIPTION_SHA256
     assert {
         item["name"]: hashlib.sha256(
-            json.dumps(
-                item["parameters"], sort_keys=True, separators=(",", ":")
-            ).encode()
+            json.dumps(item["parameters"], sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         for item in functions
     } == PROVIDER_SCHEMA_SHA256
@@ -265,9 +254,7 @@ def test_browser_schema_required_alternatives_fail_closed() -> None:
     with pytest.raises(ValueError, match="not valid under any"):
         tools["browser_select"].input_model(target={"name": "Region"})
     with pytest.raises(ValueError, match="valid under each"):
-        tools["browser_select"].input_model(
-            target={"name": "Region"}, option="US", options=["US"]
-        )
+        tools["browser_select"].input_model(target={"name": "Region"}, option="US", options=["US"])
     with pytest.raises(ValueError, match="request_ref"):
         tools["browser_network"].input_model(mode="detail")
     with pytest.raises(ValueError, match="tab_ref"):

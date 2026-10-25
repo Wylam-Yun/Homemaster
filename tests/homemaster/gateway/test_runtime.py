@@ -489,9 +489,7 @@ async def test_gateway_binds_and_unbinds_exact_feishu_generation_around_run(tmp_
         confirmation_handler=handler,
     )
     inbound = InboundMessage(
-        identity=ChannelIdentity(
-            "tenant-a", "feishu", "ou-owner", "ou-owner", chat_type="private"
-        ),
+        identity=ChannelIdentity("tenant-a", "feishu", "ou-owner", "ou-owner", chat_type="private"),
         principal=AuthenticatedPrincipal("tenant-a", "owner", "feishu"),
         content="hello",
         correlation_id="om-source",

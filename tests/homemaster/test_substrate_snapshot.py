@@ -53,7 +53,9 @@ def test_v2_roundtrip_engine_context_is_authoritative() -> None:
             role="assistant",
             content=[
                 ToolCallBlock(
-                    id="tc-9", name="home_device", input='{"op":"enter"}',
+                    id="tc-9",
+                    name="home_device",
+                    input='{"op":"enter"}',
                     state="asking",
                 )
             ],
@@ -81,8 +83,10 @@ def test_v2_messages_projection_matches_context() -> None:
             content=[
                 ToolCallBlock(id="tc-1", name="home_device", input="{}"),
                 ToolResultBlock(
-                    id="tc-1", name="home_device",
-                    output=[TextBlock(text="ok")], state="success",
+                    id="tc-1",
+                    name="home_device",
+                    output=[TextBlock(text="ok")],
+                    state="success",
                 ),
             ],
         ),
@@ -97,9 +101,7 @@ def test_v2_messages_projection_matches_context() -> None:
 
 def test_v1_snapshot_migrates() -> None:
     session = AgentSession(session_id="sess-old")
-    session.append(
-        UserMessage(role="user", content=[ContentBlock(type="text", text="hi")])
-    )
+    session.append(UserMessage(role="user", content=[ContentBlock(type="text", text="hi")]))
     session.append(
         AssistantMessage(
             role="assistant",
@@ -109,7 +111,8 @@ def test_v1_snapshot_migrates() -> None:
     v1 = session.to_snapshot_dict(
         agent_state=RunBookkeepingState(),
         task_state_store=TaskStateStore(run_id="r1"),
-        model="m", system_prompt="s",
+        model="m",
+        system_prompt="s",
     )
     assert v1["schema_version"] == 1
     parsed = parse_snapshot_payload(v1)
@@ -125,9 +128,7 @@ def test_future_schema_version_rejected() -> None:
 
 
 def test_image_stripped_in_both_faces() -> None:
-    image = DataBlock(
-        source=Base64Source(data="AAAA", media_type="image/png")
-    )
+    image = DataBlock(source=Base64Source(data="AAAA", media_type="image/png"))
     context = [
         Msg(
             name="a",
@@ -135,7 +136,8 @@ def test_image_stripped_in_both_faces() -> None:
             content=[
                 ToolCallBlock(id="tc-i", name="camera", input="{}"),
                 ToolResultBlock(
-                    id="tc-i", name="camera",
+                    id="tc-i",
+                    name="camera",
                     output=[TextBlock(text="shot"), image],
                     state="success",
                 ),
@@ -150,17 +152,11 @@ def test_image_stripped_in_both_faces() -> None:
     assert all(not isinstance(b, DataBlock) for b in out)
     assert any("image stripped" in b.text for b in out)
     # Projection face agrees.
-    assert not any(
-        b.type == "image"
-        for m in parsed.messages
-        for b in m.content
-    )
+    assert not any(b.type == "image" for m in parsed.messages for b in m.content)
 
 
 def test_preserved_image_tool_call_id_keeps_image() -> None:
-    image = DataBlock(
-        source=Base64Source(data="BBBB", media_type="image/png")
-    )
+    image = DataBlock(source=Base64Source(data="BBBB", media_type="image/png"))
     context = [
         Msg(
             name="a",
@@ -168,8 +164,10 @@ def test_preserved_image_tool_call_id_keeps_image() -> None:
             content=[
                 ToolCallBlock(id="tc-keep", name="camera", input="{}"),
                 ToolResultBlock(
-                    id="tc-keep", name="camera",
-                    output=[image], state="success",
+                    id="tc-keep",
+                    name="camera",
+                    output=[image],
+                    state="success",
                 ),
             ],
         ),
@@ -190,7 +188,8 @@ def test_new_fields_and_run_bookkeeping_survive() -> None:
         engine_state=_engine_state(),
         run_state=run_state,
         task_state_store=TaskStateStore(run_id="r1"),
-        model="m", system_prompt="s",
+        model="m",
+        system_prompt="s",
         canonical_evidence_refs=("ev-1", "ev-2"),
         require_recall=True,
     )
@@ -209,7 +208,9 @@ def test_pending_tool_call_detectable_after_resume() -> None:
             role="assistant",
             content=[
                 ToolCallBlock(
-                    id="tc-p", name="home_device", input="{}",
+                    id="tc-p",
+                    name="home_device",
+                    input="{}",
                     state="submitted",
                 )
             ],
@@ -218,7 +219,8 @@ def test_pending_tool_call_detectable_after_resume() -> None:
     parsed = parse_snapshot_payload(_build(_engine_state(context)))
     msg = parsed.engine_state.context[-1]
     pending = [
-        b for b in msg.content
+        b
+        for b in msg.content
         if isinstance(b, ToolCallBlock) and b.state in ("asking", "submitted")
     ]
     assert pending and pending[0].id == "tc-p"

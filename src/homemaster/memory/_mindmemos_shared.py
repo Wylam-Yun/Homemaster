@@ -163,9 +163,7 @@ def _record_from_raw_memory(raw: Any) -> MemoryRecord | None:
     nested = metadata.get("request_metadata")
     if isinstance(nested, Mapping):
         record_metadata = nested.get("record_metadata")
-        if isinstance(record_metadata, Sequence) and not isinstance(
-            record_metadata, (str, bytes)
-        ):
+        if isinstance(record_metadata, Sequence) and not isinstance(record_metadata, (str, bytes)):
             metadata = next(
                 (
                     item

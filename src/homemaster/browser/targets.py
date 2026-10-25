@@ -123,8 +123,7 @@ class SnapshotStore:
                     "current_generation": generation,
                 },
                 hint=(
-                    "The page has navigated since this snapshot. Re-run browser_inspect to "
-                    "refresh."
+                    "The page has navigated since this snapshot. Re-run browser_inspect to refresh."
                 ),
             )
         matches = [element for element in snapshot.elements if element.element_id == element_id]
@@ -277,9 +276,7 @@ def _candidate(element: BrowserElement) -> dict[str, object]:
 _NEAR_MISS_LIMIT = 5
 
 
-def _near_misses(
-    elements: Sequence[BrowserElement], target: Target
-) -> list[BrowserElement]:
+def _near_misses(elements: Sequence[BrowserElement], target: Target) -> list[BrowserElement]:
     """Same-role first, then overlapping name/text - mirrors OpenCLI find.js candidates."""
 
     same_role = [
@@ -288,11 +285,7 @@ def _near_misses(
         if element.role == target.role
         or (target.role in _CELL_ROLES and element.role in _CELL_ROLES)
     ]
-    query_terms = [
-        value
-        for value in (target.name, target.label, target.text)
-        if value
-    ]
+    query_terms = [value for value in (target.name, target.label, target.text) if value]
     overlapping = []
     if query_terms:
         for element in elements:

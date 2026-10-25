@@ -169,13 +169,15 @@ def test_semantic_judge_checks_yes_no_without_candidate_selection(
 ) -> None:
     config_path = tmp_path / "semantic_judge.yaml"
     config_path.write_text(
-        "\n".join([
-            "semantic_judge:",
-            "  base_url: https://judge.example/v1",
-            "  api_key: test-key",
-            "  model: agnes-2.0-flash",
-            "  timeout_s: 1",
-        ]),
+        "\n".join(
+            [
+                "semantic_judge:",
+                "  base_url: https://judge.example/v1",
+                "  api_key: test-key",
+                "  model: agnes-2.0-flash",
+                "  timeout_s: 1",
+            ]
+        ),
         encoding="utf-8",
     )
     requests: list[dict] = []

@@ -387,9 +387,7 @@ class ManagedNeo4jRuntime:
         env["JAVA_HOME"] = str(self._neo4j.java_home)
         env["NEO4J_HOME"] = str(self._neo4j.home)
         env["NEO4J_CONF"] = str(self._runtime_root)
-        env["PATH"] = os.pathsep.join(
-            [str(self._neo4j.java_home / "bin"), env.get("PATH", "")]
-        )
+        env["PATH"] = os.pathsep.join([str(self._neo4j.java_home / "bin"), env.get("PATH", "")])
         return env
 
     async def _is_ready(self) -> bool:

@@ -112,9 +112,7 @@ def test_scopes_are_isolated_and_duplicate_add_record_is_idempotent(tmp_path: Pa
         )
     other = store.read(project_id="project-b", user_id="user-b")
 
-    assert store.read(project_id="project-a", user_id="user-a")[
-        "new_active_memory_count"
-    ] == 1
+    assert store.read(project_id="project-a", user_id="user-a")["new_active_memory_count"] == 1
     assert other["new_active_memory_count"] == 0
 
 

@@ -446,18 +446,14 @@ def _message_text(message: Any) -> str:
 
     content = getattr(message, "content", None)
     if isinstance(content, (list, tuple)):
-        joined = "\n".join(
-            str(getattr(block, "text", "") or "") for block in content
-        )
+        joined = "\n".join(str(getattr(block, "text", "") or "") for block in content)
         if joined.strip():
             return joined
     if isinstance(message, dict):
         blocks = message.get("content", [])
         if isinstance(blocks, list):
             joined = "\n".join(
-                str(block.get("text", "") or "")
-                for block in blocks
-                if isinstance(block, dict)
+                str(block.get("text", "") or "") for block in blocks if isinstance(block, dict)
             )
             if joined.strip():
                 return joined
@@ -539,8 +535,7 @@ class SessionManager:
             summaries.append(
                 SessionSummary(
                     session_id=session_id,
-                    title=self._title_override(session_id)
-                    or _summary_title(session_id, messages),
+                    title=self._title_override(session_id) or _summary_title(session_id, messages),
                     message_count=len(messages),
                     updated_at=self._session_updated_at(session_id),
                 )
@@ -601,13 +596,9 @@ class SessionManager:
         async with self._manager_lock:
             runtime = self._sessions.get(session_id)
             if runtime is not None and runtime.active_task is not None:
-                raise SessionConflictError(
-                    f"session {session_id} has an active run"
-                )
+                raise SessionConflictError(f"session {session_id} has an active run")
             if busy_check is not None and busy_check(session_id):
-                raise SessionConflictError(
-                    f"session {session_id} has an active run"
-                )
+                raise SessionConflictError(f"session {session_id} has an active run")
             if session_id not in self._known_session_ids():
                 raise KeyError(f"unknown session: {session_id}")
             self._sessions.pop(session_id, None)
@@ -823,9 +814,7 @@ class SessionManager:
             snapshot = self._backend.load(session_id)
         except (FileNotFoundError, KeyError) as exc:
             raise KeyError(f"unknown session: {session_id}") from exc
-        session, _agent_state, _task_state = AgentSession.from_snapshot_dict(
-            snapshot.payload
-        )
+        session, _agent_state, _task_state = AgentSession.from_snapshot_dict(snapshot.payload)
         return tuple(copy.deepcopy(session.messages))
 
     def _runtime_from_snapshot(self, snapshot: SessionSnapshot) -> SessionRuntime:
@@ -841,9 +830,7 @@ class SessionManager:
             task_state = parsed.task_state
             engine_state = parsed.engine_state
         else:
-            session, agent_state, task_state = AgentSession.from_snapshot_dict(
-                snapshot.payload
-            )
+            session, agent_state, task_state = AgentSession.from_snapshot_dict(snapshot.payload)
         if task_state.snapshot is not None and task_state.snapshot.status is TaskStatus.PAUSED:
             task_state.update_status(TaskStatus.ACTIVE)
         runtime = SessionRuntime(

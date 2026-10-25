@@ -14,12 +14,14 @@ from homemaster.alfworld.tracing import (
 
 def test_trace_writer_writes_jsonl_with_exact_values(tmp_path: Path) -> None:
     writer = AlfworldTraceWriter(tmp_path / "episode-1")
-    writer.write_event({
-        "event": "tool_step",
-        "observation": "You see apple 1.",
-        "api_key": "secret",
-        "nested": {"auth_token": "secret", "safe": "ok"},
-    })
+    writer.write_event(
+        {
+            "event": "tool_step",
+            "observation": "You see apple 1.",
+            "api_key": "secret",
+            "nested": {"auth_token": "secret", "safe": "ok"},
+        }
+    )
 
     payload = json.loads((tmp_path / "episode-1" / "trace.jsonl").read_text().strip())
 
@@ -31,36 +33,42 @@ def test_trace_writer_writes_jsonl_with_exact_values(tmp_path: Path) -> None:
 
 def test_model_trace_preserves_values_and_trajectory_is_written(tmp_path: Path) -> None:
     writer = AlfworldTraceWriter(tmp_path / "run-1" / "episode-0001")
-    writer.write_model_event({
-        "event": "episode_started",
-        "state": {
-            "task": "put apple on table",
-            "observation": "You see a room.",
-            "frame_path": "frames/frame-0000.png",
-        },
-    })
-    writer.write_model_event({
-        "event": "model.assistant_completed",
-        "payload": {
-            "api_key": "secret",
-            "finish_reason": "tool_calls",
-            "text": "",
-            "tool_calls": [{"name": "robot_inspect_view", "arguments": {"focus": "table"}}],
-            "usage": {"input_tokens": 1, "output_tokens": 2},
-        },
-    })
-    writer.write_event({
-        "tool_name": "robot_go_to",
-        "tool_args": {"target_receptacle": "table 1"},
-        "translated_command": "go to table 1",
-        "feedback": "You see apple 1.",
-        "reward": 0.0,
-        "done": False,
-        "won": False,
-        "step_index": 1,
-        "invalid_action_count": 0,
-        "frame_path": "frames/frame-0001.png",
-    })
+    writer.write_model_event(
+        {
+            "event": "episode_started",
+            "state": {
+                "task": "put apple on table",
+                "observation": "You see a room.",
+                "frame_path": "frames/frame-0000.png",
+            },
+        }
+    )
+    writer.write_model_event(
+        {
+            "event": "model.assistant_completed",
+            "payload": {
+                "api_key": "secret",
+                "finish_reason": "tool_calls",
+                "text": "",
+                "tool_calls": [{"name": "robot_inspect_view", "arguments": {"focus": "table"}}],
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            },
+        }
+    )
+    writer.write_event(
+        {
+            "tool_name": "robot_go_to",
+            "tool_args": {"target_receptacle": "table 1"},
+            "translated_command": "go to table 1",
+            "feedback": "You see apple 1.",
+            "reward": 0.0,
+            "done": False,
+            "won": False,
+            "step_index": 1,
+            "invalid_action_count": 0,
+            "frame_path": "frames/frame-0001.png",
+        }
+    )
     summary = {
         "episode_id": "episode-1",
         "failure_reason": None,

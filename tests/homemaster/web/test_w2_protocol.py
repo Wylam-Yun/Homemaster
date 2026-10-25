@@ -1151,7 +1151,6 @@ def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     assert application.closed
 
 
-
 def test_archive_status_reports_controller_view() -> None:
     """GET /archive-status surfaces the latest finalization job for a session."""
     application = _W2Application()

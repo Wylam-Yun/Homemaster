@@ -163,22 +163,26 @@ def test_semantic_resolver_miss_returns_opencli_style_recovery_data() -> None:
 def test_semantic_resolver_treats_cell_and_gridcell_as_compatible_roles() -> None:
     element = _element("21")
     element = replace(element, role="cell", text="21")
-    assert resolve_semantic(
-        [element], Target(role="gridcell", text="21"), writable=True
-    ).element.element_id == element.element_id
+    assert (
+        resolve_semantic(
+            [element], Target(role="gridcell", text="21"), writable=True
+        ).element.element_id
+        == element.element_id
+    )
 
     named_date = replace(element, name="date 2026-08-21 00:00:00")
-    assert resolve_semantic(
-        [named_date], Target(role="gridcell", name="21"), writable=True
-    ).element.element_id == named_date.element_id
+    assert (
+        resolve_semantic(
+            [named_date], Target(role="gridcell", name="21"), writable=True
+        ).element.element_id
+        == named_date.element_id
+    )
 
 
 def test_inspection_filter_treats_date_cells_as_compatible_and_matches_visible_day() -> None:
     element = replace(_element("date"), role="cell", name="date 2026-08-21 00:00:00", text="21")
 
-    selected = filter_elements(
-        [element], {"role": "gridcell", "name": "21", "match": "exact"}
-    )
+    selected = filter_elements([element], {"role": "gridcell", "name": "21", "match": "exact"})
 
     assert [item.element_id for item in selected] == [element.element_id]
 

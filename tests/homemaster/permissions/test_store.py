@@ -78,9 +78,7 @@ def test_reject_creates_no_grant(store: PermissionStore, clock: FakeClock) -> No
     assert read_raw(store.path, "SELECT COUNT(*) FROM permission_grants")[0] == (0,)
 
 
-def test_partial_reject_blocks_but_keeps_grant(
-    store: PermissionStore, clock: FakeClock
-) -> None:
+def test_partial_reject_blocks_but_keeps_grant(store: PermissionStore, clock: FakeClock) -> None:
     request = make_combo_request(clock, "combo")
     store.create_request(request)
     enter, pick = (item.item_id for item in request.requirements)
@@ -101,9 +99,7 @@ def test_partial_reject_blocks_but_keeps_grant(
     assert read_raw(store.path, "SELECT COUNT(*) FROM permission_grants")[0] == (1,)
 
 
-def test_same_submission_is_idempotent(
-    store: PermissionStore, clock: FakeClock
-) -> None:
+def test_same_submission_is_idempotent(store: PermissionStore, clock: FakeClock) -> None:
     request = make_request(clock, "idem")
     store.create_request(request)
     first = decide(store, request, _choices(request, "allow_always"), "sub-idem")
@@ -185,9 +181,7 @@ def test_no_partial_commit_on_mid_submit_failure(
     assert read_raw(store.path, "SELECT COUNT(*) FROM permission_submissions")[0] == (0,)
 
 
-def test_interleaved_connections(
-    store_path: Path, clock: FakeClock
-) -> None:
+def test_interleaved_connections(store_path: Path, clock: FakeClock) -> None:
     first_clock = FakeClock()
     second_clock = FakeClock()
     first = PermissionStore.open(store_path, clock=first_clock)
@@ -214,10 +208,7 @@ def test_interleaved_connections(
         second.close()
     assert read_raw(store_path, "SELECT COUNT(*) FROM permission_grants")[0] == (1,)
     assert read_raw(store_path, "SELECT COUNT(*) FROM permission_submissions")[0] == (2,)
-    statuses = {
-        row[0]
-        for row in read_raw(store_path, "SELECT status FROM permission_requests")
-    }
+    statuses = {row[0] for row in read_raw(store_path, "SELECT status FROM permission_requests")}
     assert statuses == {"ready", "blocked"}
 
 
@@ -270,9 +261,7 @@ def test_unknown_outcome_blocks_reclaim(store: PermissionStore, clock: FakeClock
         store.claim_step(request.request_id, step.step_id, request.revision)
 
 
-def test_retry_within_budget_after_no_effect(
-    store: PermissionStore, clock: FakeClock
-) -> None:
+def test_retry_within_budget_after_no_effect(store: PermissionStore, clock: FakeClock) -> None:
     request = make_request(clock, "retry")
     store.create_request(request)
     decide(store, request, _choices(request, "allow_once"), "sub-retry")
@@ -425,8 +414,6 @@ def test_external_process_readback(tmp_path: Path) -> None:
             "SELECT environment_id, resource_kind, resource_id, action, revoked_at"
             " FROM permission_grants"
         ).fetchall() == [("home", "object", "cup-a", "pick_up", None)]
-        assert conn.execute(
-            "SELECT COUNT(*) FROM permission_submissions"
-        ).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM permission_submissions").fetchone()[0] == 1
     finally:
         conn.close()

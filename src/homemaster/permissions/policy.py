@@ -132,9 +132,7 @@ class PermissionChecker:
         subject = context.metadata.get("permission_subject")
         capabilities = tuple(getattr(subject, "capabilities", ()))
         missing = tuple(
-            capability
-            for capability in required_capabilities
-            if capability not in capabilities
+            capability for capability in required_capabilities if capability not in capabilities
         )
         if missing:
             return UniversalPermissionDecision(
@@ -178,9 +176,7 @@ class PermissionChecker:
         allows an item.
         """
         if self._store is None:
-            raise RuntimeError(
-                "physical evaluation needs a PermissionStore; refusing to allow"
-            )
+            raise RuntimeError("physical evaluation needs a PermissionStore; refusing to allow")
         scope = frozenset(item.key for item in request.requirements)
         run_id = str(context.metadata.get("run_id", ""))
         session_id = str(context.metadata.get("session_id", ""))
@@ -331,9 +327,7 @@ class PermissionChecker:
                 if "=" in token:
                     value = token.split("=", 1)[1]
                 elif (
-                    len(token) > 2
-                    and not token.startswith("--")
-                    and token[2:3] in {"/", "~", "."}
+                    len(token) > 2 and not token.startswith("--") and token[2:3] in {"/", "~", "."}
                 ):
                     value = token[2:]
                 else:

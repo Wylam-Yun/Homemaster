@@ -230,10 +230,7 @@ def test_taskset_summary_excludes_entire_chain_after_infrastructure_failure() ->
     assert payload["tasksets"][1]["agent_tool_call_count"] == 2
     assert payload["tasksets"][1]["backend_action_count"] == 5
     assert payload["tasksets"][1]["subtasks"][1]["classification"] is None
-    assert (
-        payload["tasksets"][1]["subtasks"][1]["not_run_reason"]
-        == "prior_infrastructure_failure"
-    )
+    assert payload["tasksets"][1]["subtasks"][1]["not_run_reason"] == "prior_infrastructure_failure"
     assert (
         payload["tasksets"][1]["subtasks"][1]["blocked_by_classification"]
         == "harness_operation_failure"

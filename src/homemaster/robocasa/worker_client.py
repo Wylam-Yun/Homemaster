@@ -447,9 +447,7 @@ class RoboCasaWorkerClient:
             raise RoboCasaWorkerError("worker environment is closed")
         return_code = self._process.poll()
         if return_code is not None:
-            raise RoboCasaWorkerError(
-                f"worker exited unexpectedly with return code {return_code}"
-            )
+            raise RoboCasaWorkerError(f"worker exited unexpectedly with return code {return_code}")
 
 
 def _decode_state(value: dict[str, Any]) -> RoboCasaEnvState:

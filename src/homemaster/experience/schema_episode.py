@@ -126,9 +126,7 @@ def build_schema_episode(
             "type": source.get("type"),
             "name": source.get("name"),
             "tool_call_id": source.get("tool_call_id"),
-            "payload": _actionable_payload(
-                source.get("type"), payload, source.get("name")
-            ),
+            "payload": _actionable_payload(source.get("type"), payload, source.get("name")),
             "trace_offset": offset,
         }
         normalized.append((offset, event))

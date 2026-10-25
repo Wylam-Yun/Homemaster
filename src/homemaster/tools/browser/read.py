@@ -55,9 +55,7 @@ def build(session: object):
     )
     schema["allOf"] = [
         {
-            "if": {
-                "properties": {"kind": {"enum": ["text", "value", "attributes"]}}
-            },
+            "if": {"properties": {"kind": {"enum": ["text", "value", "attributes"]}}},
             "then": {"required": ["target"]},
         }
     ]

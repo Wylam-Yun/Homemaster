@@ -169,9 +169,7 @@ def build_tool_registry(
         # the mindmemos write tools arrive via the always-on home source, so
         # gating only inside _robocasa_tools would leave them callable.
         selected = tuple(
-            tool
-            for tool in selected
-            if tool.definition.model_alias not in _MEMORY_WRITE_TOOL_NAMES
+            tool for tool in selected if tool.definition.model_alias not in _MEMORY_WRITE_TOOL_NAMES
         )
     if environment == "browser":
         # Browser runs receive the run-owned V3.1 registry once a session
@@ -362,18 +360,18 @@ def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
         policy=_policy_for("robot_manipulate", environment="alfworld"),
         state_effects=("backend.advance",),
     )
-    return from_registered_tool(
-        registered, physical=True, physical_adapter=adapter
-    )
+    return from_registered_tool(registered, physical=True, physical_adapter=adapter)
 
 
 def alfworld_physical_go_to_tool(*, backend: Any) -> Any:
     from homemaster.alfworld.permission_adapter import AlfworldPermissionAdapter
     from homemaster.alfworld.tools import make_alfworld_robot_go_to
+
     spec = make_alfworld_robot_go_to()
     adapter = AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
     registered = _configured_tool(
-        spec, environment="alfworld",
+        spec,
+        environment="alfworld",
         policy=_policy_for("robot_go_to", environment="alfworld"),
         state_effects=("backend.advance",),
     )
@@ -455,6 +453,8 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
     if name == "robot_verify":
         return VerificationPolicy(execution_proof=ExecutionProof.EXTERNAL_STATE)
     return VerificationPolicy(execution_proof=ExecutionProof.NONE)
+
+
 __all__ = [
     "build_tool_registry",
 ]

@@ -371,10 +371,10 @@ async def test_sse_events_parser_frames_ids_and_heartbeats() -> None:
             "id: 41",
             "event: ignored",
             "retry: 3000",
-            "data: {\"type\":\"answer.delta\"",
-            "data: ,\"payload\":{}}",
+            'data: {"type":"answer.delta"',
+            'data: ,"payload":{}}',
             "",
-            "data: {\"type\":\"run.completed\",\"payload\":{\"status\":\"replied\"}}",
+            'data: {"type":"run.completed","payload":{"status":"replied"}}',
             "",
         ]:
             yield line
@@ -397,9 +397,7 @@ async def test_default_httpx_stream_path_consumes_sse_and_rejects_404() -> None:
         if path.endswith("/stream"):
             body = "".join(
                 f"id: {i}\ndata: {json.dumps(event)}\n\n"
-                for i, event in enumerate(
-                    [_stream_event(payload={"text": "over-httpx"})], start=1
-                )
+                for i, event in enumerate([_stream_event(payload={"text": "over-httpx"})], start=1)
             )
             return httpx.Response(
                 200,

@@ -407,12 +407,8 @@ async def test_same_event_loop_clients_can_start_concurrently(tmp_path: Path) ->
         for _ in range(2)
     ]
 
-    await asyncio.wait_for(
-        asyncio.gather(*(runtime.start() for runtime in runtimes)), timeout=1
-    )
-    await asyncio.wait_for(
-        asyncio.gather(*(runtime.close() for runtime in runtimes)), timeout=1
-    )
+    await asyncio.wait_for(asyncio.gather(*(runtime.start() for runtime in runtimes)), timeout=1)
+    await asyncio.wait_for(asyncio.gather(*(runtime.close() for runtime in runtimes)), timeout=1)
 
     assert commands == ["start", "stop"]
 

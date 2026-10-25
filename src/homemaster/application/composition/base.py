@@ -245,8 +245,7 @@ def compose_application(
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
         memory_enabled=(
-            (resolved.memory.enabled or resolved.memory.mode == "files")
-            and not memory_off
+            (resolved.memory.enabled or resolved.memory.mode == "files") and not memory_off
         ),
         memory_tier=resolved.memory.mode,
         memory_mode=tool_memory_mode,
@@ -649,9 +648,7 @@ def _finish_home_application(
             dreaming_coordinator=dreaming_coordinator,
             event_sink=bus,
         )
-        if resolved.memory.mode == "full"
-        and mindmemos is not None
-        and memory_add_queue is not None
+        if resolved.memory.mode == "full" and mindmemos is not None and memory_add_queue is not None
         else None
     )
 

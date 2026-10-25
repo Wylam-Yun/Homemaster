@@ -329,9 +329,7 @@ def write_auth_config(path: Path, payload: Mapping[str, Any]) -> None:
         allow_unicode=True,
         default_flow_style=False,
     )
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=path.name + ".", dir=str(path.parent), suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent), suffix=".tmp")
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -505,9 +503,7 @@ class ProviderConfigService:
         if resolved is None and runtime_config is not None:
             resolved = getattr(runtime_config, "config_path", None)
         self._config_path = (
-            Path(resolved).expanduser()
-            if resolved is not None
-            else resolve_auth_config_path()
+            Path(resolved).expanduser() if resolved is not None else resolve_auth_config_path()
         )
         self._runtime_config = runtime_config
         self._probe = probe
@@ -528,9 +524,7 @@ class ProviderConfigService:
 
     # -- writes ------------------------------------------------------------
 
-    def upsert(
-        self, payload: Mapping[str, Any], *, overwrite: bool = False
-    ) -> dict[str, Any]:
+    def upsert(self, payload: Mapping[str, Any], *, overwrite: bool = False) -> dict[str, Any]:
         """Create or replace one provider profile; apply it to the runtime."""
 
         existing = self._read_existing()
@@ -568,9 +562,7 @@ class ProviderConfigService:
             raise ProviderValidationError("provider patch must be a JSON object")
         unknown = sorted(set(payload) - _PATCH_FIELDS)
         if unknown:
-            raise ProviderValidationError(
-                f"unknown provider fields: {', '.join(unknown)}"
-            )
+            raise ProviderValidationError(f"unknown provider fields: {', '.join(unknown)}")
         if "name" in payload and str(payload["name"]).strip().casefold() != name.casefold():
             raise ProviderValidationError("provider name is fixed by the request path")
         existing = self._read_existing()
@@ -599,8 +591,7 @@ class ProviderConfigService:
         if payload.get("set_default"):
             if profile.kind != "chat":
                 raise ProviderValidationError(
-                    f"only chat providers can be the default; {name!r} is "
-                    f"kind={profile.kind!r}"
+                    f"only chat providers can be the default; {name!r} is kind={profile.kind!r}"
                 )
             providers["default"] = profile.name
             runtime_defaults = _mutable_section(existing, "runtime_defaults")
@@ -629,15 +620,10 @@ class ProviderConfigService:
         candidate = dict(existing)
         candidate["providers"] = providers
         folded = name.casefold()
-        default_dangling = (
-            str(providers.get("default") or "").strip().casefold() == folded
-        )
+        default_dangling = str(providers.get("default") or "").strip().casefold() == folded
         runtime_defaults = _mutable_section(existing, "runtime_defaults")
         runtime_dangling = (
-            str(runtime_defaults.get("default_provider_name") or "")
-            .strip()
-            .casefold()
-            == folded
+            str(runtime_defaults.get("default_provider_name") or "").strip().casefold() == folded
         )
         if default_dangling or runtime_dangling:
             replacement = next(
@@ -778,9 +764,7 @@ class ProviderConfigService:
             raise ProviderValidationError("provider payload must be a JSON object")
         unknown = sorted(set(payload) - _PROVIDER_PAYLOAD_FIELDS)
         if unknown:
-            raise ProviderValidationError(
-                f"unknown provider fields: {', '.join(unknown)}"
-            )
+            raise ProviderValidationError(f"unknown provider fields: {', '.join(unknown)}")
         template = None
         template_key = str(payload.get("template") or "").strip()
         if template_key:
@@ -813,9 +797,7 @@ class ProviderConfigService:
             or ("anthropic_sdk" if api_format in ANTHROPIC_WIRE_FORMATS else "openai_sdk")
         ).strip()
         auth_type = str(payload.get("auth_type") or "api_key").strip()
-        base_url = str(
-            payload.get("base_url") or (template.base_url if template else "")
-        ).strip()
+        base_url = str(payload.get("base_url") or (template.base_url if template else "")).strip()
         model = str(payload.get("model") or (template.model if template else "")).strip()
         if not base_url:
             raise ProviderValidationError("base_url is required")
@@ -880,9 +862,7 @@ class ProviderConfigService:
             )
         unknown = sorted(set(target) - _PROVIDER_PAYLOAD_FIELDS)
         if unknown:
-            raise ProviderValidationError(
-                f"unknown provider fields: {', '.join(unknown)}"
-            )
+            raise ProviderValidationError(f"unknown provider fields: {', '.join(unknown)}")
         name = str(target.get("name") or "").strip()
         overrides = {
             key: value
@@ -925,8 +905,7 @@ class ProviderConfigService:
         if stored_item is not None and "api_key" not in target:
             rerouted = any(
                 field in overrides
-                and str(overrides[field] or "")
-                != str(stored_item.get(field) or "")
+                and str(overrides[field] or "") != str(stored_item.get(field) or "")
                 for field in ("base_url", "api_format", "auth_type")
             )
             if rerouted:
@@ -1289,8 +1268,7 @@ def _extract_model_ids(body: Any) -> list[str]:
         ids.extend(
             str(item.get("model") or item.get("name"))
             for item in models
-            if isinstance(item, dict)
-            and str(item.get("model") or item.get("name") or "").strip()
+            if isinstance(item, dict) and str(item.get("model") or item.get("name") or "").strip()
         )
     return [value for value in ids if value]
 

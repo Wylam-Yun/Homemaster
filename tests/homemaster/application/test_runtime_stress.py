@@ -120,14 +120,16 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
 
     executor = Executor()
     registry = ToolRegistry()
-    registry.register(FunctionTool(
-        name="mutate",
-        description="Mutate one shared stress backend.",
-        input_schema={"type": "object"},
-        execute=executor.execute,
-        concurrency_policy="resource_key",
-        resource_key="stress:backend",
-    ))
+    registry.register(
+        FunctionTool(
+            name="mutate",
+            description="Mutate one shared stress backend.",
+            input_schema={"type": "object"},
+            execute=executor.execute,
+            concurrency_policy="resource_key",
+            resource_key="stress:backend",
+        )
+    )
     tool_executor = ToolExecutor(registry, resource_manager=resources)
 
     for index in range(32):
@@ -146,9 +148,7 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
                     "run_id": f"run-{index}",
                     "turn_index": 0,
                     "tool_call_id": f"call-{index}",
-                    "permission_subject": PermissionSubject(
-                        subject_id="stress", channel="test"
-                    ),
+                    "permission_subject": PermissionSubject(subject_id="stress", channel="test"),
                     "backend": backend,
                     "cancellation": cancellation,
                 },

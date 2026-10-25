@@ -61,9 +61,7 @@ class FakeMindMemOS:
         self.list_contexts.append(context)
         return self.rows
 
-    async def get_history(
-        self, memory_id: str, context: Any
-    ) -> list[SimpleNamespace]:
+    async def get_history(self, memory_id: str, context: Any) -> list[SimpleNamespace]:
         self.history_calls.append((memory_id, context))
         return self.history_rows
 

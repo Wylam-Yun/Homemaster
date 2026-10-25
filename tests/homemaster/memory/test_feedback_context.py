@@ -104,17 +104,13 @@ def test_binder_freezes_exact_visible_records_to_feedback_call() -> None:
     )
 
     bind_feedback_contexts(
-        tool_calls=[
-            ToolCall(id="feedback-call", name="mindmemos_feedback", arguments={})
-        ],
+        tool_calls=[ToolCall(id="feedback-call", name="mindmemos_feedback", arguments={})],
         frozen_messages=frozen_messages,
         deps=run_context.deps,
     )
     source.content[0].text = "changed after binding"
 
-    snapshot = run_context.deps["memory_feedback_context_by_tool_call_id"][
-        "feedback-call"
-    ]
+    snapshot = run_context.deps["memory_feedback_context_by_tool_call_id"]["feedback-call"]
     assert snapshot.messages[0].content[0].text == "Use uv, not conda."
     assert [item.id for item in snapshot.recalled_memories] == [
         "automatic",

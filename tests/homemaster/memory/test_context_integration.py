@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -49,12 +48,14 @@ def _session(session_id: str) -> AgentSession:
 
 
 def _prepare(assembler: ContextAssembler, session: AgentSession):
-    return asyncio.run(assembler.aprepare(
-        session=session,
-        agent_state=AgentState(run_id="run", session_id=session.session_id),
-        task_state_store=None,
-        tools=[],
-    ))
+    return asyncio.run(
+        assembler.aprepare(
+            session=session,
+            agent_state=AgentState(run_id="run", session_id=session.session_id),
+            task_state_store=None,
+            tools=[],
+        )
+    )
 
 
 def test_sync_context_freezes_per_session_and_counts_memory_tokens(tmp_path: Path) -> None:

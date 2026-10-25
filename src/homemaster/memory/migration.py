@@ -712,9 +712,7 @@ def _path_equivalent(left: object, right: object) -> bool:
         return False
 
 
-def _path_pair_equivalent(
-    left: tuple[object, object], right: tuple[object, object]
-) -> bool:
+def _path_pair_equivalent(left: tuple[object, object], right: tuple[object, object]) -> bool:
     return _path_equivalent(left[0], right[0]) and _path_equivalent(left[1], right[1])
 
 

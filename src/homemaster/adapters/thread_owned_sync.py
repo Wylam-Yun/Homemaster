@@ -152,9 +152,7 @@ class ThreadOwnedSyncBackendAdapter:
                 try:
                     self._queue.put(_STOP, timeout=self._close_timeout_s)
                 except queue.Full as exc:
-                    raise TimeoutError(
-                        "thread-owned backend stop queue remained full"
-                    ) from exc
+                    raise TimeoutError("thread-owned backend stop queue remained full") from exc
                 with self._lock:
                     self._stop_enqueued = True
         if threading.get_ident() == self.owner_thread_id:

@@ -110,9 +110,7 @@ async def test_submit_duplicate_item_422(tmp_path: Path) -> None:
         item_id = request.requirements[0].item_id
         body = submission_body(request, {item_id: "allow_once"})
         body["decisions"].append({"item_id": item_id, "choice": "reject"})
-        response = await client.post(
-            f"/api/approvals/{request.approval_id}", json=body
-        )
+        response = await client.post(f"/api/approvals/{request.approval_id}", json=body)
         assert response.status_code == 422
     finally:
         await client.aclose()
@@ -128,9 +126,7 @@ async def test_submit_empty_decisions_422(tmp_path: Path) -> None:
         request = make_request(clock, "http-empty")
         store.create_request(request)
         body = submission_body(request, {})
-        response = await client.post(
-            f"/api/approvals/{request.approval_id}", json=body
-        )
+        response = await client.post(f"/api/approvals/{request.approval_id}", json=body)
         assert response.status_code == 422
     finally:
         await client.aclose()
@@ -188,9 +184,7 @@ async def test_revision_mismatch_409(tmp_path: Path) -> None:
         item_id = request.requirements[0].item_id
         body = submission_body(request, {item_id: "allow_once"})
         body["request_revision"] = request.revision + 1
-        response = await client.post(
-            f"/api/approvals/{request.approval_id}", json=body
-        )
+        response = await client.post(f"/api/approvals/{request.approval_id}", json=body)
         assert response.status_code == 409
     finally:
         await client.aclose()
@@ -218,9 +212,7 @@ async def test_expired_410(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_storage_failure_503(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_storage_failure_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     clock = FakeClock()
     store = _open(tmp_path, clock)
     client, _, _ = build_app(store)
@@ -258,9 +250,7 @@ async def test_idempotent_resubmit_and_conflict(tmp_path: Path) -> None:
         assert first.status_code == 200
         assert second.json() == first.json()
         other = submission_body(request, {item_id: "reject"}, "sub-idem")
-        conflict = await client.post(
-            f"/api/approvals/{request.approval_id}", json=other
-        )
+        conflict = await client.post(f"/api/approvals/{request.approval_id}", json=other)
         assert conflict.status_code == 409
         conn = sqlite3.connect(str(store.path))
         try:
@@ -325,17 +315,13 @@ async def test_grants_list_revoke_and_filters(tmp_path: Path) -> None:
         listed = await client.get("/api/permissions/grants")
         assert listed.status_code == 200
         assert len(listed.json()["grants"]) == 3
-        areas = await client.get(
-            "/api/permissions/grants", params={"resource_kind": "area"}
-        )
+        areas = await client.get("/api/permissions/grants", params={"resource_kind": "area"})
         assert [g["resource_id"] for g in areas.json()["grants"]] == ["bedroom"]
         page = await client.get("/api/permissions/grants", params={"limit": 2})
         assert len(page.json()["grants"]) == 2
         cursor = page.json()["next_cursor"]
         assert cursor
-        rest = await client.get(
-            "/api/permissions/grants", params={"limit": 2, "cursor": cursor}
-        )
+        rest = await client.get("/api/permissions/grants", params={"limit": 2, "cursor": cursor})
         assert len(rest.json()["grants"]) == 1
         assert rest.json()["next_cursor"] is None
         target = listed.json()["grants"][0]
@@ -360,13 +346,9 @@ async def test_grants_list_revoke_and_filters(tmp_path: Path) -> None:
             json={"submission_id": "rev-3", "expected_revision": 1},
         )
         assert missing.status_code == 404
-        revoked_list = await client.get(
-            "/api/permissions/grants", params={"status": "revoked"}
-        )
+        revoked_list = await client.get("/api/permissions/grants", params={"status": "revoked"})
         assert len(revoked_list.json()["grants"]) == 1
-        bad_status = await client.get(
-            "/api/permissions/grants", params={"status": "bogus"}
-        )
+        bad_status = await client.get("/api/permissions/grants", params={"status": "bogus"})
         assert bad_status.status_code == 422
     finally:
         await client.aclose()
@@ -384,8 +366,9 @@ async def test_cancel_pending_then_resolved_returns_terminal(tmp_path: Path) -> 
         request = make_request(clock, "http-cancel")
         store.create_request(request)
         store.mark_awaiting_approval(request.request_id)
-        waiter = await _spawn_confirm(handler, request, [
-            item.item_id for item in request.requirements], tmp_path, sink)
+        waiter = await _spawn_confirm(
+            handler, request, [item.item_id for item in request.requirements], tmp_path, sink
+        )
         await wait_pending(handler)
         cancelled = await client.post(
             f"/api/approvals/{request.approval_id}/cancel",
@@ -407,8 +390,7 @@ async def test_cancel_pending_then_resolved_returns_terminal(tmp_path: Path) -> 
         )
         again = await client.post(
             f"/api/approvals/{ready_request.approval_id}/cancel",
-            json={"submission_id": "cancel-2",
-                  "request_revision": ready_request.revision},
+            json={"submission_id": "cancel-2", "request_revision": ready_request.revision},
         )
         assert again.status_code == 200
         assert again.json()["request_status"] == "ready"
@@ -442,22 +424,21 @@ async def test_real_http_submit_matches_raw_sqlite(tmp_path: Path) -> None:
                 ("home", "area", "bedroom", "enter", None),
                 ("home", "object", "cup-b", "pick_up", None),
             ]
-            assert conn.execute(
-                "SELECT COUNT(*) FROM permission_submissions"
-            ).fetchone()[0] == 1
-            assert conn.execute(
-                "SELECT status FROM permission_requests WHERE request_id = ?",
-                (request.request_id,),
-            ).fetchone()[0] == "ready"
+            assert conn.execute("SELECT COUNT(*) FROM permission_submissions").fetchone()[0] == 1
+            assert (
+                conn.execute(
+                    "SELECT status FROM permission_requests WHERE request_id = ?",
+                    (request.request_id,),
+                ).fetchone()[0]
+                == "ready"
+            )
             decisions = dict(
                 conn.execute(
-                    "SELECT item_id, decision FROM permission_request_items"
-                    " WHERE request_id = ?",
+                    "SELECT item_id, decision FROM permission_request_items WHERE request_id = ?",
                     (request.request_id,),
                 ).fetchall()
             )
-            assert decisions == {item.item_id: "allow_always"
-                                 for item in request.requirements}
+            assert decisions == {item.item_id: "allow_always" for item in request.requirements}
         finally:
             conn.close()
     finally:
@@ -476,8 +457,11 @@ async def test_explicit_deny_session_cancels_pending(tmp_path: Path) -> None:
         store.create_request(request)
         store.mark_awaiting_approval(request.request_id)
         waiter = await _spawn_confirm(
-            handler, request,
-            [item.item_id for item in request.requirements], tmp_path, sink,
+            handler,
+            request,
+            [item.item_id for item in request.requirements],
+            tmp_path,
+            sink,
             session_id="session-gone",
         )
         await wait_pending(handler)
@@ -539,9 +523,7 @@ async def test_grants_carry_display_snapshot(tmp_path: Path) -> None:
             json=submission_body(request, choices),
         )
         assert response.status_code == 200
-        listed = await client.get(
-            "/api/permissions/grants", params={"status": "active"}
-        )
+        listed = await client.get("/api/permissions/grants", params={"status": "active"})
         assert listed.status_code == 200
         by_action = {grant["action"]: grant for grant in listed.json()["grants"]}
         assert by_action["enter"]["display_name"] == "卧室"
@@ -553,7 +535,6 @@ async def test_grants_carry_display_snapshot(tmp_path: Path) -> None:
     finally:
         await client.aclose()
         store.close()
-
 
 
 @pytest.mark.asyncio
@@ -578,7 +559,9 @@ async def test_allow_session_covers_same_session_only(tmp_path: Path) -> None:
         store.create_request(request)
         item_id = request.requirements[0].item_id
         context = make_context(
-            tmp_path, sink, request.session_id,
+            tmp_path,
+            sink,
+            request.session_id,
             extra_services={"session_allows": session_allows},
         )
         waiter = asyncio.create_task(handler.confirm(request, [item_id], context))
@@ -608,7 +591,9 @@ async def test_allow_session_covers_same_session_only(tmp_path: Path) -> None:
         followup = make_request(clock, "http-session-followup")
         store.create_request(followup)
         same_session_ctx = make_context(
-            tmp_path, sink, request.session_id,
+            tmp_path,
+            sink,
+            request.session_id,
             extra_services={"session_allows": session_allows},
         )
         verdict = checker.evaluate_physical(request=followup, context=same_session_ctx)
@@ -617,7 +602,9 @@ async def test_allow_session_covers_same_session_only(tmp_path: Path) -> None:
 
         # A different session is not covered and must ask again.
         other_ctx = make_context(
-            tmp_path, sink, "session-other",
+            tmp_path,
+            sink,
+            "session-other",
             extra_services={"session_allows": session_allows},
         )
         verdict_other = checker.evaluate_physical(request=followup, context=other_ctx)

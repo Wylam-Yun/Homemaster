@@ -58,9 +58,7 @@ class MemoryEnrichmentQueue:
         if self._workers:
             return
         self._workers = [
-            asyncio.create_task(
-                self._run(), name=f"homemaster:memory-enrichment-worker:{index}"
-            )
+            asyncio.create_task(self._run(), name=f"homemaster:memory-enrichment-worker:{index}")
             for index in range(self._concurrency)
         ]
 
@@ -180,9 +178,7 @@ class MemoryEnrichmentQueue:
                     "session_id": getattr(context, "session_id", None),
                     "run_id": job.run_id,
                     "request_id": getattr(context, "request_id", None),
-                    "duration_ms": (
-                        round(duration_ms, 3) if duration_ms is not None else None
-                    ),
+                    "duration_ms": (round(duration_ms, 3) if duration_ms is not None else None),
                     "entity_ids": entity_ids,
                     "error": error,
                 },
@@ -190,9 +186,7 @@ class MemoryEnrichmentQueue:
         except Exception:
             # Audit sink failure must never kill the worker — a dead worker
             # strands queued jobs and hangs shutdown.
-            _logger.warning(
-                "memory_enrichment_job audit write failed", exc_info=True
-            )
+            _logger.warning("memory_enrichment_job audit write failed", exc_info=True)
 
 
 __all__ = [

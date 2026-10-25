@@ -19,10 +19,7 @@ def resolve_tool_environment(
     untouched even when a browser gateway is configured.
     """
 
-    if (
-        requested not in _BENCHMARK_PROFILES
-        and config.browser_gateway.start_url is not None
-    ):
+    if requested not in _BENCHMARK_PROFILES and config.browser_gateway.start_url is not None:
         return "browser"
     return requested
 

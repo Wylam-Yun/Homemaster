@@ -135,18 +135,14 @@ def test_skill_routes_to_adapter_and_records_trace():
 
 def test_navigate_builds_xy_payload():
     adapter = FakeAdapter()
-    result = _execute(
-        _tool("robocasa_navigate"), {"x": 1.5, "y": -2.0}, _run_context(adapter)
-    )
+    result = _execute(_tool("robocasa_navigate"), {"x": 1.5, "y": -2.0}, _run_context(adapter))
     assert result.status is ToolExecutionStatus.SUCCESS
     assert adapter.calls == [("navigate", {"xy": [1.5, -2.0]})]
 
 
 def test_invalid_args_return_invalid():
     adapter = FakeAdapter()
-    result = _execute(
-        _tool("robocasa_navigate"), {"x": "east"}, _run_context(adapter)
-    )
+    result = _execute(_tool("robocasa_navigate"), {"x": "east"}, _run_context(adapter))
     assert result.status is ToolExecutionStatus.INVALID
     assert adapter.calls == []
 
@@ -240,9 +236,7 @@ def test_memory_mode_gating():
     readonly = build_tool_registry(
         environment="robocasa", memory_mode="readonly", memory_enabled=True
     )
-    full = build_tool_registry(
-        environment="robocasa", memory_mode="full", memory_enabled=True
-    )
+    full = build_tool_registry(environment="robocasa", memory_mode="full", memory_enabled=True)
 
     assert "memory_retriever" not in _names(disabled)
     assert "memory_retriever" in _names(readonly)

@@ -142,11 +142,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         # this run's reply.
         if getattr(self._handle, "assistant_watermark", None) is None:
             prior_tail = next(
-                (
-                    m
-                    for m in reversed(agent.state.context)
-                    if getattr(m, "role", "") == "assistant"
-                ),
+                (m for m in reversed(agent.state.context) if getattr(m, "role", "") == "assistant"),
                 None,
             )
             self._handle.assistant_watermark = (
@@ -943,7 +939,6 @@ class ProtocolFenceMiddleware(MiddlewareBase):
                     ),
                 )
         return await next_handler()
-
 
 
 def _round_tool_calls(agent: Any, handle: Any = None) -> list[Any]:

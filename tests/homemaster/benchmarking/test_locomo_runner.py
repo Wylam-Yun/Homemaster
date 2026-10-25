@@ -31,9 +31,7 @@ def test_locomo_finalizes_source_sessions_but_not_qa_probes(
                         "speaker_a": "Caroline",
                         "speaker_b": "Melanie",
                         "session_1_date_time": "1:56 pm on 8 May, 2023",
-                        "session_1": [
-                            {"dia_id": "D1:1", "speaker": "Caroline", "text": "Hello."}
-                        ],
+                        "session_1": [{"dia_id": "D1:1", "speaker": "Caroline", "text": "Hello."}],
                     },
                     "qa": [
                         {
@@ -212,10 +210,7 @@ def test_historical_trace_replaces_runtime_time_for_bound_source_session(
 
     persisted = json.loads(sink.path.read_text(encoding="utf-8"))
     assert persisted["timestamp"] == "2023-05-08T13:56:00+00:00"
-    assert (
-        persisted["payload"]["user_text"]
-        == "benchmark instruction and wrapped transcript"
-    )
+    assert persisted["payload"]["user_text"] == "benchmark instruction and wrapped transcript"
     finalizer_event = json.loads(sink.finalizer_path.read_text(encoding="utf-8"))
     assert finalizer_event["timestamp"] == "2023-05-08T13:56:00+00:00"
     assert finalizer_event["payload"]["user_text"] == "Caroline: original conversation"

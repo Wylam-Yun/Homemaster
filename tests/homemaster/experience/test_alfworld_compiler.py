@@ -21,23 +21,23 @@ def _record(outcome="success", **updates):
         "source_trace_sha256": "a" * 64,
         "final_environment_state": {"won": outcome == "success", "done": True},
         "steps": [
-        {
-            "index": 0,
-            "payload": {
-                "action": "navigate",
-                "target": "cabinet 1",
-                "expect": {"visible_text": "cabinet reached"},
+            {
+                "index": 0,
+                "payload": {
+                    "action": "navigate",
+                    "target": "cabinet 1",
+                    "expect": {"visible_text": "cabinet reached"},
+                },
             },
-        },
-        {
-            "index": 1,
-            "payload": {
-                "action": "put",
-                "object": "mug",
-                "receptacle": "cabinet",
-                "expect": {"visible_text": "mug placed"},
+            {
+                "index": 1,
+                "payload": {
+                    "action": "put",
+                    "object": "mug",
+                    "receptacle": "cabinet",
+                    "expect": {"visible_text": "mug placed"},
+                },
             },
-        },
         ],
     }
     payload.update(updates)

@@ -135,9 +135,7 @@ class ImageToTextTool(BaseTool):
 
         return ToolExecutionResult(
             status=ToolExecutionStatus.SUCCESS,
-            text=(
-                f"[Image description via {model}]\n\n{description}"
-            )
+            text=(f"[Image description via {model}]\n\n{description}"),
         )
 
     def is_read_only(self, arguments: BaseModel) -> bool:

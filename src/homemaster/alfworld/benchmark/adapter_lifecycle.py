@@ -27,6 +27,7 @@ from homemaster.alfworld.types import AlfworldResetResult
 
 class AlfworldAdapterLifecycleMixin:
     """reset/close lifecycle for the wrapped batch env."""
+
     def reset(
         self,
         *,
@@ -38,14 +39,24 @@ class AlfworldAdapterLifecycleMixin:
         if unsupported_task is not None:
             result = AlfworldResetResult(
                 backend_kind="thor",
-                ready=False, state=None, scene_generation=None, goal_generation=None,
+                ready=False,
+                state=None,
+                scene_generation=None,
+                goal_generation=None,
                 scene_reset_fingerprint=None,
                 goal_trial_fingerprint=selection_entry.goal_fingerprint,
-                snapshot_sha256=None, snapshot_ref=None, setup_trigger="setup_unexpected",
-                setup_failure="setup_unexpected", classification="runtime_failure",
-                score_eligible=False, setup_backend_action_count=0, recovery_status="not_needed",
-                cleanup_status="not_needed", quarantine_required=False,
-                environment_disposition="not_started", evidence_ref=None,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger="setup_unexpected",
+                setup_failure="setup_unexpected",
+                classification="runtime_failure",
+                score_eligible=False,
+                setup_backend_action_count=0,
+                recovery_status="not_needed",
+                cleanup_status="not_needed",
+                quarantine_required=False,
+                environment_disposition="not_started",
+                evidence_ref=None,
             )
             self._last_reset_result = result
             return result
@@ -81,8 +92,7 @@ class AlfworldAdapterLifecycleMixin:
         # episodes keep the lighter reset path unless their selection explicitly
         # comes from the taskset manifest.
         v18_reset_required = bool(
-            selection_entry is not None
-            and selection_entry.identity_status == "taskset_declared"
+            selection_entry is not None and selection_entry.identity_status == "taskset_declared"
         )
         if v18_reset_required:
             self._goal_generation = 1

@@ -129,8 +129,7 @@ def extract_failure_guidance(
     errors = {
         str(step.payload.get("result", {}).get("error"))
         for step in steps
-        if isinstance(step.payload.get("result"), dict)
-        and step.payload["result"].get("error")
+        if isinstance(step.payload.get("result"), dict) and step.payload["result"].get("error")
     }
     if any("grasp" in error for error in errors):
         summary.append("grasp_failure")

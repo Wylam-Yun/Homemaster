@@ -87,33 +87,39 @@ class RoboCasaTraceWriter:
         for index, message in enumerate(getattr(session, "messages", [])):
             role = getattr(message, "role", "")
             if role == "user":
-                self.write_model_event({
-                    "content": _content_trace_payload(getattr(message, "content", [])),
-                    "event": "user_message",
-                    "message_index": index,
-                })
+                self.write_model_event(
+                    {
+                        "content": _content_trace_payload(getattr(message, "content", [])),
+                        "event": "user_message",
+                        "message_index": index,
+                    }
+                )
             elif role == "assistant":
-                self.write_model_event({
-                    "event": "assistant_completed",
-                    "finish_reason": getattr(message, "finish_reason", None),
-                    "message_index": index,
-                    "reasoning_content": getattr(message, "reasoning_content", None),
-                    "text": getattr(message, "text", ""),
-                    "tool_calls": [
-                        {"arguments": call.arguments, "id": call.id, "name": call.name}
-                        for call in getattr(message, "tool_calls", [])
-                    ],
-                    "usage": getattr(message, "usage", None),
-                })
+                self.write_model_event(
+                    {
+                        "event": "assistant_completed",
+                        "finish_reason": getattr(message, "finish_reason", None),
+                        "message_index": index,
+                        "reasoning_content": getattr(message, "reasoning_content", None),
+                        "text": getattr(message, "text", ""),
+                        "tool_calls": [
+                            {"arguments": call.arguments, "id": call.id, "name": call.name}
+                            for call in getattr(message, "tool_calls", [])
+                        ],
+                        "usage": getattr(message, "usage", None),
+                    }
+                )
             elif role == "tool":
-                self.write_model_event({
-                    "content": _content_trace_payload(getattr(message, "content", [])),
-                    "event": "tool_result",
-                    "is_error": getattr(message, "is_error", False),
-                    "message_index": index,
-                    "name": getattr(message, "name", None),
-                    "tool_call_id": getattr(message, "tool_call_id", None),
-                })
+                self.write_model_event(
+                    {
+                        "content": _content_trace_payload(getattr(message, "content", [])),
+                        "event": "tool_result",
+                        "is_error": getattr(message, "is_error", False),
+                        "message_index": index,
+                        "name": getattr(message, "name", None),
+                        "tool_call_id": getattr(message, "tool_call_id", None),
+                    }
+                )
 
     def write_summary(self, summary: dict[str, Any]) -> None:
         self.summary_path.write_text(
@@ -151,11 +157,13 @@ def _content_trace_payload(blocks: list[Any]) -> list[dict[str, Any]]:
         if block_type == "image":
             source = getattr(block, "source", None) or {}
             metadata = getattr(block, "metadata", None) or {}
-            payload.append({
-                "media_type": source.get("media_type"),
-                "path": metadata.get("path"),
-                "type": "image",
-            })
+            payload.append(
+                {
+                    "media_type": source.get("media_type"),
+                    "path": metadata.get("path"),
+                    "type": "image",
+                }
+            )
         else:
             payload.append({"text": getattr(block, "text", ""), "type": "text"})
     return payload

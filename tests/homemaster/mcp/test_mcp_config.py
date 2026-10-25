@@ -38,9 +38,7 @@ def test_mcp_config_parses_stdio_http_and_explicit_unsupported_websocket() -> No
         "TOKEN": "secret",
         "DATABASE_URL": "opaque-value",
     }
-    assert summary["servers"]["remote"]["config"]["url"] == (
-        "https://user:pass@example.test/mcp"
-    )
+    assert summary["servers"]["remote"]["config"]["url"] == ("https://user:pass@example.test/mcp")
     assert summary["servers"]["future"]["status"] == "unsupported"
 
 

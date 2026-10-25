@@ -77,8 +77,16 @@ def make_request(
 ) -> PreparedPhysicalRequest:
     suffix = f"{tag}-{uuid4().hex[:6]}"
 
-    def item(item_id: str, kind: str, rid: str, action: str, display: str,
-             location: str, label: str, step_id: str) -> Requirement:
+    def item(
+        item_id: str,
+        kind: str,
+        rid: str,
+        action: str,
+        display: str,
+        location: str,
+        label: str,
+        step_id: str,
+    ) -> Requirement:
         return Requirement(
             item_id=item_id,
             key=ResourceKey(
@@ -102,16 +110,40 @@ def make_request(
         )
 
     if not combo:
-        pick = item(f"item-pick-{suffix}", "object", "cup-a", "pick_up",
-                    "白色杯子", "卧室床头柜", "拿取", f"step-1-{suffix}")
+        pick = item(
+            f"item-pick-{suffix}",
+            "object",
+            "cup-a",
+            "pick_up",
+            "白色杯子",
+            "卧室床头柜",
+            "拿取",
+            f"step-1-{suffix}",
+        )
         requirements = (pick,)
         steps = (step(pick.step_ids[0], pick.item_id, "pick:cup-a", "拿取杯子"),)
         summary = "拿杯子"
     else:
-        enter = item(f"item-enter-{suffix}", "area", "bedroom", "enter",
-                     "卧室", "卧室", "进入", f"step-enter-{suffix}")
-        pick = item(f"item-pick-{suffix}", "object", "cup-b", "pick_up",
-                    "蓝色杯子", "卧室书桌", "拿取", f"step-pick-{suffix}")
+        enter = item(
+            f"item-enter-{suffix}",
+            "area",
+            "bedroom",
+            "enter",
+            "卧室",
+            "卧室",
+            "进入",
+            f"step-enter-{suffix}",
+        )
+        pick = item(
+            f"item-pick-{suffix}",
+            "object",
+            "cup-b",
+            "pick_up",
+            "蓝色杯子",
+            "卧室书桌",
+            "拿取",
+            f"step-pick-{suffix}",
+        )
         requirements = (enter, pick)
         steps = (
             step(enter.step_ids[0], enter.item_id, "nav:bedroom", "进入卧室"),
@@ -173,9 +205,7 @@ def build_app(
         confirmation_handler=handler,
         permission_store=store,
     )
-    client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    )
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     return client, handler, app
 
 
@@ -189,8 +219,7 @@ def submission_body(
         "submission_id": submission_id,
         "request_revision": request.revision,
         "decisions": [
-            {"item_id": item_id, "choice": choice}
-            for item_id, choice in choices.items()
+            {"item_id": item_id, "choice": choice} for item_id, choice in choices.items()
         ],
     }
 

@@ -44,9 +44,7 @@ from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.executor import ToolExecutor
 from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
-DEVICE_PATH = (
-    Path(__file__).resolve().parents[2] / "fixtures" / "permissions" / "device_process.py"
-)
+DEVICE_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "permissions" / "device_process.py"
 ENV_ID = "home-test"
 
 DISPLAY = {"cup-a": "白色杯子", "cup-b": "蓝色杯子"}
@@ -162,31 +160,50 @@ class HomeDeviceAdapter:
         request_id, approval_id, intent_id, suffix = self._ids()
         if state["area"] == area:
             return PreparedPhysicalRequest(
-                request_id=request_id, approval_id=approval_id,
-                environment_id=ENV_ID, session_id="bb-session", run_id="bb-run",
-                intent_id=intent_id, intent_summary=f"进入{AREA_DISPLAY[area]}",
-                revision=1, requirements=(), steps=(),
+                request_id=request_id,
+                approval_id=approval_id,
+                environment_id=ENV_ID,
+                session_id="bb-session",
+                run_id="bb-run",
+                intent_id=intent_id,
+                intent_summary=f"进入{AREA_DISPLAY[area]}",
+                revision=1,
+                requirements=(),
+                steps=(),
                 target_snapshot_revision="bb-snap",
-                created_at=_iso_now(), deadline_at=_iso_now(300),
+                created_at=_iso_now(),
+                deadline_at=_iso_now(300),
             )
         item = Requirement(
             item_id=f"item-enter-{area}-{suffix}",
-            key=ResourceKey(environment_id=ENV_ID, resource_kind="area",
-                            resource_id=area, action="enter"),
-            display_name=AREA_DISPLAY[area], location=AREA_DISPLAY[area],
-            action_label="进入", step_ids=(f"step-enter-{area}-{suffix}",),
+            key=ResourceKey(
+                environment_id=ENV_ID, resource_kind="area", resource_id=area, action="enter"
+            ),
+            display_name=AREA_DISPLAY[area],
+            location=AREA_DISPLAY[area],
+            action_label="进入",
+            step_ids=(f"step-enter-{area}-{suffix}",),
         )
         step = PreparedStep(
-            step_id=f"step-enter-{area}-{suffix}", binding_ref=f"move:{area}",
-            required_item_ids=(item.item_id,), summary=f"进入{AREA_DISPLAY[area]}",
+            step_id=f"step-enter-{area}-{suffix}",
+            binding_ref=f"move:{area}",
+            required_item_ids=(item.item_id,),
+            summary=f"进入{AREA_DISPLAY[area]}",
         )
         return PreparedPhysicalRequest(
-            request_id=request_id, approval_id=approval_id,
-            environment_id=ENV_ID, session_id="bb-session", run_id="bb-run",
-            intent_id=intent_id, intent_summary=f"进入{AREA_DISPLAY[area]}",
-            revision=1, requirements=(item,), steps=(step,),
+            request_id=request_id,
+            approval_id=approval_id,
+            environment_id=ENV_ID,
+            session_id="bb-session",
+            run_id="bb-run",
+            intent_id=intent_id,
+            intent_summary=f"进入{AREA_DISPLAY[area]}",
+            revision=1,
+            requirements=(item,),
+            steps=(step,),
             target_snapshot_revision="bb-snap",
-            created_at=_iso_now(), deadline_at=_iso_now(300),
+            created_at=_iso_now(),
+            deadline_at=_iso_now(300),
         )
 
     def _prepare_object(self, op: str, args: dict, state: dict) -> PreparedPhysicalRequest:
@@ -204,33 +221,48 @@ class HomeDeviceAdapter:
         step_ids.append(f"step-{op}-{name}-{suffix}")
         item = Requirement(
             item_id=f"item-{op}-{name}-{suffix}",
-            key=ResourceKey(environment_id=ENV_ID, resource_kind="object",
-                            resource_id=name, action=action),
-            display_name=DISPLAY[name], location=f"{AREA_DISPLAY[area]} · {obj['spot']}",
-            action_label=ACTION_LABELS[action], step_ids=tuple(step_ids),
+            key=ResourceKey(
+                environment_id=ENV_ID, resource_kind="object", resource_id=name, action=action
+            ),
+            display_name=DISPLAY[name],
+            location=f"{AREA_DISPLAY[area]} · {obj['spot']}",
+            action_label=ACTION_LABELS[action],
+            step_ids=tuple(step_ids),
         )
         steps: list[PreparedStep] = []
         if not obj["held"] and obj["area"] != area:
-            steps.append(PreparedStep(
-                step_id=step_ids[0], binding_ref=f"move:{obj['area']}",
-                required_item_ids=(item.item_id,), summary=f"前往{obj['area']}",
-            ))
-        op_binding = (
-            f"place:{name}@{spot}" if op == "place" else f"{op}:{name}@{area}"
+            steps.append(
+                PreparedStep(
+                    step_id=step_ids[0],
+                    binding_ref=f"move:{obj['area']}",
+                    required_item_ids=(item.item_id,),
+                    summary=f"前往{obj['area']}",
+                )
+            )
+        op_binding = f"place:{name}@{spot}" if op == "place" else f"{op}:{name}@{area}"
+        steps.append(
+            PreparedStep(
+                step_id=step_ids[-1],
+                binding_ref=op_binding,
+                required_item_ids=(item.item_id,),
+                summary=f"{op}{name}",
+            )
         )
-        steps.append(PreparedStep(
-            step_id=step_ids[-1], binding_ref=op_binding,
-            required_item_ids=(item.item_id,), summary=f"{op}{name}",
-        ))
         item = item.model_copy(update={"step_ids": tuple(step_ids)})
         return PreparedPhysicalRequest(
-            request_id=request_id, approval_id=approval_id,
-            environment_id=ENV_ID, session_id="bb-session", run_id="bb-run",
+            request_id=request_id,
+            approval_id=approval_id,
+            environment_id=ENV_ID,
+            session_id="bb-session",
+            run_id="bb-run",
             intent_id=intent_id,
             intent_summary=f"{ACTION_LABELS[action]}{DISPLAY[name]}",
-            revision=1, requirements=(item,), steps=tuple(steps),
+            revision=1,
+            requirements=(item,),
+            steps=tuple(steps),
             target_snapshot_revision="bb-snap",
-            created_at=_iso_now(), deadline_at=_iso_now(300),
+            created_at=_iso_now(),
+            deadline_at=_iso_now(300),
         )
 
     def _prepare_combo(self, args: dict, state: dict) -> PreparedPhysicalRequest:
@@ -247,38 +279,52 @@ class HomeDeviceAdapter:
         request_id, approval_id, intent_id, suffix = self._ids()
         enter = Requirement(
             item_id=f"item-enter-{area}-{suffix}",
-            key=ResourceKey(environment_id=ENV_ID, resource_kind="area",
-                            resource_id=area, action="enter"),
-            display_name=AREA_DISPLAY[area], location=AREA_DISPLAY[area],
-            action_label="进入", step_ids=(f"step-enter-{area}-{suffix}",),
+            key=ResourceKey(
+                environment_id=ENV_ID, resource_kind="area", resource_id=area, action="enter"
+            ),
+            display_name=AREA_DISPLAY[area],
+            location=AREA_DISPLAY[area],
+            action_label="进入",
+            step_ids=(f"step-enter-{area}-{suffix}",),
         )
         pick = Requirement(
             item_id=f"item-pick-{name}-{suffix}",
-            key=ResourceKey(environment_id=ENV_ID, resource_kind="object",
-                            resource_id=name, action="pick_up"),
+            key=ResourceKey(
+                environment_id=ENV_ID, resource_kind="object", resource_id=name, action="pick_up"
+            ),
             display_name=DISPLAY[name],
             location=f"{AREA_DISPLAY[obj['area']]} · {obj['spot']}",
-            action_label="拿取", step_ids=(f"step-pick-{name}-{suffix}",),
+            action_label="拿取",
+            step_ids=(f"step-pick-{name}-{suffix}",),
         )
         steps = (
             PreparedStep(
-                step_id=f"step-enter-{area}-{suffix}", binding_ref=f"move:{area}",
-                required_item_ids=(enter.item_id,), summary=f"进入{AREA_DISPLAY[area]}",
+                step_id=f"step-enter-{area}-{suffix}",
+                binding_ref=f"move:{area}",
+                required_item_ids=(enter.item_id,),
+                summary=f"进入{AREA_DISPLAY[area]}",
             ),
             PreparedStep(
                 step_id=f"step-pick-{name}-{suffix}",
                 binding_ref=f"take:{name}@{obj['area']}",
-                required_item_ids=(pick.item_id,), summary=f"拿取{name}",
+                required_item_ids=(pick.item_id,),
+                summary=f"拿取{name}",
             ),
         )
         return PreparedPhysicalRequest(
-            request_id=request_id, approval_id=approval_id,
-            environment_id=ENV_ID, session_id="bb-session", run_id="bb-run",
+            request_id=request_id,
+            approval_id=approval_id,
+            environment_id=ENV_ID,
+            session_id="bb-session",
+            run_id="bb-run",
             intent_id=intent_id,
             intent_summary=f"进入{AREA_DISPLAY[area]}并拿取{DISPLAY[name]}",
-            revision=1, requirements=(enter, pick), steps=steps,
+            revision=1,
+            requirements=(enter, pick),
+            steps=steps,
             target_snapshot_revision="bb-snap",
-            created_at=_iso_now(), deadline_at=_iso_now(300),
+            created_at=_iso_now(),
+            deadline_at=_iso_now(300),
         )
 
     async def execute(self, binding_ref: str, context: Any) -> ToolResult:
@@ -294,8 +340,11 @@ class HomeDeviceAdapter:
         elif kind == "place":
             parts = rest.split("@")
             response = self.device._send(
-                {"cmd": "place", "object": parts[0],
-                 "spot": parts[1] if len(parts) > 1 else "floor"}
+                {
+                    "cmd": "place",
+                    "object": parts[0],
+                    "spot": parts[1] if len(parts) > 1 else "floor",
+                }
             )
         elif kind == "clean":
             response = self.device._send({"cmd": "clean", "object": rest.split("@")[0]})
@@ -303,12 +352,20 @@ class HomeDeviceAdapter:
             raise TargetUnresolved(f"unknown binding {binding_ref!r}")
         self.last_receipt[binding_ref] = response
         if response["ok"] is True:
-            return ToolResult(f"device {kind} ok", False,
-                              {"status": "ok", "backend_attempted": True,
-                               "backend_code": response["code"]})
-        return ToolResult(f"device {kind} failed: {response['code']}", True,
-                          {"status": "device-failed", "backend_attempted": True,
-                           "backend_code": response["code"]})
+            return ToolResult(
+                f"device {kind} ok",
+                False,
+                {"status": "ok", "backend_attempted": True, "backend_code": response["code"]},
+            )
+        return ToolResult(
+            f"device {kind} failed: {response['code']}",
+            True,
+            {
+                "status": "device-failed",
+                "backend_attempted": True,
+                "backend_code": response["code"],
+            },
+        )
 
     async def observe(self, binding_ref: str, context: Any) -> ExecutionObservation:
         del context
@@ -316,13 +373,20 @@ class HomeDeviceAdapter:
         obj = binding_ref.split(":")[1].split("@")[0] if ":" in binding_ref else None
         if receipt is None:
             return ExecutionObservation(
-                outcome="unknown", backend_code="unobserved", binding_ref=binding_ref,
-                observed_resource_id=obj, current_area_id=None, evidence_ref="unobserved",
+                outcome="unknown",
+                backend_code="unobserved",
+                binding_ref=binding_ref,
+                observed_resource_id=obj,
+                current_area_id=None,
+                evidence_ref="unobserved",
             )
         outcome = "succeeded" if receipt["ok"] is True else "no_effect_failure"
         return ExecutionObservation(
-            outcome=outcome, backend_code=f"device:{receipt['code']}",
-            binding_ref=binding_ref, observed_resource_id=obj, current_area_id=None,
+            outcome=outcome,
+            backend_code=f"device:{receipt['code']}",
+            binding_ref=binding_ref,
+            observed_resource_id=obj,
+            current_area_id=None,
             evidence_ref=f"device:{binding_ref}:{receipt['code']}",
         )
 
@@ -379,21 +443,24 @@ class Blackbox:
         self.device = DeviceProcess()
         self.adapter = HomeDeviceAdapter(self.device)
         tool = FunctionTool(
-            name="home_device", description="Blackbox household device.",
-            input_schema={"type": "object"}, execute=_boom,
-            physical=True, physical_adapter=self.adapter,
+            name="home_device",
+            description="Blackbox household device.",
+            input_schema={"type": "object"},
+            execute=_boom,
+            physical=True,
+            physical_adapter=self.adapter,
         )
         registry = ToolRegistry()
         registry.register(tool)
         clock = FakeClock()
         self.store = PermissionStore.open(tmp_path / f"{name}.sqlite3", clock=clock)
-        self.checker = PermissionChecker(
-            PermissionSettingsConfig(), store=self.store, clock=clock
-        )
+        self.checker = PermissionChecker(PermissionSettingsConfig(), store=self.store, clock=clock)
         self.handler = DecisionHandler(self.store)
         self.executor = ToolExecutor(
-            registry, permission_checker=self.checker,
-            confirmation_handler=self.handler, permission_store=self.store,
+            registry,
+            permission_checker=self.checker,
+            confirmation_handler=self.handler,
+            permission_store=self.store,
         )
         self.context = ToolExecutionContext(
             tmp_path, metadata={"session_id": "bb-session", "run_id": "bb-run"}
@@ -574,10 +641,16 @@ async def test_partial_reject_zero_side_effects(tmp_path: Path) -> None:
         assert bb.state()["area"] == "living"
         from homemaster.permissions.models import ResourceKey
 
-        covered = bb.store.matching_grants([
-            ResourceKey(environment_id=ENV_ID, resource_kind="area",
-                        resource_id="bedroom", action="enter"),
-        ])
+        covered = bb.store.matching_grants(
+            [
+                ResourceKey(
+                    environment_id=ENV_ID,
+                    resource_kind="area",
+                    resource_id="bedroom",
+                    action="enter",
+                ),
+            ]
+        )
         assert len(covered) == 1
     finally:
         bb.close()
@@ -676,9 +749,7 @@ async def test_place_spot_locked_per_request(tmp_path: Path) -> None:
         second_bindings = sorted(step.binding_ref for step in second.steps)
         assert first_bindings != second_bindings
         bb.handler.allow("place", "cup-a", "allow_once")
-        assert (
-            await bb.run({"op": "place", "object": "cup-a", "spot": "table"})
-        ).is_error is False
+        assert (await bb.run({"op": "place", "object": "cup-a", "spot": "table"})).is_error is False
         assert bb.state()["objects"]["cup-a"]["spot"] == "table"
     finally:
         bb.close()
@@ -688,13 +759,13 @@ async def test_place_spot_locked_per_request(tmp_path: Path) -> None:
 async def test_revoke_claim_interleaving(tmp_path: Path) -> None:
     bb = Blackbox(tmp_path, "t13")
     try:
-        request = await bb.adapter.prepare(
-            {"op": "take", "object": "cup-a"}, bb.context
-        )
+        request = await bb.adapter.prepare({"op": "take", "object": "cup-a"}, bb.context)
         bb.store.create_request(request)
         resolution = decide(
-            bb.store, request,
-            {request.requirements[0].item_id: "allow_always"}, "sub-t13",
+            bb.store,
+            request,
+            {request.requirements[0].item_id: "allow_always"},
+            "sub-t13",
         )
         assert resolution.request_status == "ready"
         binding = bb.store.claim_step(
@@ -717,9 +788,7 @@ async def test_revoke_claim_interleaving(tmp_path: Path) -> None:
 async def test_duplicate_submission_single_effect(tmp_path: Path) -> None:
     bb = Blackbox(tmp_path, "t14")
     try:
-        request = await bb.adapter.prepare(
-            {"op": "take", "object": "cup-a"}, bb.context
-        )
+        request = await bb.adapter.prepare({"op": "take", "object": "cup-a"}, bb.context)
         bb.store.create_request(request)
         item_id = request.requirements[0].item_id
         first = decide(bb.store, request, {item_id: "allow_always"}, "sub-dup")
@@ -765,31 +834,32 @@ async def test_disconnect_cancel_restart(tmp_path: Path) -> None:
     store2 = PermissionStore.open(path, clock=FakeClock())
     device2 = DeviceProcess()
     try:
-
         adapter2 = HomeDeviceAdapter(device2)
         tool = FunctionTool(
-            name="home_device", description="Blackbox household device.",
-            input_schema={"type": "object"}, execute=_boom,
-            physical=True, physical_adapter=adapter2,
+            name="home_device",
+            description="Blackbox household device.",
+            input_schema={"type": "object"},
+            execute=_boom,
+            physical=True,
+            physical_adapter=adapter2,
         )
         from homemaster.tools.base import ToolRegistry as _Registry
 
         registry = _Registry()
         registry.register(tool)
-        checker2 = PermissionChecker(
-            PermissionSettingsConfig(), store=store2, clock=FakeClock()
-        )
+        checker2 = PermissionChecker(PermissionSettingsConfig(), store=store2, clock=FakeClock())
         handler2 = DecisionHandler(store2)
         executor2 = ToolExecutor(
-            registry, permission_checker=checker2,
-            confirmation_handler=handler2, permission_store=store2,
+            registry,
+            permission_checker=checker2,
+            confirmation_handler=handler2,
+            permission_store=store2,
         )
         context2 = ToolExecutionContext(
             tmp_path, metadata={"session_id": "bb-session", "run_id": "bb-run"}
         )
         retaken = await executor2.execute(
-            ToolCall(id="1", name="home_device",
-                     arguments={"op": "take", "object": "cup-a"}),
+            ToolCall(id="1", name="home_device", arguments={"op": "take", "object": "cup-a"}),
             context2,
         )
         assert retaken.is_error is False

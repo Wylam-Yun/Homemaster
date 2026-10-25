@@ -139,9 +139,7 @@ class WebEventHub:
             outcome = "failed"
         else:
             outcome = (
-                "cancelled"
-                if getattr(task.result(), "status", None) == "cancelled"
-                else "failed"
+                "cancelled" if getattr(task.result(), "status", None) == "cancelled" else "failed"
             )
         try:
             await self._event_bus.aemit(
@@ -235,11 +233,7 @@ class WebEventHub:
         payload = event.payload if isinstance(event.payload, dict) else {}
         request_id = payload.get("request_id")
         outcome = payload.get("outcome")
-        if (
-            not isinstance(request_id, str)
-            or not request_id
-            or not isinstance(outcome, str)
-        ):
+        if not isinstance(request_id, str) or not request_id or not isinstance(outcome, str):
             return
         await self.finish_run(event.session_id, request_id, outcome)
 

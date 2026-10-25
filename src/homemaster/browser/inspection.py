@@ -137,9 +137,7 @@ async def collect_elements(
     for frame_index, frame in enumerate(page.frames):
         frame_id = f"f{frame_index}"
         handles = await frame.query_selector_all(selector)
-        states = await frame.evaluate(
-            _COLLECT_ELEMENT_STATES_JS, [selector, _ELEMENT_STATE_JS]
-        )
+        states = await frame.evaluate(_COLLECT_ELEMENT_STATES_JS, [selector, _ELEMENT_STATE_JS])
         frames.append(
             {
                 "frame_id": frame_id,

@@ -607,7 +607,9 @@ async def test_finalizer_exit_reason_does_not_change_job_identity(tmp_path: Path
 
     assert repeated.status == "already_completed"
     assert len(mindmemos.calls) == 1
-    assert [p.parent for p in (tmp_path / "memory" / "experience_jobs").glob("*/job.json")] == job_dirs
+    assert [
+        p.parent for p in (tmp_path / "memory" / "experience_jobs").glob("*/job.json")
+    ] == job_dirs
 
 
 @pytest.mark.asyncio

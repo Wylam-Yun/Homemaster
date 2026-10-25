@@ -34,9 +34,7 @@ from homemaster.tools.executor import ToolExecutor
 @pytest.mark.asyncio
 async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
     pytest.importorskip("mcp")
-    fixture = (
-        Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
-    )
+    fixture = Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
     manager = McpClientManager(
         {
             "stdio-fixture": McpStdioServerConfig(
@@ -47,9 +45,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
         connect_timeout_s=10,
         call_timeout_s=10,
     )
-    store = ToolOutputStore(
-        tmp_path / "artifacts", quota_bytes=1 << 20, ttl_seconds=600
-    )
+    store = ToolOutputStore(tmp_path / "artifacts", quota_bytes=1 << 20, ttl_seconds=600)
     try:
         await manager.connect_all()
         assert manager.list_statuses()[0].state == "connected"
@@ -72,17 +68,13 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
             ),
             working_directory=tmp_path,
         )
-        adapter = HomeToolAdapter(
-            registry.get("mcp__stdio_fixture__nested_query"), executor, scope
-        )
+        adapter = HomeToolAdapter(registry.get("mcp__stdio_fixture__nested_query"), executor, scope)
 
         # Drive the adapter exactly as ``Toolkit.call_tool`` would.
         token = _current_tool_call_id.set("mcp-call-1")
         try:
             response: Any = None
-            async for chunk in adapter.call(
-                mode="safe", filters={"tags": ["one", "two"]}
-            ):
+            async for chunk in adapter.call(mode="safe", filters={"tags": ["one", "two"]}):
                 response = chunk
         finally:
             _current_tool_call_id.reset(token)

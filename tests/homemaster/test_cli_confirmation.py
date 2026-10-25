@@ -59,9 +59,7 @@ def _request(tag: str, *, combo: bool = False) -> PreparedPhysicalRequest:
 
     items = [item(f"item-pick-{suffix}", "object", "cup-a", "pick_up")]
     if combo:
-        items.insert(
-            0, item(f"item-enter-{suffix}", "area", "bedroom", "enter")
-        )
+        items.insert(0, item(f"item-enter-{suffix}", "area", "bedroom", "enter"))
     return PreparedPhysicalRequest(
         request_id=f"request-{suffix}",
         approval_id=f"approval-{suffix}",
@@ -112,9 +110,7 @@ def _handler(store: PermissionStore, answers: list) -> CliConfirmationHandler:
             raise answer
         return answer
 
-    return CliConfirmationHandler(
-        store=store, input_fn=scripted, output_fn=lambda value: None
-    )
+    return CliConfirmationHandler(store=store, input_fn=scripted, output_fn=lambda value: None)
 
 
 def test_cli_permission_modes_map_to_existing_policy_modes() -> None:
@@ -205,10 +201,6 @@ async def test_input_end_cancels(tmp_path: Path, error: BaseException) -> None:
 
 @pytest.mark.asyncio
 async def test_confirm_without_store_raises(tmp_path: Path) -> None:
-    handler = CliConfirmationHandler(
-        input_fn=lambda prompt: "1", output_fn=lambda value: None
-    )
+    handler = CliConfirmationHandler(input_fn=lambda prompt: "1", output_fn=lambda value: None)
     with pytest.raises(RuntimeError):
-        await handler.confirm(
-            _request("nostore"), ["item-x"], _context(tmp_path, _EventSink())
-        )
+        await handler.confirm(_request("nostore"), ["item-x"], _context(tmp_path, _EventSink()))

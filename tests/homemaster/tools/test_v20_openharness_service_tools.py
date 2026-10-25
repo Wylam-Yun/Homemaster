@@ -524,9 +524,7 @@ async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path
                 "type": "local_bash",
                 "description": "stop gate",
                 "command": (
-                    "sleep 30 & child=$!; "
-                    f"printf '%s' \"$child\" > {child_pid_path}; "
-                    "wait \"$child\""
+                    f'sleep 30 & child=$!; printf \'%s\' "$child" > {child_pid_path}; wait "$child"'
                 ),
             },
         )

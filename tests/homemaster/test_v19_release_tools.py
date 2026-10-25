@@ -26,9 +26,7 @@ from scripts.v19_release.validate_upstream_port_manifest import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENHARNESS_ROOT = REPO_ROOT.parent / "OpenHarness"
-ALFWORLD_SMOKE_MANIFEST = (
-    REPO_ROOT / "tests/fixtures/alfworld/gateway_smoke_trials.json"
-)
+ALFWORLD_SMOKE_MANIFEST = REPO_ROOT / "tests/fixtures/alfworld/gateway_smoke_trials.json"
 
 
 def test_upstream_port_manifest_is_valid_with_current_ports() -> None:

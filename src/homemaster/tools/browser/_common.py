@@ -155,11 +155,7 @@ CONDITION_SCHEMA: dict[str, object] = {
             "then": {"required": ["target"]},
         },
         {
-            "if": {
-                "properties": {
-                    "kind": {"enum": ["selector_present", "selector_absent"]}
-                }
-            },
+            "if": {"properties": {"kind": {"enum": ["selector_present", "selector_absent"]}}},
             "then": {"anyOf": [{"required": ["value"]}, {"required": ["target"]}]},
         },
     ],

@@ -114,18 +114,14 @@ def slash_command(
     return decorator
 
 
-def find_command(
-    name: str, registry: Iterable[CommandSpec] | None = None
-) -> CommandSpec | None:
+def find_command(name: str, registry: Iterable[CommandSpec] | None = None) -> CommandSpec | None:
     for spec in REGISTRY if registry is None else registry:
         if spec.name == name or name in spec.aliases:
             return spec
     return None
 
 
-def suggest_command(
-    name: str, registry: Iterable[CommandSpec] | None = None
-) -> str | None:
+def suggest_command(name: str, registry: Iterable[CommandSpec] | None = None) -> str | None:
     specs = REGISTRY if registry is None else registry
     pool = [spec.name for spec in specs]
     pool.extend(alias for spec in specs for alias in spec.aliases)

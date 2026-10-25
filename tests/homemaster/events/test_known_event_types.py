@@ -108,9 +108,8 @@ def test_every_emitted_type_is_listed() -> None:
         "(classify manually): " + repr(sorted(unclassified.items()))
     )
     missing = sorted(t for t in emitted if t not in KNOWN_EVENT_TYPES)
-    assert not missing, (
-        "Event types emitted but missing from KNOWN_EVENT_TYPES: "
-        + repr([(t, emitted[t]) for t in missing])
+    assert not missing, "Event types emitted but missing from KNOWN_EVENT_TYPES: " + repr(
+        [(t, emitted[t]) for t in missing]
     )
 
 

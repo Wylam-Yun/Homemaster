@@ -101,9 +101,7 @@ async def test_execute_many_propagate_exception_is_not_muted(tmp_path: Path) -> 
     class Fence(Exception):
         _hm_propagate = True
 
-    def boom(
-        arguments: Mapping[str, Any], context: Any
-    ) -> ToolExecutionResult:
+    def boom(arguments: Mapping[str, Any], context: Any) -> ToolExecutionResult:
         raise Fence("stale generation fence")
 
     fenced = FunctionTool(
@@ -134,9 +132,7 @@ def _checker_ctx(tmp_path: Path) -> Any:
 def test_evaluate_tool_path_with_nul_byte_fails_closed(tmp_path: Path) -> None:
     """A path argument containing NUL must not crash the policy layer; it
     can never match an allow rule, so it resolves to a denial."""
-    checker = PermissionChecker(
-        PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO)
-    )
+    checker = PermissionChecker(PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO))
     decision = checker.evaluate_tool(
         tool_name="file_read",
         is_read_only=True,
@@ -160,9 +156,7 @@ def test_store_open_on_unwritable_path_raises_typed(tmp_path: Path) -> None:
 # ------------------------------------------------------------- thin client
 
 
-def _client(
-    handler: Callable[[httpx.Request], httpx.Response], **kw: Any
-) -> HomeServerClient:
+def _client(handler: Callable[[httpx.Request], httpx.Response], **kw: Any) -> HomeServerClient:
     transport = httpx.MockTransport(handler)
     http = httpx.AsyncClient(transport=transport, base_url="http://testserver")
     defaults: dict[str, Any] = dict(backoff_base_s=0.01, jitter=lambda: 0.0)
@@ -202,9 +196,7 @@ def test_start_on_blocked_data_root_raises_typed(tmp_path: Path) -> None:
 
 
 def _decision_for(arguments: dict[str, Any], tmp_path: Path, **kw: Any) -> Any:
-    settings = PermissionSettingsConfig(
-        mode=PermissionMode.FULL_AUTO, **kw
-    )
+    settings = PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO, **kw)
     return PermissionChecker(settings).evaluate_tool(
         tool_name="terminal",
         is_read_only=False,

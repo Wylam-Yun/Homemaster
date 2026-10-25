@@ -45,9 +45,9 @@ def test_progress_update_requires_existing_subtask() -> None:
     store.create_or_replace_plan(goal="goal", subtasks=[{"id": "a", "description": "A"}])
 
     with pytest.raises(TaskStateStoreError, match="unknown subtask"):
-        store.apply_progress_updates([
-            TaskProgressUpdate(subtask_id="missing", status="completed", evidence=["done"])
-        ])
+        store.apply_progress_updates(
+            [TaskProgressUpdate(subtask_id="missing", status="completed", evidence=["done"])]
+        )
 
 
 def test_completed_snapshot_model_view_is_bounded() -> None:
@@ -74,9 +74,11 @@ def test_progress_update_applies_status_and_evidence() -> None:
             {"id": "b", "description": "B"},
         ],
     )
-    snapshot = store.apply_progress_updates([
-        TaskProgressUpdate(subtask_id="a", status="in_progress", evidence=["started"]),
-    ])
+    snapshot = store.apply_progress_updates(
+        [
+            TaskProgressUpdate(subtask_id="a", status="in_progress", evidence=["started"]),
+        ]
+    )
 
     assert snapshot.subtasks[0].status == "in_progress"
     assert snapshot.subtasks[0].evidence == ["started"]

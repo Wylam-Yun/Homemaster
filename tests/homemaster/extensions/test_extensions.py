@@ -1193,13 +1193,16 @@ def test_canonical_tool_required_capabilities_are_snapshotted_and_enforced() -> 
             ),
         },
     )
-    assert policy.evaluate_tool(
-        tool_name=definition.model_alias,
-        is_read_only=True,
-        required_capabilities=("tool.read", "extension.audit.read"),
-        arguments={},
-        context=allowed_context,
-    ).allowed is True
+    assert (
+        policy.evaluate_tool(
+            tool_name=definition.model_alias,
+            is_read_only=True,
+            required_capabilities=("tool.read", "extension.audit.read"),
+            arguments={},
+            context=allowed_context,
+        ).allowed
+        is True
+    )
 
     exact_only_context = ToolExecutionContext(
         Path.cwd(),

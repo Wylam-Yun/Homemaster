@@ -80,10 +80,7 @@ async def test_stream_exits_on_dropped_subscriber_sentinel() -> None:
 
     request = SimpleNamespace(is_disconnected=_never_disconnect)
 
-    frames = [
-        frame
-        async for frame in _sse_frames(request, queue, disconnect_poll_s=60)
-    ]
+    frames = [frame async for frame in _sse_frames(request, queue, disconnect_poll_s=60)]
     assert frames == []
 
 

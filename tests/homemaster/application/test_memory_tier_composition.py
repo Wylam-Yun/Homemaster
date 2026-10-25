@@ -210,9 +210,7 @@ async def test_files_tier_fake_provider_run_uses_only_file_memory(
     )
     bundle.application.provider_factory = lambda request, run_id: as_provider(transport)
     try:
-        result = await bundle.application.run(
-            RunRequest(text="记住偏好", session_id="files-run")
-        )
+        result = await bundle.application.run(RunRequest(text="记住偏好", session_id="files-run"))
         assert result.status is RunStatus.REPLIED
 
         # External terminal state: the provider-visible tool set contains only
@@ -227,9 +225,7 @@ async def test_files_tier_fake_provider_run_uses_only_file_memory(
         }
         assert "context_memory" in offered
         assert not (offered & MINDMEMOS_TOOL_NAMES)
-        user_md = (tmp_path / "memory-data" / "files" / "USER.md").read_text(
-            encoding="utf-8"
-        )
+        user_md = (tmp_path / "memory-data" / "files" / "USER.md").read_text(encoding="utf-8")
         assert "用户偏好简短回答" in user_md
     finally:
         await bundle.application.aclose()
@@ -445,13 +441,9 @@ def test_benchmark_memory_mode_full_gate_allows_full_and_other_modes(
     # readonly/disabled never touch the full-tier gate.
     for mode in ("readonly", "disabled"):
         _require_full_memory_tier(
-            AlfworldBenchmarkConfig(
-                **base, provider_config=files_config, memory_mode=mode
-            )
+            AlfworldBenchmarkConfig(**base, provider_config=files_config, memory_mode=mode)
         )
     # full memory_mode on a full-tier config passes the gate.
     _require_full_memory_tier(
-        AlfworldBenchmarkConfig(
-            **base, provider_config=full_config, memory_mode="full"
-        )
+        AlfworldBenchmarkConfig(**base, provider_config=full_config, memory_mode="full")
     )

@@ -231,9 +231,7 @@ class SessionFinalizer:
                 continue
             session_id = job.get("session_id")
             if not isinstance(session_id, str) or not session_id:
-                logger.warning(
-                    "skipping finalization job without session_id: %s", job_dir.name
-                )
+                logger.warning("skipping finalization job without session_id: %s", job_dir.name)
                 continue
             if not (job_dir / "episode.json").exists():
                 logger.warning(

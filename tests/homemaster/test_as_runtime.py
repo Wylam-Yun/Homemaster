@@ -66,12 +66,8 @@ class ScriptedModel(ChatModelBase):
             for block in getattr(msg, "content", ()) or ():
                 if getattr(block, "type", None) == "tool_result":
                     for out in getattr(block, "output", ()) or ():
-                        self.seen_tool_result_text += str(
-                            getattr(out, "text", "") or ""
-                        )
-        blocks = self._script.pop(0) if self._script else [
-            TextBlock(text="done")
-        ]
+                        self.seen_tool_result_text += str(getattr(out, "text", "") or "")
+        blocks = self._script.pop(0) if self._script else [TextBlock(text="done")]
         return ChatResponse(
             content=blocks,
             is_last=True,
@@ -84,9 +80,7 @@ def _scope(tmp_path: Path) -> RunScope:
     return RunScope(
         session_id="as-runtime-test",
         run_id="run-1",
-        permission_subject=PermissionSubject(
-            subject_id="test", channel="pytest", tenant_id="t1"
-        ),
+        permission_subject=PermissionSubject(subject_id="test", channel="pytest", tenant_id="t1"),
         working_directory=tmp_path,
     )
 
@@ -100,10 +94,12 @@ def _echo_tool(execute: Any = None) -> FunctionTool:
             "properties": {"x": {"type": "integer"}},
         },
         execute=execute
-        or (lambda arguments, context: ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS,
-            text=f"echo:{arguments.get('x')}",
-        )),
+        or (
+            lambda arguments, context: ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                text=f"echo:{arguments.get('x')}",
+            )
+        ),
         read_only=True,
     )
 
@@ -117,9 +113,7 @@ def _runtime(
     settings: Any = None,
 ) -> tuple[AsAgentRuntime, ScriptedModel]:
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
-    ]
+    tools = [HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()]
     model = ScriptedModel(script)
     return (
         AsAgentRuntime(
@@ -158,9 +152,7 @@ async def test_as_runtime_tool_call_round_trip(tmp_path: Path) -> None:
         executor=executor,
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "say hi", settings=_settings(tmp_path)
-    )
+    result = await runtime.run(session, "say hi", settings=_settings(tmp_path))
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -187,9 +179,7 @@ async def test_as_runtime_tool_call_round_trip(tmp_path: Path) -> None:
         assert expected in event_types, event_types
 
     # Schema-v2 snapshot: engine-authoritative context persisted.
-    snapshot_path = (
-        tmp_path / "sess" / "as-runtime-test" / "session.json"
-    )
+    snapshot_path = tmp_path / "sess" / "as-runtime-test" / "session.json"
     payload = json.loads(snapshot_path.read_text())
     assert payload["schema_version"] == 2
     assert payload["agentscope_state"]["context"], payload.keys()
@@ -210,20 +200,15 @@ async def test_as_runtime_mid_stream_transport_retry(tmp_path: Path) -> None:
         """First call streams thinking + partial tool args then dies;
         second call streams a fresh tool call id to completion."""
 
-        async def _call_api(self, model_name, messages, tools=None,
-                            tool_choice=None, **kwargs):
+        async def _call_api(self, model_name, messages, tools=None, tool_choice=None, **kwargs):
             self.calls.append(messages)
             self.call_tools.append(tools)
             for msg in messages:
                 for block in getattr(msg, "content", ()) or ():
                     if getattr(block, "type", None) == "tool_result":
                         for out in getattr(block, "output", ()) or ():
-                            self.seen_tool_result_text += str(
-                                getattr(out, "text", "") or ""
-                            )
-            item = self._script.pop(0) if self._script else [
-                TextBlock(text="done")
-            ]
+                            self.seen_tool_result_text += str(getattr(out, "text", "") or "")
+            item = self._script.pop(0) if self._script else [TextBlock(text="done")]
             if isinstance(item, Exception):
                 raise item
             blocks = item
@@ -254,31 +239,31 @@ async def test_as_runtime_mid_stream_transport_retry(tmp_path: Path) -> None:
     registry.register(_echo_tool())
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
-    ]
-    model = MidStreamDeathModel([
-        # call 1: thinking + half-written tool args, then the wire dies
+    tools = [HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()]
+    model = MidStreamDeathModel(
         [
-            _chunk([ThinkingBlock(thinking="plan")]),
-            _chunk([ToolCallBlock(id="stale", name="echo", input='{"x"')]),
-            httpx.ReadTimeout(
-                "mid-stream stall",
-                request=httpx.Request("POST", "https://provider.example/x"),
-            ),
-        ],
-        # call 2 (the retry): fresh id streams to completion
-        [
-            _chunk([ToolCallBlock(id="fresh", name="echo", input='{"x"')]),
-            _chunk([ToolCallBlock(id="fresh", name="echo", input=': 1}')]),
-            _chunk(
-                [ToolCallBlock(id="fresh", name="echo", input='{"x": 1}')],
-                last=True,
-            ),
-        ],
-        # call 3: post-tool reply
-        [_chunk([TextBlock(text="finished")], last=True)],
-    ])
+            # call 1: thinking + half-written tool args, then the wire dies
+            [
+                _chunk([ThinkingBlock(thinking="plan")]),
+                _chunk([ToolCallBlock(id="stale", name="echo", input='{"x"')]),
+                httpx.ReadTimeout(
+                    "mid-stream stall",
+                    request=httpx.Request("POST", "https://provider.example/x"),
+                ),
+            ],
+            # call 2 (the retry): fresh id streams to completion
+            [
+                _chunk([ToolCallBlock(id="fresh", name="echo", input='{"x"')]),
+                _chunk([ToolCallBlock(id="fresh", name="echo", input=": 1}")]),
+                _chunk(
+                    [ToolCallBlock(id="fresh", name="echo", input='{"x": 1}')],
+                    last=True,
+                ),
+            ],
+            # call 3: post-tool reply
+            [_chunk([TextBlock(text="finished")], last=True)],
+        ]
+    )
     model._stream_mode = True
     runtime = AsAgentRuntime(
         model=model,
@@ -326,6 +311,7 @@ async def test_as_runtime_text_only(tmp_path: Path) -> None:
 async def test_as_runtime_permission_denied(tmp_path: Path) -> None:
     """denied_tools -> evaluate_tool DENY -> AS denied ToolResult; the tool
     body (boom) must never run."""
+
     def _boom(arguments: Any, context: Any) -> Any:
         raise AssertionError("denied tool must not execute")
 
@@ -391,9 +377,7 @@ async def test_as_runtime_resume_from_v2_snapshot(tmp_path: Path) -> None:
     # ``_runtime_from_snapshot`` does.
     from homemaster.substrate.snapshot import parse_snapshot_payload
 
-    payload = json.loads(
-        (tmp_path / "sess" / "as-runtime-test" / "session.json").read_text()
-    )
+    payload = json.loads((tmp_path / "sess" / "as-runtime-test" / "session.json").read_text())
     parsed = parse_snapshot_payload(payload)
     session2 = AgentSession(parsed.session_id)
     session2.replace_messages(list(parsed.messages))
@@ -414,10 +398,7 @@ async def test_as_runtime_resume_from_v2_snapshot(tmp_path: Path) -> None:
     assert result2.final_reply == "second answer"
     # Prior turn content survives the engine-state round-trip into the model.
     joined = json.dumps(
-        [
-            m.model_dump(mode="json")
-            for m in model2.calls[0]
-        ],
+        [m.model_dump(mode="json") for m in model2.calls[0]],
         default=str,
     )
     assert "first answer" in joined and "q1" in joined
@@ -482,17 +463,11 @@ async def test_as_runtime_interrupt_disabled_never_touches_sigint(
     registry = ToolRegistry()
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
-    ]
+    tools = [HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()]
     model = SigintProbeModel([[TextBlock(text="done")]])
-    runtime = AsAgentRuntime(
-        model=model, system_prompt="sys", tools=tools, max_tool_iterations=4
-    )
+    runtime = AsAgentRuntime(model=model, system_prompt="sys", tools=tools, max_tool_iterations=4)
     settings = _settings(tmp_path)
-    settings.observability = settings.observability.model_copy(
-        update={"interrupt_enabled": False}
-    )
+    settings.observability = settings.observability.model_copy(update={"interrupt_enabled": False})
     pre_run_handler = signal.getsignal(signal.SIGINT)
     session = AgentSession("as-runtime-test")
     result = await runtime.run(session, "hi", settings=settings)
@@ -525,9 +500,7 @@ async def test_as_runtime_resumed_session_does_not_reannounce_prior_reply(
 
     from homemaster.substrate.snapshot import parse_snapshot_payload
 
-    payload = json.loads(
-        (tmp_path / "sess" / "as-runtime-test" / "session.json").read_text()
-    )
+    payload = json.loads((tmp_path / "sess" / "as-runtime-test" / "session.json").read_text())
     parsed = parse_snapshot_payload(payload)
     session2 = AgentSession(parsed.session_id)
     session2.replace_messages(list(parsed.messages))
@@ -545,11 +518,7 @@ async def test_as_runtime_resumed_session_does_not_reannounce_prior_reply(
         engine_state=parsed.engine_state,
     )
     assert result2.status == "replied"
-    replies = [
-        e.payload.get("reply", "")
-        for e in result2.events
-        if e.type == "assistant.reply"
-    ]
+    replies = [e.payload.get("reply", "") for e in result2.events if e.type == "assistant.reply"]
     assert "second answer" in replies
     assert "first answer" not in replies
 
@@ -602,9 +571,7 @@ class _FakeAssembler:
         self._prompt = prompt
         self.shrink = False
 
-    async def aprepare(
-        self, *, session, agent_state, task_state_store, tools, force_compact
-    ):
+    async def aprepare(self, *, session, agent_state, task_state_store, tools, force_compact):
         from types import SimpleNamespace
 
         from homemaster.agent.messages import UserMessage
@@ -646,9 +613,7 @@ async def test_as_runtime_assembler_wires_system_prompt(tmp_path: Path) -> None:
     assert getattr(first_call[0], "role", None) == "system"
     head = first_call[0]
     content = getattr(head, "content", "")
-    text = content if isinstance(content, str) else "".join(
-        getattr(b, "text", "") for b in content
-    )
+    text = content if isinstance(content, str) else "".join(getattr(b, "text", "") for b in content)
     assert "HM_SYS_MARKER" in text
     # The assembled tail follows the system head.
     tail = " ".join(
@@ -679,9 +644,7 @@ async def test_as_runtime_reactive_compaction_sends_fresh_messages(
             self.attempt_inputs.append(messages)
             if len(self.attempt_inputs) == 1:
                 raise ValueError("context length exceeded: 200k > 128k")
-            return await super()._call_api(
-                model_name, messages, tools=tools, **kw
-            )
+            return await super()._call_api(model_name, messages, tools=tools, **kw)
 
     registry = ToolRegistry()
     executor = ToolExecutor(registry)
@@ -714,9 +677,7 @@ async def test_as_runtime_reactive_compaction_sends_fresh_messages(
     assert len(assembler.calls) == 2
     assert assembler.calls[1]["force_compact"] == "aggressive"
     retry = model.attempt_inputs[1]
-    retry_text = json.dumps(
-        [m.model_dump(mode="json") for m in retry], default=str
-    )
+    retry_text = json.dumps([m.model_dump(mode="json") for m in retry], default=str)
     assert "assembled:short" in retry_text
     assert "filler-filler-filler" not in retry_text
     event_types = [e.type for e in result.events]
@@ -729,6 +690,7 @@ async def test_as_runtime_denied_result_carries_hm_data(tmp_path: Path) -> None:
     """M7/H2: a denied tool call must persist an hm pocket so the canonical
     ToolResultMessage.data keeps backend_attempted/status instead of None —
     and the run must not crash evaluating it."""
+
     def _boom(arguments: Any, context: Any) -> Any:
         raise AssertionError("denied tool must not execute")
 
@@ -791,9 +753,7 @@ async def test_as_runtime_jsonl_attempt_sink(tmp_path: Path) -> None:
         provider_attempt_sink_factory=_factory,
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "say hi", settings=_settings(tmp_path)
-    )
+    result = await runtime.run(session, "say hi", settings=_settings(tmp_path))
     assert result.status == "replied", result.events
 
     lines = sink_path.read_text().strip().splitlines()
@@ -821,9 +781,7 @@ async def test_as_runtime_sigint_during_tool_execution_closes_dangling(
     async def _hang(arguments: Any, context: Any) -> ToolExecutionResult:
         started.set()
         await asyncio.sleep(30)
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="unreachable"
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="unreachable")
 
     registry = ToolRegistry()
     registry.register(_echo_tool(execute=_hang))
@@ -859,9 +817,7 @@ async def test_as_runtime_sigint_during_tool_execution_closes_dangling(
                 call_ids.add(block.id)
             elif btype == "tool_result":
                 result_ids.add(block.id)
-    assert call_ids == result_ids, (
-        f"dangling tool calls: {call_ids - result_ids}"
-    )
+    assert call_ids == result_ids, f"dangling tool calls: {call_ids - result_ids}"
     # And the paired result is marked interrupted, not successful.
     from agentscope.message import ToolResultState
 
@@ -871,10 +827,7 @@ async def test_as_runtime_sigint_during_tool_execution_closes_dangling(
         for block in getattr(msg, "content", []) or []
         if getattr(block, "type", None) == "tool_result"
     ]
-    assert any(
-        b.state in (ToolResultState.INTERRUPTED, "interrupted")
-        for b in results
-    )
+    assert any(b.state in (ToolResultState.INTERRUPTED, "interrupted") for b in results)
 
 
 class _StreamScriptedModel(ScriptedModel):
@@ -902,11 +855,7 @@ class _StreamScriptedModel(ScriptedModel):
         async def _gen():
             if self._fail_at == 0 and self.attempts == 1:
                 raise ValueError(self._error)
-            blocks = (
-                self._script.pop(0)
-                if self._script
-                else [TextBlock(text="done")]
-            )
+            blocks = self._script.pop(0) if self._script else [TextBlock(text="done")]
             yield ChatResponse(
                 content=blocks,
                 is_last=False,
@@ -934,9 +883,7 @@ async def test_as_runtime_streaming_pre_chunk_retry_uses_compacted(
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
     assembler = _FakeAssembler()
-    model = _StreamScriptedModel(
-        [[TextBlock(text="recovered")]], fail_at=0
-    )
+    model = _StreamScriptedModel([[TextBlock(text="recovered")]], fail_at=0)
     runtime = AsAgentRuntime(
         model=model,
         system_prompt="sys",
@@ -959,9 +906,7 @@ async def test_as_runtime_streaming_pre_chunk_retry_uses_compacted(
     assert result.status == "replied", result.events
     assert model.attempts == 2
     assert assembler.calls[1]["force_compact"] == "aggressive"
-    retry_text = json.dumps(
-        [m.model_dump(mode="json") for m in model.calls[-1]], default=str
-    )
+    retry_text = json.dumps([m.model_dump(mode="json") for m in model.calls[-1]], default=str)
     assert "assembled:short" in retry_text
 
 
@@ -975,9 +920,7 @@ async def test_as_runtime_streaming_mid_stream_failure_no_retry(
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
     assembler = _FakeAssembler()
-    model = _StreamScriptedModel(
-        [[TextBlock(text="partial")]], fail_at=1
-    )
+    model = _StreamScriptedModel([[TextBlock(text="partial")]], fail_at=1)
     runtime = AsAgentRuntime(
         model=model,
         system_prompt="sys",
@@ -1053,16 +996,11 @@ def test_anthropic_formatter_empty_tool_result_fallback() -> None:
     )
     payload = asyncio.run(fmt.format([msg]))
     assert payload and payload[0]["role"] == "user"
-    contents = [
-        b for b in payload[0]["content"] if b.get("type") == "tool_result"
-    ]
+    contents = [b for b in payload[0]["content"] if b.get("type") == "tool_result"]
     assert len(contents) == 1
     assert contents[0]["tool_use_id"] == "tc-empty"
     assert contents[0]["content"], "empty tool_result content must fall back"
-    assert all(
-        b.get("type") != "text" or b.get("text")
-        for b in contents[0]["content"]
-    )
+    assert all(b.get("type") != "text" or b.get("text") for b in contents[0]["content"])
 
 
 @pytest.mark.asyncio
@@ -1076,9 +1014,7 @@ async def test_as_runtime_unavailable_tool_rejects_whole_batch(
 
     def _echo_execute(arguments: Any, context: Any) -> ToolExecutionResult:
         executed.append("echo")
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="ok"
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="ok")
 
     registry = ToolRegistry()
     registry.register(_echo_tool(execute=_echo_execute))
@@ -1088,9 +1024,7 @@ async def test_as_runtime_unavailable_tool_rejects_whole_batch(
         script=[
             [
                 ToolCallBlock(id="tc-good", name="echo", input='{"x": 1}'),
-                ToolCallBlock(
-                    id="tc-bad", name="hallucinated_tool", input="{}"
-                ),
+                ToolCallBlock(id="tc-bad", name="hallucinated_tool", input="{}"),
             ],
             [TextBlock(text="done")],
         ],
@@ -1098,9 +1032,7 @@ async def test_as_runtime_unavailable_tool_rejects_whole_batch(
         executor=executor,
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "hi", settings=_settings(tmp_path), tool_registry=registry
-    )
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path), tool_registry=registry)
 
     assert result.status == "replied"
     assert executed == [], "companion call must not execute"
@@ -1109,9 +1041,7 @@ async def test_as_runtime_unavailable_tool_rejects_whole_batch(
     by_id = {m.tool_call_id: m for m in tool_msgs}
     # The never-offered call resolves to AS's native ToolNotFoundError
     # (no tool object exists for the permission chain to evaluate).
-    bad_text = "".join(
-        b.text or "" for b in by_id["tc-bad"].content
-    )
+    bad_text = "".join(b.text or "" for b in by_id["tc-bad"].content)
     assert "hallucinated_tool" in bad_text
     # The companion call is rejected by the protocol fence with the legacy
     # batch-contamination code in the model-facing payload.
@@ -1121,8 +1051,7 @@ async def test_as_runtime_unavailable_tool_rejects_whole_batch(
     assert (good.data or {}).get("backend_attempted") is False
     assert any(
         e.type == "tool.protocol_rejected"
-        and (e.payload or {}).get("error_code")
-        == "tool_batch_contains_unavailable_call"
+        and (e.payload or {}).get("error_code") == "tool_batch_contains_unavailable_call"
         for e in result.events
     )
 
@@ -1138,15 +1067,11 @@ async def test_as_runtime_terminal_allowlist_rejects_batch(
 
     def _term(arguments: Any, context: Any) -> ToolExecutionResult:
         executed.append(str(arguments.get("command")))
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="ran"
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="ran")
 
     def _echo_execute(arguments: Any, context: Any) -> ToolExecutionResult:
         executed.append("echo")
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="ok"
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="ok")
 
     registry = ToolRegistry()
     registry.register(
@@ -1179,13 +1104,9 @@ async def test_as_runtime_terminal_allowlist_rejects_batch(
         executor=executor,
     )
     settings = _settings(tmp_path)
-    settings.permissions = SimpleNamespace(
-        allowed_terminal_commands=("ls", "pwd")
-    )
+    settings.permissions = SimpleNamespace(allowed_terminal_commands=("ls", "pwd"))
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "hi", settings=settings, tool_registry=registry
-    )
+    result = await runtime.run(session, "hi", settings=settings, tool_registry=registry)
 
     assert result.status == "replied"
     assert executed == []
@@ -1198,8 +1119,7 @@ async def test_as_runtime_terminal_allowlist_rejects_batch(
         assert (m.data or {}).get("backend_attempted") is False
     assert any(
         e.type == "terminal.command_protocol_rejected"
-        and (e.payload or {}).get("error_code")
-        == "terminal_command_not_allowed"
+        and (e.payload or {}).get("error_code") == "terminal_command_not_allowed"
         for e in result.events
     )
 
@@ -1218,10 +1138,7 @@ async def test_as_runtime_manual_compaction_emits_event_and_callback(
     runtime = AsAgentRuntime(
         model=ScriptedModel([[TextBlock(text="ok")]]),
         system_prompt="sys",
-        tools=[
-            HomeToolAdapter(t, executor, scope)
-            for t in registry.list_tools()
-        ],
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
         context_assembler=_FakeAssembler(),
     )
     seen_kinds: list[str] = []
@@ -1239,9 +1156,7 @@ async def test_as_runtime_manual_compaction_emits_event_and_callback(
     )
     assert result.status == "replied"
     assert seen_kinds == ["manual"]
-    compaction_events = [
-        e for e in result.events if e.type == "context.compaction"
-    ]
+    compaction_events = [e for e in result.events if e.type == "context.compaction"]
     assert len(compaction_events) == 1
     assert compaction_events[0].payload["trigger"] == "manual"
     assert compaction_events[0].payload["kind"] == "manual"
@@ -1286,6 +1201,7 @@ async def test_as_runtime_propagate_exceptions_surface_raw(
     """Review-H3/C+: types listed in ``propagate_exceptions`` re-raise raw
     after cleanup instead of being classified as transport_error — the app
     layer relies on this for SessionGenerationError/recall-deadline parity."""
+
     class _Fence(RuntimeError):
         pass
 
@@ -1310,10 +1226,7 @@ async def test_as_runtime_propagate_exceptions_surface_raw(
     runtime = AsAgentRuntime(
         model=ScriptedModel(_script()),
         system_prompt="sys",
-        tools=[
-            HomeToolAdapter(t, executor, scope)
-            for t in registry.list_tools()
-        ],
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
         stop_condition=_bad_stop,
     )
     session = AgentSession("as-runtime-test")
@@ -1332,10 +1245,7 @@ async def test_as_runtime_propagate_exceptions_surface_raw(
     runtime2 = AsAgentRuntime(
         model=ScriptedModel(_script()),
         system_prompt="sys",
-        tools=[
-            HomeToolAdapter(t, executor, scope)
-            for t in registry.list_tools()
-        ],
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
         stop_condition=_other_stop,
     )
     session2 = AgentSession("as-runtime-test-2")
@@ -1366,18 +1276,14 @@ async def test_as_runtime_provider_attempt_context_binder_fires(
 
     def _exec(arguments: Any, context: Any) -> Any:
         order.append("exec")
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="echo:1"
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="echo:1")
 
     registry = ToolRegistry()
     registry.register(_echo_tool(_exec))
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
     scope.services = {
-        "run_context": SimpleNamespace(
-            deps={"provider_attempt_context_binder": _binder}
-        )
+        "run_context": SimpleNamespace(deps={"provider_attempt_context_binder": _binder})
     }
     model = ScriptedModel(
         [
@@ -1388,16 +1294,11 @@ async def test_as_runtime_provider_attempt_context_binder_fires(
     runtime = AsAgentRuntime(
         model=model,
         system_prompt="sys",
-        tools=[
-            HomeToolAdapter(t, executor, scope)
-            for t in registry.list_tools()
-        ],
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
         context_assembler=_FakeAssembler(),
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "hi", settings=_settings(tmp_path), scope=scope
-    )
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path), scope=scope)
 
     assert result.status == "replied"
     assert order[:1] == ["bind"] and "exec" in order
@@ -1413,9 +1314,7 @@ class _SessionEchoAssembler:
     black-box probe for session-mirror staleness (the production factory
     composes settings with no ``observability`` at all)."""
 
-    async def aprepare(
-        self, *, session, agent_state, task_state_store, tools, force_compact
-    ):
+    async def aprepare(self, *, session, agent_state, task_state_store, tools, force_compact):
         from types import SimpleNamespace
 
         return SimpleNamespace(
@@ -1530,13 +1429,9 @@ async def test_as_runtime_round_fence_scopes_to_current_round(
         executor=executor,
     )
     settings = _settings(tmp_path)
-    settings.permissions = SimpleNamespace(
-        allowed_terminal_commands=("ls", "pwd")
-    )
+    settings.permissions = SimpleNamespace(allowed_terminal_commands=("ls", "pwd"))
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "hi", settings=settings, tool_registry=registry
-    )
+    result = await runtime.run(session, "hi", settings=settings, tool_registry=registry)
 
     assert result.status == "replied"
     assert executed == ["echo"], (
@@ -1544,21 +1439,13 @@ async def test_as_runtime_round_fence_scopes_to_current_round(
         "of the current-round fence scope"
     )
     by_id = {m.tool_call_id: m for m in session.messages if m.role == "tool"}
-    assert "echo:2" in "".join(
-        b.text or "" for b in by_id["tc-e2"].content
-    )
+    assert "echo:2" in "".join(b.text or "" for b in by_id["tc-e2"].content)
     # F5 parity: the denied siblings are protocol completions, not errors.
     assert by_id["tc-e1"].is_error is False
     assert by_id["tc-e1"].data.get("status") == "protocol_blocked"
     assert by_id["tc-term"].data.get("status") == "protocol_blocked"
-    failed_ids = {
-        e.tool_call_id
-        for e in result.events
-        if e.type == "tool.call_failed"
-    }
-    assert failed_ids == set(), (
-        "protocol-fence denials must emit call_completed, not call_failed"
-    )
+    failed_ids = {e.tool_call_id for e in result.events if e.type == "tool.call_failed"}
+    assert failed_ids == set(), "protocol-fence denials must emit call_completed, not call_failed"
 
 
 @pytest.mark.asyncio
@@ -1603,11 +1490,7 @@ async def test_as_runtime_stale_waiting_user_not_retriggered(
 
     session = AgentSession("as-runtime-test")
     session.append(
-        AssistantMessage(
-            tool_calls=[
-                ToolCall(id="tc-old", name="echo", arguments={"x": 0})
-            ]
-        )
+        AssistantMessage(tool_calls=[ToolCall(id="tc-old", name="echo", arguments={"x": 0})])
     )
     session.append(
         ToolResultMessage(
@@ -1618,12 +1501,8 @@ async def test_as_runtime_stale_waiting_user_not_retriggered(
             data={"waiting_user": True, "question": "stale?"},
         )
     )
-    result = await runtime.run(
-        session, "hi", settings=_settings(tmp_path)
-    )
-    assert result.status == "replied", (
-        "a historical waiting_user marker must not end the new run"
-    )
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied", "a historical waiting_user marker must not end the new run"
     assert result.final_reply == "done"
 
     # Same marker on the *current* round's result still stops the run.
@@ -1648,9 +1527,7 @@ async def test_as_runtime_stale_waiting_user_not_retriggered(
     )
     runtime2._stop_condition = _stop
     session2 = AgentSession("as-runtime-test-2")
-    result2 = await runtime2.run(
-        session2, "hi", settings=_settings(tmp_path)
-    )
+    result2 = await runtime2.run(session2, "hi", settings=_settings(tmp_path))
     assert result2.status == "waiting_user"
     assert result2.final_reply == "which room?"
 
@@ -1666,10 +1543,9 @@ async def test_as_runtime_unlimited_iterations_preserved(
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
     # 55 tool rounds > AS's default cap of 50.
-    script = [
-        [ToolCallBlock(id=f"tc{i}", name="echo", input='{"x": 1}')]
-        for i in range(55)
-    ] + [[TextBlock(text="done")]]
+    script = [[ToolCallBlock(id=f"tc{i}", name="echo", input='{"x": 1}')] for i in range(55)] + [
+        [TextBlock(text="done")]
+    ]
     model = ScriptedModel(script)
     runtime = AsAgentRuntime(
         model=model,
@@ -1693,6 +1569,7 @@ async def test_as_runtime_propagate_exceptions_inside_tool_body(
     where ``asyncio.gather`` wraps it in ``ExceptionGroup`` — the driver must
     unwind the group and re-raise the marked member raw, not classify the
     group as ``transport_error`` (session-generation fencing relies on it)."""
+
     class _Fence(RuntimeError):
         _hm_propagate = True
 
@@ -1731,6 +1608,7 @@ async def test_as_runtime_propagate_group_keeps_other_member_terminal_state(
     """ExceptionGroup unwinding must not mask the group member's context:
     a group mixing a marked member with an ordinary error still re-raises
     the marked member (the run is stale either way)."""
+
     class _Fence(RuntimeError):
         _hm_propagate = True
 
@@ -1799,16 +1677,10 @@ async def test_as_runtime_per_round_assistant_reply_events(
         executor=executor,
     )
     session = AgentSession("as-runtime-test")
-    result = await runtime.run(
-        session, "hi", settings=_settings(tmp_path)
-    )
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
     assert result.status == "replied"
-    replies = [
-        e for e in result.events if e.type == "assistant.reply"
-    ]
-    assert len(replies) >= 2, (
-        "each reasoning round must project its own assistant.reply"
-    )
+    replies = [e for e in result.events if e.type == "assistant.reply"]
+    assert len(replies) >= 2, "each reasoning round must project its own assistant.reply"
     assert replies[-1].payload["reply"] == "all done"
 
 
@@ -1858,14 +1730,9 @@ async def test_as_runtime_interrupted_result_dedup(
         b
         for msg in engine_state.context
         for b in getattr(msg, "content", []) or []
-        if getattr(b, "type", None) == "tool_result"
-        and getattr(b, "id", "") == "c1"
+        if getattr(b, "type", None) == "tool_result" and getattr(b, "id", "") == "c1"
     ]
-    assert len(results) == 1, (
-        "duplicate tool_result ids are rejected by providers on resume"
-    )
-
-
+    assert len(results) == 1, "duplicate tool_result ids are rejected by providers on resume"
 
 
 @pytest.mark.asyncio
@@ -1891,9 +1758,7 @@ async def test_as_runtime_truncated_output_stall_fails_fast(tmp_path: Path) -> N
     registry.register(_echo_tool())
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
-    ]
+    tools = [HomeToolAdapter(t, executor, scope) for t in registry.list_tools()]
     model = CappedModel([])
     runtime = AsAgentRuntime(
         model=model,
@@ -1909,9 +1774,7 @@ async def test_as_runtime_truncated_output_stall_fails_fast(tmp_path: Path) -> N
     # Default budget: exactly two stalled rounds, no silent third burn.
     assert len(model.calls) == 2
     guard_events = [e for e in result.events if e.type == "runtime.guard_triggered"]
-    assert guard_events and guard_events[0].payload["guard"] == (
-        "model_output_truncation_stall"
-    )
+    assert guard_events and guard_events[0].payload["guard"] == ("model_output_truncation_stall")
 
 
 @pytest.mark.asyncio
@@ -1945,9 +1808,7 @@ async def test_as_runtime_productive_round_resets_stall_counter(
                 for block in getattr(msg, "content", ()) or ():
                     if getattr(block, "type", None) == "tool_result":
                         for out in getattr(block, "output", ()) or ():
-                            self.seen_tool_result_text += str(
-                                getattr(out, "text", "") or ""
-                            )
+                            self.seen_tool_result_text += str(getattr(out, "text", "") or "")
             blocks, out = self._responses.pop(0)
             return ChatResponse(
                 content=blocks,
@@ -1960,13 +1821,9 @@ async def test_as_runtime_productive_round_resets_stall_counter(
     registry.register(_echo_tool())
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
-    ]
+    tools = [HomeToolAdapter(t, executor, scope) for t in registry.list_tools()]
     model = MixedModel()
-    runtime = AsAgentRuntime(
-        model=model, system_prompt="sys", tools=tools, max_tool_iterations=10
-    )
+    runtime = AsAgentRuntime(model=model, system_prompt="sys", tools=tools, max_tool_iterations=10)
     session = AgentSession("as-runtime-test")
     result = await runtime.run(session, "go", settings=_settings(tmp_path))
 
@@ -1992,9 +1849,7 @@ async def test_as_runtime_sigint_kills_subprocess_group(tmp_path: Path) -> None:
     registry = build_tool_registry(environment="local_robot")
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)
-    tools = [
-        HomeToolAdapter(t, executor, scope) for t in registry.list_tools()
-    ]
+    tools = [HomeToolAdapter(t, executor, scope) for t in registry.list_tools()]
     model = ScriptedModel(
         [
             [
@@ -2003,7 +1858,7 @@ async def test_as_runtime_sigint_kills_subprocess_group(tmp_path: Path) -> None:
                     name="terminal",
                     input=(
                         '{"command": "for i in 1 2 3 4 5 6 7 8 9 10; do '
-                        'echo s$i >> ' + str(marker) + '; sleep 3; done", '
+                        "echo s$i >> " + str(marker) + '; sleep 3; done", '
                         '"timeout_seconds": 120}'
                     ),
                 )
@@ -2011,9 +1866,7 @@ async def test_as_runtime_sigint_kills_subprocess_group(tmp_path: Path) -> None:
             [TextBlock(text="done")],
         ]
     )
-    runtime = AsAgentRuntime(
-        model=model, system_prompt="sys", tools=tools, max_tool_iterations=4
-    )
+    runtime = AsAgentRuntime(model=model, system_prompt="sys", tools=tools, max_tool_iterations=4)
     session = AgentSession("as-runtime-test")
 
     async def _sigint_when_running() -> None:
@@ -2034,11 +1887,9 @@ async def test_as_runtime_sigint_kills_subprocess_group(tmp_path: Path) -> None:
     before = marker.read_text() if marker.exists() else ""
     await asyncio.sleep(4)
     after = marker.read_text() if marker.exists() else ""
-    assert before == after, (
-        f"child process kept running after cancel: {before!r} -> {after!r}"
-    )
+    assert before == after, f"child process kept running after cancel: {before!r} -> {after!r}"
     leftover = subprocess.run(
-        ["pgrep", "-f", f"sigint-marker"],
+        ["pgrep", "-f", "sigint-marker"],
         capture_output=True,
         text=True,
     ).stdout.strip()

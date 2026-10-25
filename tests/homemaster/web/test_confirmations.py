@@ -55,10 +55,8 @@ async def test_confirm_resolve_ready_with_events(tmp_path: Path) -> None:
         assert resolution.request_status == "ready"
         assert await task == resolution
         assert handler.pending_count == 0
-        requested = [e for e in sink.events
-                     if e.type == "permission.confirmation_requested"]
-        completed = [e for e in sink.events
-                     if e.type == "permission.confirmation_completed"]
+        requested = [e for e in sink.events if e.type == "permission.confirmation_requested"]
+        completed = [e for e in sink.events if e.type == "permission.confirmation_completed"]
         changed = [e for e in sink.events if e.type == "permission.grant_changed"]
         assert len(requested) == 1
         assert requested[0].payload["protocol_version"] == 2
@@ -226,9 +224,7 @@ async def test_cancel_approval_pending_and_resolved(tmp_path: Path) -> None:
             )
         )
         await wait_pending(handler)
-        status = await handler.cancel_approval(
-            request.approval_id, "cancel-1", request.revision
-        )
+        status = await handler.cancel_approval(request.approval_id, "cancel-1", request.revision)
         assert status == "cancelled"
         with pytest.raises(ApprovalCancelled):
             await task
@@ -240,9 +236,9 @@ async def test_cancel_approval_pending_and_resolved(tmp_path: Path) -> None:
             _submission(ready, {item_id: "allow_once"}, "sub-ready"),
             "web-operator",
         )
-        assert await handler.cancel_approval(
-            ready.approval_id, "cancel-2", ready.revision
-        ) == "ready"
+        assert (
+            await handler.cancel_approval(ready.approval_id, "cancel-2", ready.revision) == "ready"
+        )
     finally:
         store.close()
 
@@ -287,16 +283,12 @@ async def test_cancel_approval_after_committed_submit_keeps_waiter(
         committed = store.submit(request.approval_id, submission, "web-operator")
         assert committed.request_status == "ready"
 
-        status = await handler.cancel_approval(
-            request.approval_id, "cancel-race", request.revision
-        )
+        status = await handler.cancel_approval(request.approval_id, "cancel-race", request.revision)
         assert status == "ready"
         await asyncio.sleep(0)
         assert waiter.done() is False
 
-        resolution = await handler.resolve(
-            request.approval_id, submission, "web-operator"
-        )
+        resolution = await handler.resolve(request.approval_id, submission, "web-operator")
         assert await waiter == resolution
         assert resolution.request_status == "ready"
         assert handler.pending_count == 0
@@ -331,9 +323,7 @@ async def test_deny_session_preserves_committed_resolution(tmp_path: Path) -> No
         assert await handler.deny_session("gone") == 0
         await asyncio.sleep(0)
         assert waiter.done() is False
-        resolution = await handler.resolve(
-            request.approval_id, submission, "web-operator"
-        )
+        resolution = await handler.resolve(request.approval_id, submission, "web-operator")
         assert await waiter == resolution
     finally:
         store.close()

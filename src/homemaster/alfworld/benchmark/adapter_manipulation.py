@@ -38,6 +38,7 @@ from homemaster.alfworld.types import (
 
 class AlfworldAdapterManipulationMixin:
     """Manipulation entry points (thor actions, put executor, force toggles)."""
+
     def put_object(
         self,
         *,

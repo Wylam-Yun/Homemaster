@@ -67,9 +67,7 @@ def _receipt(operation, state):
 def test_harness_requires_reset_and_verifies_external_state_change():
     backend = FakeBackend({})
     harness = AlfworldHarness(backend)
-    before_reset = harness.execute(
-        AlfworldActionRequest("robot_go_to", {"target": "mug 1"})
-    )
+    before_reset = harness.execute(AlfworldActionRequest("robot_go_to", {"target": "mug 1"}))
     assert before_reset.classification == "harness_operation_failure"
     assert harness.reset("trial-1").external_return_code == 0
     result = harness.execute(AlfworldActionRequest("robot_go_to", {"target": "mug 1"}))
@@ -83,6 +81,7 @@ def test_harness_requires_reset_and_verifies_external_state_change():
 
 def test_harness_grounds_worker_object_type_when_thor_name_has_runtime_suffix():
     backend = FakeBackend({})
+
     def reset_with_runtime_name(_trial):
         backend.state = {
             "objects": [

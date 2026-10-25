@@ -371,6 +371,7 @@ def _patch_empty_mindmemos(monkeypatch: Any) -> None:
                     model_dump=lambda **_dump_kwargs: values,
                     **values,
                 )
+
             return SimpleNamespace(
                 add_record_id="alfworld-test-add",
                 result=SimpleNamespace(
@@ -602,10 +603,7 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert not any(_has_image(message) for message in transport.seen_messages[0])
     assert any(_has_image(message) for message in transport.seen_messages[1])
     assert transport.seen_messages[0][0].role == "system"
-    assert any(
-        getattr(block, "text", "")
-        for block in transport.seen_messages[0][0].content
-    )
+    assert any(getattr(block, "text", "") for block in transport.seen_messages[0][0].content)
     assert any(
         message.role == "user"
         and any("runtime_budget_status" in getattr(block, "text", "") for block in message.content)
@@ -698,8 +696,6 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     assert first["content_sha256"] == second["content_sha256"]
 
 
-
-
 def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(
     monkeypatch,
     tmp_path: Path,
@@ -756,7 +752,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
                 classification=None,
                 score_eligible=True,
                 setup_backend_action_count=0,
-                    recovery_status="not_needed",
+                recovery_status="not_needed",
                 cleanup_status="not_applicable",
                 quarantine_required=False,
                 environment_disposition="ready",

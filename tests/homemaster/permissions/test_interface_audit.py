@@ -1,8 +1,8 @@
 """Interface audit for the V3.4 generic permission contract.
 
- Guards the real-robot-first boundary: the generic permissions package must
- not import simulator code, generic DTOs must not carry simulator fields,
- and physical tools must declare an explicit adapter (never name sniffing).
+Guards the real-robot-first boundary: the generic permissions package must
+not import simulator code, generic DTOs must not carry simulator fields,
+and physical tools must declare an explicit adapter (never name sniffing).
 """
 
 from __future__ import annotations
@@ -14,12 +14,7 @@ from typing import Any
 
 import pytest
 
-PERMISSIONS_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "src"
-    / "homemaster"
-    / "permissions"
-)
+PERMISSIONS_DIR = Path(__file__).resolve().parents[3] / "src" / "homemaster" / "permissions"
 BANNED_IMPORT_PARTS = ("benchmarking", "alfworld", "thor")
 BANNED_FIELD_NAMES = frozenset(
     {
@@ -68,9 +63,7 @@ def test_generic_models_have_no_simulator_fields() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             for item in node.body:
-                if isinstance(item, ast.AnnAssign) and isinstance(
-                    item.target, ast.Name
-                ):
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                     fields.add(item.target.id)
     assert fields, "expected DTO fields in models.py"
     assert fields.isdisjoint(BANNED_FIELD_NAMES)
@@ -129,9 +122,7 @@ def test_physical_adapter_passthrough_keeps_identity() -> None:
         physical_adapter=adapter,
     )
     assert direct.physical_adapter is adapter
-    wrapped = from_registered_tool(
-        _registered(), physical=True, physical_adapter=adapter
-    )
+    wrapped = from_registered_tool(_registered(), physical=True, physical_adapter=adapter)
     assert wrapped.physical_adapter is adapter
 
 
@@ -150,9 +141,7 @@ def test_missing_adapter_is_refused_not_silently_ordinary() -> None:
     with pytest.raises(ValueError):
         from_registered_tool(_registered(), physical=True)
     with pytest.raises(ValueError):
-        from_registered_tool(
-            _registered(), physical_adapter=_StubAdapter()
-        )
+        from_registered_tool(_registered(), physical_adapter=_StubAdapter())
     tool = FunctionTool(
         name="probe_tool",
         description="Probe tool.",

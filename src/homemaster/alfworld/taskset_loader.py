@@ -113,8 +113,7 @@ def load_taskset_config(
         import yaml
     except ImportError as exc:
         raise RuntimeError(
-            "pyyaml is required to load alfworld_tasksets.yaml; "
-            "install with `pip install pyyaml`"
+            "pyyaml is required to load alfworld_tasksets.yaml; install with `pip install pyyaml`"
         ) from exc
 
     with path.open("r", encoding="utf-8") as reader:
@@ -153,9 +152,7 @@ def load_taskset_config(
         seed=int(run.get("seed", 42)),
         run_id=run.get("run_id"),
         use_isolated_worker=True,
-        allow_offscreen_object_navigation=bool(
-            run.get("allow_offscreen_object_navigation", True)
-        ),
+        allow_offscreen_object_navigation=bool(run.get("allow_offscreen_object_navigation", True)),
         failure_simulation=_parse_failure_simulation(run.get("failure_simulation")),
         long_horizon=_parse_long_horizon(run.get("long_horizon")),
         tasksets=tuple(tasksets),

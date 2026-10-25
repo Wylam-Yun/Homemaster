@@ -8,9 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-_LEGACY_TOOL_PREFIXES = frozenset(
-    {"openharness", "home", "core", "alfworld", "legacy"}
-)
+_LEGACY_TOOL_PREFIXES = frozenset({"openharness", "home", "core", "alfworld", "legacy"})
 
 
 class PermissionMode(StrEnum):
@@ -46,9 +44,7 @@ class PermissionSettingsConfig(BaseModel):
 
     @field_validator("allowed_terminal_commands")
     @classmethod
-    def _terminal_commands_are_exact_and_nonblank(
-        cls, value: tuple[str, ...]
-    ) -> tuple[str, ...]:
+    def _terminal_commands_are_exact_and_nonblank(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not command or command != command.strip() for command in value):
             raise ValueError(
                 "allowed terminal commands must be nonblank exact strings without "
@@ -70,9 +66,7 @@ class PermissionSettingsConfig(BaseModel):
                 raw = (raw,)
             converted = tuple(dict.fromkeys(_ordinary_tool_name(str(item)) for item in raw))
             migrated[field] = converted
-        overlap = set(migrated.get("allowed_tools", ())) & set(
-            migrated.get("denied_tools", ())
-        )
+        overlap = set(migrated.get("allowed_tools", ())) & set(migrated.get("denied_tools", ()))
         if overlap:
             raise ValueError(f"tools cannot be both allowed and denied: {sorted(overlap)}")
         return migrated

@@ -156,7 +156,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                         "num_retries": retries,
                         "max_tokens": chat.max_output_tokens or 8192,
                     }
-                ]
+                ],
             },
             "embed_model_router": {
                 "endpoints": [

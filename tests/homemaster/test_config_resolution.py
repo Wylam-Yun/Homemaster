@@ -132,11 +132,11 @@ def test_absolute_memory_runtime_paths_remain_unchanged(tmp_path: Path) -> None:
     path.write_text(
         f"""
         memory:
-          data_root: {absolute / 'memory'}
+          data_root: {absolute / "memory"}
           neo4j:
             mode: managed_local
-            home: {absolute / 'neo4j'}
-            java_home: {absolute / 'java'}
+            home: {absolute / "neo4j"}
+            java_home: {absolute / "java"}
             password: private-test-password
         """,
         encoding="utf-8",
@@ -689,9 +689,7 @@ def test_removed_or_unknown_configuration_fails_closed(
         load_config(path)
 
 
-def test_provider_client_engine_is_locked_to_agentscope(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_provider_client_engine_is_locked_to_agentscope(tmp_path: Path, monkeypatch) -> None:
     """Steps 8-9: the legacy engine and its hatch are gone. ``engine`` is a
     Literal pinned to ``agentscope`` — any other config value fails closed,
     and the removed ``HOMEMASTER_ENGINE`` env var is ignored."""

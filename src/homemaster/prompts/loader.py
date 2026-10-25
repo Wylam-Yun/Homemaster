@@ -44,8 +44,7 @@ def load_prompt(prompt_id: str | PromptId) -> str:
             name = PromptId(prompt_id).value
         except ValueError:
             raise KeyError(
-                f"Unknown prompt ID: {prompt_id!r}. "
-                f"Valid IDs: {[p.value for p in PromptId]}"
+                f"Unknown prompt ID: {prompt_id!r}. Valid IDs: {[p.value for p in PromptId]}"
             ) from None
     path = _PROMPTS_DIR / f"{name}.md"
     return path.read_text(encoding="utf-8")

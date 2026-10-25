@@ -412,9 +412,7 @@ async def test_on_acting_reset_survives_cross_context_aclose() -> None:
 
     mw = RunScopeMiddleware()
     call = SimpleNamespace(id="call-x")
-    agen = mw.on_acting(
-        SimpleNamespace(), {"tool_call": call}, _handler
-    )
+    agen = mw.on_acting(SimpleNamespace(), {"tool_call": call}, _handler)
 
     async def drive_first() -> object:
         return await agen.__anext__()
@@ -452,9 +450,7 @@ async def test_call_tool_aclose_skips_final_yield(tmp_path: Path) -> None:
             execute=_ok,
         )
     )
-    adapter = HomeToolAdapter(
-        executor.registry.get("echo"), executor, _scope(tmp_path)
-    )
+    adapter = HomeToolAdapter(executor.registry.get("echo"), executor, _scope(tmp_path))
     toolkit = Toolkit(tools=[adapter])
     state = EngineState(session_id="s1", context=[])
     block = ToolCallBlock(id="c1", name="echo", input="{}")

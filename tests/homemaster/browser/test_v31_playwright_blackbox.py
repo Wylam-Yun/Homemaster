@@ -97,9 +97,9 @@ async def test_v31_representation_refs_reads_and_compound_controls(
         assert (await session.read({"kind": "url"}))["value"].endswith("v31-controls.html")
         account = await session.find({"name": "Account name", "match": "exact"})
         account_ref = str(account["target"]["target_ref"])
-        assert (
-            await session.read({"kind": "value", "target": {"target_ref": account_ref}})
-        )["value"] == "initial"
+        assert (await session.read({"kind": "value", "target": {"target_ref": account_ref}}))[
+            "value"
+        ] == "initial"
         attributes = await session.read(
             {"kind": "attributes", "target": {"target_ref": account_ref}}
         )
@@ -122,9 +122,7 @@ async def test_v31_representation_refs_reads_and_compound_controls(
 
         first = await session.extract({"chunk_size": 80, "start_char": 0})
         assert first["markdown"] and first["has_more"] is True
-        second = await session.extract(
-            {"chunk_size": 80, "start_char": first["next_start_char"]}
-        )
+        second = await session.extract({"chunk_size": 80, "start_char": first["next_start_char"]})
         assert second["start_char"] == first["next_start_char"]
         scoped_extract = await session.extract(
             {"scope": _target("Readable report region", role="region")}
@@ -315,9 +313,7 @@ async def test_v31_actions_events_network_files_and_screenshot(
             await session._page.evaluate("i => console.info(`cursor-message-${i}`)", index)
         cursor_page = await session.console({"cursor": "console-9", "limit": 20})
         assert any(item["cursor"] == "console-10" for item in cursor_page["messages"])
-        console_tail = await session.console(
-            {"cursor": cursor_page["next_cursor"], "limit": 20}
-        )
+        console_tail = await session.console({"cursor": cursor_page["next_cursor"], "limit": 20})
         assert console_tail["messages"] == []
         assert console_tail["next_cursor"] == cursor_page["next_cursor"]
 
@@ -342,9 +338,10 @@ async def test_v31_actions_events_network_files_and_screenshot(
         assert screenshot["width"] == 640 and screenshot["height"] == 480
         assert screenshot["ref_map"]
         assert Path(str(screenshot["artifact_path"])).is_file()
-        assert hashlib.sha256(
-            Path(str(screenshot["artifact_path"])).read_bytes()
-        ).hexdigest() == screenshot["sha256"]
+        assert (
+            hashlib.sha256(Path(str(screenshot["artifact_path"])).read_bytes()).hexdigest()
+            == screenshot["sha256"]
+        )
         frame_ref = next(
             item["frame_id"]
             for item in (await session.inspect({"view": "frames"})).frames
@@ -362,14 +359,10 @@ async def test_v31_tabs_history_and_eval_authorization(tmp_path: Path, v31_origi
     denied = await _new_session(tmp_path / "denied", v31_origin)
     try:
         with pytest.raises(BrowserSessionError) as eval_denied:
-            await denied.eval(
-                {"script": "() => document.title", "expected_postcondition": "none"}
-            )
+            await denied.eval({"script": "() => document.title", "expected_postcondition": "none"})
         assert eval_denied.value.code == "capability_denied"
 
-        created = await denied.tabs(
-            {"action": "new", "url": f"{v31_origin}/v31-controls.html"}
-        )
+        created = await denied.tabs({"action": "new", "url": f"{v31_origin}/v31-controls.html"})
         new_ref = str(created["active_tab"])
         assert len(created["tabs"]) == 2
         tab_one_snapshot = await denied.inspect({"name": "Account name", "match": "exact"})

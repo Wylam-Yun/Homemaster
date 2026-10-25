@@ -118,8 +118,10 @@ class WebSearchExecutor:
         query = _string(arguments, "query")
         max_results = _integer(arguments, "max_results", default=5)
         configured = _optional_string(arguments, "search_url")
-        endpoint = configured or os.environ.get("HOMEMASTER_WEB_SEARCH_URL") or (
-            "https://html.duckduckgo.com/html/"
+        endpoint = (
+            configured
+            or os.environ.get("HOMEMASTER_WEB_SEARCH_URL")
+            or ("https://html.duckduckgo.com/html/")
         )
         try:
             fetched = await _fetch_identity_utf8_text(

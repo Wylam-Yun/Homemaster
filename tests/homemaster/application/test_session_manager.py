@@ -57,9 +57,7 @@ async def test_legacy_snapshot_without_recall_latch_restores_false(tmp_path) -> 
     manager = SessionManager(session_root=tmp_path)
     runtime = await manager.open_or_resume("legacy-recall")
     await manager.save("legacy-recall", generation=runtime.generation)
-    revision_path = (
-        tmp_path / "legacy-recall" / "revisions" / "00000000000000000001.json"
-    )
+    revision_path = tmp_path / "legacy-recall" / "revisions" / "00000000000000000001.json"
     payload = json.loads(revision_path.read_text(encoding="utf-8"))
     payload.pop("require_recall")
     revision_path.write_text(

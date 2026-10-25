@@ -47,9 +47,7 @@ def _service(
     config = _runtime_config(path, payload)
     if payload is not None:
         _seed(path, payload)
-    service = ProviderConfigService(
-        config_path=path, runtime_config=config, probe=probe
-    )
+    service = ProviderConfigService(config_path=path, runtime_config=config, probe=probe)
     return service, config, path
 
 
@@ -131,9 +129,7 @@ def test_upsert_leaves_no_tmp_files_and_is_atomic(
 def test_upsert_template_maps_template_fields(tmp_path: Path) -> None:
     service, _runtime, path = _service(tmp_path)
 
-    result = service.upsert(
-        {"name": "ds", "template": "deepseek", "api_key": "sk-tpl-123456"}
-    )
+    result = service.upsert({"name": "ds", "template": "deepseek", "api_key": "sk-tpl-123456"})
 
     assert result["provider"]["api_format"] == "deepseek"
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -155,9 +151,7 @@ def test_upsert_conflict_requires_overwrite(tmp_path: Path) -> None:
     with pytest.raises(ProviderConflictError):
         service.upsert(_provider_payload(model="deepseek-reasoner"))
 
-    replaced = service.upsert(
-        _provider_payload(model="deepseek-reasoner"), overwrite=True
-    )
+    replaced = service.upsert(_provider_payload(model="deepseek-reasoner"), overwrite=True)
     assert replaced["status"] == "updated"
     assert replaced["provider"]["model"] == "deepseek-reasoner"
 
@@ -236,9 +230,7 @@ def test_patch_updates_fields_and_empty_api_key_keeps_keys(tmp_path: Path) -> No
     service, runtime, path = _service(tmp_path)
     service.upsert(_provider_payload())
 
-    result = service.patch(
-        "deepseek", {"model": "deepseek-reasoner", "api_key": ""}
-    )
+    result = service.patch("deepseek", {"model": "deepseek-reasoner", "api_key": ""})
     assert result["status"] == "updated"
     assert result["provider"]["model"] == "deepseek-reasoner"
 
@@ -249,9 +241,7 @@ def test_patch_updates_fields_and_empty_api_key_keeps_keys(tmp_path: Path) -> No
 
     rotated = service.patch("DeepSeek", {"api_key": "sk-rotated-9999"})
     assert rotated["provider"]["api_key_count"] == 1
-    assert runtime.get_provider("DeepSeek", kind="chat").api_keys == (
-        "sk-rotated-9999",
-    )
+    assert runtime.get_provider("DeepSeek", kind="chat").api_keys == ("sk-rotated-9999",)
 
 
 def test_patch_set_default_and_errors(tmp_path: Path) -> None:
@@ -356,8 +346,9 @@ async def test_test_endpoint_probe_success_and_failure_dicts(tmp_path: Path) -> 
     service, _runtime, _ = _service(
         tmp_path / "b", probe=lambda p: {"ok": False, "error_kind": "model"}
     )
-    result = await service.test({"name": "whatever", "api_format": "openai",
-                                 "base_url": "https://x", "model": "m"})
+    result = await service.test(
+        {"name": "whatever", "api_format": "openai", "base_url": "https://x", "model": "m"}
+    )
     assert result["ok"] is False
     assert result["error_kind"] == "model"
 
@@ -370,9 +361,7 @@ async def test_test_endpoint_saved_name_probe(tmp_path: Path) -> None:
         seen.append(profile.name)
         return {"ok": True}
 
-    service, _runtime, _ = _service(
-        tmp_path, payload=_two_provider_seed(), probe=_probe
-    )
+    service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed(), probe=_probe)
     result = await service.test({"name": "beta"})
     assert result["ok"] is True
     assert seen == ["Beta"]
@@ -444,6 +433,7 @@ async def test_test_endpoint_http_status_classification(tmp_path: Path) -> None:
             super().__init__(f"http {status_code}")
 
     for status, expected in ((401, "auth"), (403, "auth"), (404, "model")):
+
         def _probe(profile, _status=status):
             raise _StatusError(_status)
 
@@ -512,12 +502,8 @@ async def test_test_endpoint_drops_stored_keys_on_rerouted_probe(
         captured["base_url"] = profile.base_url
         return {"ok": True}
 
-    service, _runtime, _ = _service(
-        tmp_path, payload=_two_provider_seed(), probe=_probe
-    )
-    result = await service.test(
-        {"name": "Alpha", "base_url": "https://attacker.example"}
-    )
+    service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed(), probe=_probe)
+    result = await service.test({"name": "Alpha", "base_url": "https://attacker.example"})
     assert result["ok"] is True
     assert captured["base_url"] == "https://attacker.example"
     assert captured["api_keys"] == []
@@ -533,9 +519,7 @@ async def test_test_endpoint_keeps_stored_keys_when_probe_unchanged(
         captured["api_keys"] = list(profile.api_keys)
         return {"ok": True}
 
-    service, _runtime, _ = _service(
-        tmp_path, payload=_two_provider_seed(), probe=_probe
-    )
+    service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed(), probe=_probe)
     # model-only override: same endpoint/auth shape — stored keys retained.
     await service.test({"name": "Alpha", "model": "other-model"})
     assert captured["api_keys"] != []
@@ -551,9 +535,7 @@ async def test_test_endpoint_explicit_api_key_still_works_on_reroute(
         captured["api_keys"] = list(profile.api_keys)
         return {"ok": True}
 
-    service, _runtime, _ = _service(
-        tmp_path, payload=_two_provider_seed(), probe=_probe
-    )
+    service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed(), probe=_probe)
     await service.test(
         {
             "name": "Alpha",
@@ -567,9 +549,7 @@ async def test_test_endpoint_explicit_api_key_still_works_on_reroute(
 def test_set_default_rejected_for_embedding_provider(tmp_path: Path) -> None:
     service, _runtime, _ = _service(tmp_path, payload=_two_provider_seed())
     service.upsert(
-        _provider_payload(
-            name="Emb", kind="embedding", embedding_url="https://emb.example"
-        )
+        _provider_payload(name="Emb", kind="embedding", embedding_url="https://emb.example")
     )
     with pytest.raises(ProviderValidationError):
         service.patch("Emb", {"set_default": True})
@@ -591,9 +571,7 @@ def test_upsert_rejects_set_default_for_embedding(tmp_path: Path) -> None:
 def test_first_embedding_provider_does_not_auto_default(tmp_path: Path) -> None:
     service, _runtime, path = _service(tmp_path)
     service.upsert(
-        _provider_payload(
-            name="Emb", kind="embedding", embedding_url="https://emb.example"
-        )
+        _provider_payload(name="Emb", kind="embedding", embedding_url="https://emb.example")
     )
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert raw["providers"].get("default") != "Emb"

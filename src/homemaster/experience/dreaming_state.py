@@ -114,9 +114,7 @@ class DreamingStateStore:
             state["pending_add_records"] = _merge_records(
                 inflight["records"], state["pending_add_records"]
             )
-            state["new_active_memory_count"] = _memory_count(
-                state["pending_add_records"]
-            )
+            state["new_active_memory_count"] = _memory_count(state["pending_add_records"])
             state["inflight"] = None
             state["pending"] = True
             state["last_error"] = error
@@ -127,9 +125,7 @@ class DreamingStateStore:
             return json.loads(json.dumps(state))
 
     @contextmanager
-    def _locked(
-        self, project_id: str, user_id: str
-    ) -> Iterator[tuple[dict[str, Any], Path]]:
+    def _locked(self, project_id: str, user_id: str) -> Iterator[tuple[dict[str, Any], Path]]:
         self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
         key = hashlib.sha256(f"{project_id}\0{user_id}".encode()).hexdigest()
         path = self._root / f"{key}.json"
@@ -312,9 +308,7 @@ class DreamingCoordinator:
         )
         return result.outcome
 
-    async def _emit(
-        self, event_type: str, context: Any, payload: dict[str, Any]
-    ) -> None:
+    async def _emit(self, event_type: str, context: Any, payload: dict[str, Any]) -> None:
         if self._event_sink is None:
             return
         from homemaster.events.runtime_events import RuntimeEvent
@@ -337,28 +331,19 @@ class DreamingCoordinator:
         except Exception:
             return
 
-    async def _verify_result(
-        self, result: Any, batch: DreamingBatch, context: Any
-    ) -> None:
+    async def _verify_result(self, result: Any, batch: DreamingBatch, context: Any) -> None:
         if result.status != "ok" or result.outcome not in {"actions", "no_action"}:
             raise RuntimeError(result.message or "dreaming execution failed")
         if result.errors or any(action.status != "ok" for action in result.actions):
             raise RuntimeError("dreaming returned failed actions")
         for action in result.actions:
             await self._verify_action(action, context)
-        records = await self._mindmemos.get_add_records(
-            list(batch.add_record_ids), context
-        )
+        records = await self._mindmemos.get_add_records(list(batch.add_record_ids), context)
         by_id = {record.point_id: record for record in records}
         for add_record_id in batch.add_record_ids:
             record = by_id.get(add_record_id)
-            if (
-                record is None
-                or (record.payload or {}).get("consolidation_status") != "done"
-            ):
-                raise RuntimeError(
-                    f"add record was not consolidated: {add_record_id}"
-                )
+            if record is None or (record.payload or {}).get("consolidation_status") != "done":
+                raise RuntimeError(f"add record was not consolidated: {add_record_id}")
 
     async def _verify_action(self, action: Any, context: Any) -> None:
         targets = [
@@ -381,9 +366,7 @@ class DreamingCoordinator:
                 and all(_status(item) == "active" for item in results)
             )
         elif action.action == "archive":
-            valid = bool(targets) and all(
-                _status(item) == "archived" for item in targets
-            )
+            valid = bool(targets) and all(_status(item) == "archived" for item in targets)
             if action.result_memory_ids:
                 valid = valid and all(_status(item) == "active" for item in results)
         elif action.action == "link":
@@ -439,18 +422,11 @@ def _merge_records(
 
 def _memory_count(records: list[dict[str, Any]]) -> int:
     return len(
-        {
-            memory_id
-            for record in records
-            for memory_id in record.get("memory_ids", [])
-            if memory_id
-        }
+        {memory_id for record in records for memory_id in record.get("memory_ids", []) if memory_id}
     )
 
 
-def _batch_from_inflight(
-    project_id: str, user_id: str, inflight: dict[str, Any]
-) -> DreamingBatch:
+def _batch_from_inflight(project_id: str, user_id: str, inflight: dict[str, Any]) -> DreamingBatch:
     records = inflight["records"]
     return DreamingBatch(
         batch_id=inflight["batch_id"],
@@ -459,9 +435,7 @@ def _batch_from_inflight(
         add_record_ids=tuple(record["add_record_id"] for record in records),
         memory_ids=tuple(
             dict.fromkeys(
-                memory_id
-                for record in records
-                for memory_id in record.get("memory_ids", [])
+                memory_id for record in records for memory_id in record.get("memory_ids", [])
             )
         ),
     )

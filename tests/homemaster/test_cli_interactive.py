@@ -391,9 +391,7 @@ def test_shell_ignores_sigint_during_session_finalization(monkeypatch, tmp_path)
     assert result.stdout.count("Shutdown in progress; Ctrl+C ignored") == 1
 
 
-def test_shell_handles_run_cancellation_after_async_finalization(
-    monkeypatch, tmp_path
-) -> None:
+def test_shell_handles_run_cancellation_after_async_finalization(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
     _install_finalizer(monkeypatch, bundle)
 

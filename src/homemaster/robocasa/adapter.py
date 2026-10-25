@@ -66,9 +66,7 @@ class RoboCasaEnvAdapter:
                 hi_res=hi_res,
                 workdir=workdir,
             )
-        return self.worker.reconfigure(
-            task_name=task_name, split=split, seed=seed, workdir=workdir
-        )
+        return self.worker.reconfigure(task_name=task_name, split=split, seed=seed, workdir=workdir)
 
     def start_cell(
         self,
@@ -94,9 +92,7 @@ class RoboCasaEnvAdapter:
     def reconfigure(
         self, *, task_name: str, split: str, seed: int, workdir: Path | None = None
     ) -> dict[str, Any]:
-        return self.worker.reconfigure(
-            task_name=task_name, split=split, seed=seed, workdir=workdir
-        )
+        return self.worker.reconfigure(task_name=task_name, split=split, seed=seed, workdir=workdir)
 
     def observe(self, *, cameras: list[str] | None = None) -> dict[str, Any]:
         try:

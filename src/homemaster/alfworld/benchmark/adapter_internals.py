@@ -33,6 +33,7 @@ from homemaster.alfworld.types import AlfworldResetResult
 
 class AlfworldAdapterInternalsMixin:
     """Constructor plus cross-cutting helpers shared by every mixin group."""
+
     def __init__(
         self,
         *,

@@ -86,15 +86,11 @@ class _RoboCasaExecutor:
             # Blocking worker I/O runs in a thread so the event loop (and the
             # run deadline/cancellation) stays live during long primitives.
             if self._operation == "observe":
-                result = await asyncio.to_thread(
-                    adapter.observe, cameras=payload.get("cameras")
-                )
+                result = await asyncio.to_thread(adapter.observe, cameras=payload.get("cameras"))
             elif self._operation == "check_success":
                 result = await asyncio.to_thread(adapter.check_success)
             else:
-                result = await asyncio.to_thread(
-                    adapter.invoke, self._operation, payload
-                )
+                result = await asyncio.to_thread(adapter.invoke, self._operation, payload)
         except RoboCasaWorkerError as exc:
             return self._worker_error_result(exc, run_context)
         refs = _write_trace(run_context, self._tool_name, self._operation, arguments, result)
@@ -162,11 +158,14 @@ class _RoboCasaExecutor:
                 "backend_attempted": True,
             }
             if errored:
-                message = str(
-                    (primitive_result or {}).get("error")
-                    if isinstance(primitive_result, dict)
-                    else primitive_result
-                ) or "RoboCasa primitive reported an error"
+                message = (
+                    str(
+                        (primitive_result or {}).get("error")
+                        if isinstance(primitive_result, dict)
+                        else primitive_result
+                    )
+                    or "RoboCasa primitive reported an error"
+                )
                 return ToolExecutionResult(
                     status=ToolExecutionStatus.FAILURE,
                     text=message,
@@ -271,8 +270,10 @@ def _opt(args: dict[str, Any], keys: set[str]) -> dict[str, Any]:
 
 
 def _is_vec3(value: Any) -> bool:
-    return isinstance(value, list) and len(value) == 3 and all(
-        isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
+    return (
+        isinstance(value, list)
+        and len(value) == 3
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
     )
 
 
@@ -572,8 +573,7 @@ def make_robocasa_back_project() -> RegisteredTool:
 def make_robocasa_world_map() -> RegisteredTool:
     return _registered(
         "robocasa_world_map",
-        "Query clustered world-map points in a height window to find "
-        "object/receptacle positions.",
+        "Query clustered world-map points in a height window to find object/receptacle positions.",
         {
             "type": "object",
             "properties": {
@@ -593,8 +593,7 @@ def make_robocasa_world_map() -> RegisteredTool:
 def make_robocasa_verify() -> RegisteredTool:
     return _registered(
         "robocasa_verify",
-        "Ask the environment whether the task is complete (authoritative "
-        "success check).",
+        "Ask the environment whether the task is complete (authoritative success check).",
         {"type": "object", "properties": {}, "additionalProperties": False},
         "check_success",
         mutating=False,

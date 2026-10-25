@@ -31,9 +31,7 @@ class FakeModel:
         self.script = list(script)
         self.calls: list[dict[str, Any]] = []
 
-    async def __call__(
-        self, messages: list, tools: list | None = None, **kwargs: Any
-    ) -> Any:
+    async def __call__(self, messages: list, tools: list | None = None, **kwargs: Any) -> Any:
         self.calls.append({"messages": messages, "tools": tools, **kwargs})
         item = self.script.pop(0) if self.script else None
         if isinstance(item, Exception):
@@ -78,18 +76,12 @@ async def test_stream_yields_text_tool_call_and_finish() -> None:
     model = FakeModel(
         [
             _chunks(
-                ChatResponse(
-                    content=[TextBlock(text="hel", id="t1")], is_last=False
-                ),
-                ChatResponse(
-                    content=[TextBlock(text="lo", id="t1")], is_last=False
-                ),
+                ChatResponse(content=[TextBlock(text="hel", id="t1")], is_last=False),
+                ChatResponse(content=[TextBlock(text="lo", id="t1")], is_last=False),
                 ChatResponse(
                     content=[
                         TextBlock(text="hello", id="t1"),
-                        ToolCallBlock(
-                            id="tc1", name="echo", input='{"x": 1}'
-                        ),
+                        ToolCallBlock(id="tc1", name="echo", input='{"x": 1}'),
                     ],
                     is_last=True,
                     metadata={"stop_reason": "end_turn"},
@@ -176,9 +168,7 @@ async def test_provider_key_index_selects_key() -> None:
         return FakeModel([_chunks()])
 
     client = AsLLMClient(_profile(), model_factory=_factory)
-    async for _ in client.stream(
-        [UserMessage.from_text("x")], provider_key_index=1
-    ):
+    async for _ in client.stream([UserMessage.from_text("x")], provider_key_index=1):
         pass
     assert seen_keys == ["sk-b"]
 
@@ -205,9 +195,7 @@ async def test_model_error_maps_and_records_failed_attempt() -> None:
 @pytest.mark.asyncio
 async def test_no_keys_fails_closed() -> None:
     model = FakeModel([])
-    client = AsLLMClient(
-        _profile(api_keys=()), model_factory=lambda *a, **kw: model
-    )
+    client = AsLLMClient(_profile(api_keys=()), model_factory=lambda *a, **kw: model)
     with pytest.raises(LLMClientError, match="no_keys|no API keys"):
         async for _ in client.stream([UserMessage.from_text("hi")]):
             pass
@@ -268,9 +256,7 @@ async def test_stream_reuses_cached_model() -> None:
     built: list[FakeModel] = []
 
     def _factory(profile, *, api_key=None, timeout_s=None):
-        model = _model_with_client(
-            [_chunks(ChatResponse(content=[], is_last=True))]
-        )
+        model = _model_with_client([_chunks(ChatResponse(content=[], is_last=True))])
         built.append(model)
         return model
 
@@ -286,9 +272,7 @@ async def test_aclose_closes_every_cached_model_client_once() -> None:
     built: list[FakeModel] = []
 
     def _factory(profile, *, api_key=None, timeout_s=None):
-        model = _model_with_client(
-            [_chunks(ChatResponse(content=[], is_last=True))]
-        )
+        model = _model_with_client([_chunks(ChatResponse(content=[], is_last=True))])
         built.append(model)
         return model
 
@@ -296,9 +280,7 @@ async def test_aclose_closes_every_cached_model_client_once() -> None:
     agent_model = client.chat_model()
     async for _delta in client.stream([UserMessage.from_text("hi")]):
         pass
-    async for _delta in client.stream(
-        [UserMessage.from_text("hi")], provider_key_index=1
-    ):
+    async for _delta in client.stream([UserMessage.from_text("hi")], provider_key_index=1):
         pass
 
     await client.aclose()
@@ -314,8 +296,6 @@ async def test_aclose_closes_every_cached_model_client_once() -> None:
 
 @pytest.mark.asyncio
 async def test_aclose_tolerates_models_without_sdk_client() -> None:
-    client = AsLLMClient(
-        _profile(), model_factory=lambda *a, **kw: FakeModel([])
-    )
+    client = AsLLMClient(_profile(), model_factory=lambda *a, **kw: FakeModel([]))
     client.chat_model()
     await client.aclose()

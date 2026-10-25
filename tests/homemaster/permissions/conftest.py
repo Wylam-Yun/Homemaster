@@ -109,9 +109,7 @@ def make_request(
         "拿取",
         f"step-1-{suffix}",
     )
-    default_step = make_step(
-        f"step-1-{suffix}", default_item.item_id, "拿取床头柜上的白色杯子"
-    )
+    default_step = make_step(f"step-1-{suffix}", default_item.item_id, "拿取床头柜上的白色杯子")
     return PreparedPhysicalRequest(
         request_id=f"request-{suffix}",
         approval_id=f"approval-{suffix}",

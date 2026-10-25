@@ -217,9 +217,7 @@ class ImageGenerationTool(BaseTool):
                 if response.status_code >= 400:
                     payload = await response.aread()
                     detail = payload.decode("utf-8", "replace")
-                    raise RuntimeError(
-                        detail or f"Codex request failed: {response.status_code}"
-                    )
+                    raise RuntimeError(detail or f"Codex request failed: {response.status_code}")
                 async for event in _iter_sse_events(response):
                     if event.get("type") != "response.output_item.done":
                         if event.get("type") == "response.failed":
@@ -272,8 +270,7 @@ class ImageGenerationTool(BaseTool):
             default_headers={"Authorization": f"Bearer {api_key}"},
         )
         image_handles = [
-            Path(path).expanduser().resolve().open("rb")
-            for path in arguments.image_paths
+            Path(path).expanduser().resolve().open("rb") for path in arguments.image_paths
         ]
         mask_handle = (
             Path(arguments.mask_path).expanduser().resolve().open("rb")
@@ -312,8 +309,7 @@ class ImageGenerationTool(BaseTool):
         if arguments.n == 1:
             return [base]
         return [
-            base.with_name(f"{base.stem}-{idx}{base.suffix}")
-            for idx in range(1, arguments.n + 1)
+            base.with_name(f"{base.stem}-{idx}{base.suffix}") for idx in range(1, arguments.n + 1)
         ]
 
     @staticmethod

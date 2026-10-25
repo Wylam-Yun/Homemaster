@@ -558,9 +558,7 @@ async def test_approval_card_update_removes_buttons_and_targets_original_message
 
 def test_real_sdk_card_callback_emits_exact_packet_and_returns_typed_ack() -> None:
     lark = pytest.importorskip("lark_oapi")
-    callback_model = pytest.importorskip(
-        "lark_oapi.event.callback.model.p2_card_action_trigger"
-    )
+    callback_model = pytest.importorskip("lark_oapi.event.callback.model.p2_card_action_trigger")
     packets: queue.Queue[dict[str, object]] = queue.Queue()
     handler = feishu_impl._build_feishu_event_handler(
         lark,
@@ -603,9 +601,7 @@ def test_real_sdk_card_callback_emits_exact_packet_and_returns_typed_ack() -> No
 
 def test_invalid_or_queue_full_card_callback_fails_closed_without_blocking() -> None:
     lark = pytest.importorskip("lark_oapi")
-    callback_model = pytest.importorskip(
-        "lark_oapi.event.callback.model.p2_card_action_trigger"
-    )
+    callback_model = pytest.importorskip("lark_oapi.event.callback.model.p2_card_action_trigger")
     packets: queue.Queue[dict[str, object]] = queue.Queue(maxsize=1)
     packets.put_nowait({"occupied": True})
     handler = feishu_impl._build_feishu_event_handler(
@@ -643,9 +639,7 @@ def test_invalid_or_queue_full_card_callback_fails_closed_without_blocking() -> 
 
 def test_closed_card_callback_queue_returns_typed_error_ack() -> None:
     lark = pytest.importorskip("lark_oapi")
-    callback_model = pytest.importorskip(
-        "lark_oapi.event.callback.model.p2_card_action_trigger"
-    )
+    callback_model = pytest.importorskip("lark_oapi.event.callback.model.p2_card_action_trigger")
     packets: queue.Queue[dict[str, object]] = queue.Queue()
     packets.put_nowait = Mock(side_effect=ValueError("queue is closed"))
     handler = feishu_impl._build_feishu_event_handler(

@@ -106,9 +106,7 @@ class EventRenderer:
         payload = event.get("payload")
         payload = payload if isinstance(payload, dict) else {}
         if etype in _THINKING_EVENT_TYPES:
-            self._accumulate_thinking(
-                payload, snapshot=etype.endswith(".snapshot")
-            )
+            self._accumulate_thinking(payload, snapshot=etype.endswith(".snapshot"))
             return
         # Anything that is not a thinking chunk ends the folded thought line.
         self._flush_thinking()
@@ -150,9 +148,7 @@ class EventRenderer:
         elif etype == RESYNC_EVENT_TYPE:
             self.console.print("[yellow]connection restored; state resynced[/yellow]")
         elif etype == "usage.updated":
-            self.last_usage = {
-                str(k): v for k, v in payload.items() if isinstance(v, int)
-            }
+            self.last_usage = {str(k): v for k, v in payload.items() if isinstance(v, int)}
         elif etype in _SILENT_EVENT_TYPES:
             return
         else:
@@ -258,8 +254,7 @@ class EventRenderer:
             return
         suffix = "…" if len(excerpt) >= 120 else ""
         self.console.print(
-            f"[dim]thought {self._thinking_chars} chars: "
-            f"{escape(excerpt)}{suffix}[/dim]"
+            f"[dim]thought {self._thinking_chars} chars: {escape(excerpt)}{suffix}[/dim]"
         )
         self._flushed_thinking_chars = self._thinking_chars
         self._flushed_thinking_excerpt = excerpt
@@ -291,9 +286,7 @@ class EventRenderer:
             self.console.print(f"  [green]{marker} {escape(name)}[/green]")
 
     def _render_approval_resolved(self, payload: dict[str, Any]) -> None:
-        status = str(
-            payload.get("request_status") or payload.get("outcome") or "resolved"
-        )
+        status = str(payload.get("request_status") or payload.get("outcome") or "resolved")
         self.console.print(f"[dim]approval {escape(status)}[/dim]")
 
     def _render_question(self, payload: dict[str, Any]) -> None:

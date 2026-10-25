@@ -156,7 +156,7 @@ class UpdateMemoryInput(_MemoryToolInput):
         description=(
             "Complete replacement FactRecord or ProcedureRecord for a search result that "
             "contains a record field. Omit for a Vanilla result that contains only content."
-        )
+        ),
     )
     content: _NonEmptyText | None = Field(
         default=None,
@@ -165,6 +165,7 @@ class UpdateMemoryInput(_MemoryToolInput):
             "but no record. Omit for a structured FactRecord or ProcedureRecord."
         ),
     )
+
     @model_validator(mode="after")
     def _exactly_one_replacement(self) -> UpdateMemoryInput:
         if (self.record is None) == (self.content is None):
@@ -308,7 +309,9 @@ class AddMemoryExecutor:
         content = raw_content if isinstance(raw_content, str) else ""
         memory_type = arguments.get("memory_type")
         if not content.strip() or memory_type not in {"fact", "procedure"}:
-            return _failure("memory_invalid_input", "content and a supported memory_type are required")
+            return _failure(
+                "memory_invalid_input", "content and a supported memory_type are required"
+            )
         evidence = _validated_untyped_evidence(context)
         if isinstance(evidence, ToolExecutionResult):
             return evidence
@@ -325,7 +328,9 @@ class AddMemoryExecutor:
             return _failure("memory_backend_unavailable", str(exc), attempted=True)
         memory_id = stored.get("memory_id") if isinstance(stored, Mapping) else None
         if not isinstance(memory_id, str) or not memory_id:
-            return _failure("memory_backend_unavailable", "stored memory returned no memory_id", attempted=True)
+            return _failure(
+                "memory_backend_unavailable", "stored memory returned no memory_id", attempted=True
+            )
         try:
             enrichment_queue = _service(
                 context,
@@ -429,9 +434,7 @@ class SearchMemoriesExecutor:
         if isinstance(deps, dict):
             by_call = deps.setdefault("recalled_memories_by_tool_call_id", {})
             by_call[context.tool_call_id] = tuple(
-                hit.model_copy(deep=True)
-                if callable(getattr(hit, "model_copy", None))
-                else hit
+                hit.model_copy(deep=True) if callable(getattr(hit, "model_copy", None)) else hit
                 for hit in visible_hits
             )
         return _success(
@@ -480,8 +483,7 @@ class FeedbackMemoryExecutor:
                 if (
                     raw is None
                     or getattr(raw, "project_id", None) != memory_context.project_id
-                    or getattr(raw, "user_id", memory_context.user_id)
-                    != memory_context.user_id
+                    or getattr(raw, "user_id", memory_context.user_id) != memory_context.user_id
                     or getattr(raw, "status", None) != "active"
                     or getattr(raw, "content", None) != item.memory
                 ):
@@ -1006,8 +1008,12 @@ class MemoryHistoryExecutor:
                 "memory_id": raw.memory_id,
                 "status": getattr(raw, "status", None),
                 "content": getattr(raw, "content", None),
-                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-                "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+                "created_at": created_at.isoformat()
+                if hasattr(created_at, "isoformat")
+                else created_at,
+                "updated_at": updated_at.isoformat()
+                if hasattr(updated_at, "isoformat")
+                else updated_at,
             }
             if record is not None:
                 item["record"] = record.model_dump(mode="json")

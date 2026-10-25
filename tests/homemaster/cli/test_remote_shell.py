@@ -424,9 +424,7 @@ async def test_question_flow_answers_via_endpoint() -> None:
 def test_shell_remote_run_surfaces_send_reply_and_exits_clean(monkeypatch) -> None:
     """End-to-end through run_remote_shell: send → events → /exit → 0."""
 
-    client, code, out = _run_shell(
-        monkeypatch, lines=["task one", "task two", "/exit"]
-    )
+    client, code, out = _run_shell(monkeypatch, lines=["task one", "task two", "/exit"])
     assert code == 0
     assert [m["text"] for m in client.sent] == ["task one", "task two"]
     assert client.subscribed == ["sess-1"]
@@ -477,9 +475,7 @@ def _usage_marker(session_id: str, tokens: int) -> dict[str, Any]:
 def test_context_usage_prefers_per_request_over_cumulative() -> None:
     """The toolbar shows window occupancy: the last request's real prompt
     size, not the session-cumulative billing total."""
-    ctx = SimpleNamespace(
-        last_usage={"context_tokens": 29_481, "total_tokens": 368_907}
-    )
+    ctx = SimpleNamespace(last_usage={"context_tokens": 29_481, "total_tokens": 368_907})
     assert _context_usage(ctx) == "29481"
     # Older servers emit only the cumulative fields — fall back to them.
     ctx.last_usage = {"total_tokens": 368_907}
@@ -704,9 +700,7 @@ def test_shell_recovers_turn_when_run_finishes_during_disconnect(monkeypatch) ->
             return {"accepted": True}
 
     client = DisconnectingClient("http://fake.test")
-    _client, code, out = _run_shell(
-        monkeypatch, lines=["do work", "/exit"], client=client
-    )
+    _client, code, out = _run_shell(monkeypatch, lines=["do work", "/exit"], client=client)
     assert code == 0
     assert "connection restored" in out
 

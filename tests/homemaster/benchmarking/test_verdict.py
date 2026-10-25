@@ -35,9 +35,10 @@ def test_verdict_result_typed_shape() -> None:
     assert v.result == "pass"
     assert v.verdict_provenance == "llm"
     # provenance is the audit seam — env/typed verdicts are distinguishable.
-    assert VerdictResult(result="pass", verdict_provenance="env").model_dump()[
-        "verdict_provenance"
-    ] == "env"
+    assert (
+        VerdictResult(result="pass", verdict_provenance="env").model_dump()["verdict_provenance"]
+        == "env"
+    )
 
 
 @pytest.mark.asyncio
@@ -73,9 +74,7 @@ async def test_llm_verdict_provider_error_bounded_retry() -> None:
 
 @pytest.mark.asyncio
 async def test_llm_verdict_deadline_impossible() -> None:
-    client = _StubClient(
-        payload={"result": "pass"}, delay=5.0
-    )
+    client = _StubClient(payload={"result": "pass"}, delay=5.0)
     verifier = LLMVerdictVerifier(client, timeout_s=0.05)
     v = await verifier.verdict(goal="g", transcript=[], evidence={})
     assert v.result == "impossible"
@@ -92,9 +91,7 @@ async def test_llm_verdict_cancellation_propagates() -> None:
 
     verifier = LLMVerdictVerifier(_StubClient())
     verifier._client.complete_json = _hang  # type: ignore[attr-defined]
-    task = asyncio.ensure_future(
-        verifier.verdict(goal="g", transcript=[], evidence={})
-    )
+    task = asyncio.ensure_future(verifier.verdict(goal="g", transcript=[], evidence={}))
     await asyncio.sleep(0)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):

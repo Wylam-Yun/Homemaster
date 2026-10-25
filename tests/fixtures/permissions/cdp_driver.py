@@ -30,15 +30,21 @@ def launch_chrome(
 ) -> subprocess.Popen:
     user_data_dir.mkdir(parents=True, exist_ok=True)
     args = [
-        executable, "--headless=new", "--no-sandbox", "--disable-gpu",
-        "--hide-scrollbars", "--window-size=1280,900",
+        executable,
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--window-size=1280,900",
         f"--remote-debugging-port={remote_port}",
         f"--user-data-dir={str(user_data_dir)}",
         "about:blank",
     ]
     args.extend(extra_args or [])
     return subprocess.Popen(
-        args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -98,9 +104,7 @@ class CDP:
         for line in lines[1:]:
             if line.lower().startswith("sec-websocket-accept:"):
                 accept = line.split(":", 1)[1].strip()
-        expect = base64.b64encode(
-            hashlib.sha1((key + _WS_GUID).encode()).digest()
-        ).decode()
+        expect = base64.b64encode(hashlib.sha1((key + _WS_GUID).encode()).digest()).decode()
         if accept != expect:
             raise CDPError("handshake accept mismatch")
         return sock
@@ -162,12 +166,12 @@ class CDP:
         if masked:
             if len(data) < offset + 4:
                 return None
-            mask = data[offset:offset + 4]
+            mask = data[offset : offset + 4]
             offset += 4
         if len(data) < offset + length:
             return None
-        payload = data[offset:offset + length]
-        self._buffer = data[offset + length:]
+        payload = data[offset : offset + length]
+        self._buffer = data[offset + length :]
         if masked:
             payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         if opcode == 0x9:  # ping
@@ -207,12 +211,10 @@ class CDP:
         masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         self._sock.sendall(bytes(header) + masked)
 
-    def call(self, method: str, params: dict[str, Any] | None = None,
-             timeout: float = 30.0) -> Any:
+    def call(self, method: str, params: dict[str, Any] | None = None, timeout: float = 30.0) -> Any:
         self._next_id += 1
         call_id = self._next_id
-        self._send_text(json.dumps({"id": call_id, "method": method,
-                                    "params": params or {}}))
+        self._send_text(json.dumps({"id": call_id, "method": method, "params": params or {}}))
         deadline = time.time() + timeout
         while True:
             remaining = deadline - time.time()
@@ -232,11 +234,14 @@ class CDP:
             return message.get("result")
 
     def evaluate(self, expression: str, await_promise: bool = False) -> Any:
-        result = self.call("Runtime.evaluate", {
-            "expression": expression,
-            "returnByValue": True,
-            "awaitPromise": await_promise,
-        })
+        result = self.call(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "returnByValue": True,
+                "awaitPromise": await_promise,
+            },
+        )
         payload = result.get("result", {})
         if payload.get("subtype") == "error":
             raise CDPError(f"page js error: {payload.get('description')}")

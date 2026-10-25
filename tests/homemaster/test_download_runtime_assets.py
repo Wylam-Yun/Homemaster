@@ -28,10 +28,18 @@ def _lock(repo: Path, *, platform_key: str = "darwin-arm64") -> Path:
         "schema_version": 2,
         "python": {"version_range": ">=3.11,<3.12", "provider": "uv-managed"},
         "uv": {"version_range": ">=0.11,<0.13"},
-        "neo4j": {"version": "2026.05.0", "url": "https://example.test/neo4j.tar.gz", "sha256": "0" * 64},
+        "neo4j": {
+            "version": "2026.05.0",
+            "url": "https://example.test/neo4j.tar.gz",
+            "sha256": "0" * 64,
+        },
         "platforms": {
             platform_key: {
-                "java": {"version": "21.0.12.1+1", "url": "https://example.test/jdk.tar.gz", "sha256": "0" * 64}
+                "java": {
+                    "version": "21.0.12.1+1",
+                    "url": "https://example.test/jdk.tar.gz",
+                    "sha256": "0" * 64,
+                }
             }
         },
     }
@@ -64,7 +72,9 @@ def _jdk_archive(bundle_assets: Path, *, macos_layout: bool) -> Path:
 
 def _patch_lock_sha(archive: Path, lock_path: Path) -> None:
     lock = json.loads(lock_path.read_text())
-    lock["platforms"]["darwin-arm64"]["java"]["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+    lock["platforms"]["darwin-arm64"]["java"]["sha256"] = hashlib.sha256(
+        archive.read_bytes()
+    ).hexdigest()
     lock_path.write_text(json.dumps(lock))
 
 

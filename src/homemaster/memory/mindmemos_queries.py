@@ -343,9 +343,7 @@ class MindMemOSQueryMixin:
         )
         return bool(rows and int(rows[0].get("relation_count", 0)) > 0)
 
-    async def get_add_records(
-        self, add_record_ids: list[str], context: Any
-    ) -> list[Any]:
+    async def get_add_records(self, add_record_ids: list[str], context: Any) -> list[Any]:
         if self._reader is None:
             raise RuntimeError("embedded MindMemOS is not started")
         return await self._reader.get_add_records_by_ids(context, add_record_ids)

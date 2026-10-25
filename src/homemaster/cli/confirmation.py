@@ -194,9 +194,7 @@ async def _emit_confirmation_event(
         if inspect.isawaitable(value):
             await value
     except Exception as exc:
-        get_logger().warning(
-            f"permission confirmation audit failed: {type(exc).__name__}"
-        )
+        get_logger().warning(f"permission confirmation audit failed: {type(exc).__name__}")
 
 
 def _subject_id(context: Any) -> str:

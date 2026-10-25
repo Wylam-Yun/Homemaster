@@ -53,9 +53,7 @@ class FakeAlfworldBackend:
 
     def __init__(self, *, env: str = "alfworld-test:scene-1") -> None:
         self._env = env
-        self._objects: dict[str, FakeObject] = {
-            obj.object_id: obj for obj in _scene_objects()
-        }
+        self._objects: dict[str, FakeObject] = {obj.object_id: obj for obj in _scene_objects()}
         self._rev = 0
         self.calls: list[tuple[str, Any]] = []
         self.inventory: list[str] = []
@@ -73,17 +71,14 @@ class FakeAlfworldBackend:
         self._objects = {obj.object_id: obj for obj in objects}
         self._rev += 1
 
-    def resolve_target(
-        self, label: str, *, allowed: frozenset[str]
-    ) -> BackendTarget | None:
+    def resolve_target(self, label: str, *, allowed: frozenset[str]) -> BackendTarget | None:
         if not isinstance(label, str) or not label.strip():
             return None
         norm = label.strip().casefold()
         matches = [
             obj
             for obj in self._objects.values()
-            if obj.kind in allowed
-            and norm in [item.casefold() for item in obj.labels]
+            if obj.kind in allowed and norm in [item.casefold() for item in obj.labels]
         ]
         ids = {obj.object_id for obj in matches}
         if len(ids) != 1:
@@ -107,15 +102,11 @@ class FakeAlfworldBackend:
         self.calls.append(("go_to", canonical_label))
         return self._next_receipt()
 
-    async def manipulate(
-        self, *, action: str, args: dict[str, Any] | Any
-    ) -> BackendReceipt:
+    async def manipulate(self, *, action: str, args: dict[str, Any] | Any) -> BackendReceipt:
         payload = dict(args) if isinstance(args, dict) else {}
         self.calls.append(("manipulate", action, payload))
         receipt = self._next_receipt()
-        if receipt.ok is True and action == "take" and isinstance(
-            payload.get("object"), str
-        ):
+        if receipt.ok is True and action == "take" and isinstance(payload.get("object"), str):
             self.inventory.append(payload["object"])
         return receipt
 
@@ -156,9 +147,7 @@ def _signature(request: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
 async def test_take_declares_exact_identity_and_nav_closure(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    request = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    request = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     assert backend.calls == []
     assert len(request.requirements) == 1
     item = request.requirements[0]
@@ -195,25 +184,17 @@ async def test_ambiguous_and_unknown_labels_refuse(tmp_path: Path) -> None:
     with pytest.raises(TargetUnresolved):
         await adapter.prepare({"action": "take", "object": "cup"}, _context(tmp_path))
     with pytest.raises(TargetUnresolved):
-        await adapter.prepare(
-            {"action": "take", "object": "dragon"}, _context(tmp_path)
-        )
+        await adapter.prepare({"action": "take", "object": "dragon"}, _context(tmp_path))
     assert backend.calls == []
 
 
 @pytest.mark.asyncio
 async def test_heat_without_receptacle_refuses(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
-    backend._objects = {
-        oid: obj
-        for oid, obj in backend._objects.items()
-        if oid != "Microwave|001"
-    }
+    backend._objects = {oid: obj for oid, obj in backend._objects.items() if oid != "Microwave|001"}
     adapter = _adapter(backend)
     with pytest.raises(TargetUnresolved):
-        await adapter.prepare(
-            {"action": "heat", "object": "cup a"}, _context(tmp_path)
-        )
+        await adapter.prepare({"action": "heat", "object": "cup a"}, _context(tmp_path))
 
 
 @pytest.mark.asyncio
@@ -221,12 +202,15 @@ async def test_action_mapping_matrix(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
     cases = [
-        ({"action": "put", "object": "cup a", "target_receptacle": "countertop"},
-         ("CupA|001", "place", "放置")),
-        ({"action": "open", "target_receptacle": "microwave"},
-         ("Microwave|001", "open", "打开")),
-        ({"action": "clean", "object": "cup a", "tool_receptacle": "countertop"},
-         ("CupA|001", "clean", "清洗")),
+        (
+            {"action": "put", "object": "cup a", "target_receptacle": "countertop"},
+            ("CupA|001", "place", "放置"),
+        ),
+        ({"action": "open", "target_receptacle": "microwave"}, ("Microwave|001", "open", "打开")),
+        (
+            {"action": "clean", "object": "cup a", "tool_receptacle": "countertop"},
+            ("CupA|001", "clean", "清洗"),
+        ),
         ({"action": "slice", "object": "cup a"}, ("CupA|001", "slice", "切")),
         ({"action": "turn_on", "object": "lamp"}, ("Lamp|001", "turn_on", "打开")),
     ]
@@ -260,9 +244,7 @@ async def test_use_maps_by_toggle_state(tmp_path: Path) -> None:
 async def test_execute_uses_backend_spellings_and_records_take(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    request = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    request = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     context = _context(tmp_path)
     nav_result = await adapter.execute(request.steps[0].binding_ref, context)
     assert nav_result.is_error is False
@@ -281,9 +263,7 @@ async def test_execute_consumes_locked_binding_after_scene_swap(
 ) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    request = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    request = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     backend.swap_scene(
         "alfworld-test:scene-2",
         [FakeObject("CupA2|777", ("cup a",), "object", "白杯", "他处")],
@@ -293,9 +273,7 @@ async def test_execute_consumes_locked_binding_after_scene_swap(
     await adapter.execute(request.steps[1].binding_ref, context)
     assert backend.calls[0] == ("go_to", "cup a")
     assert backend.calls[1][2]["object"] == "cup a"
-    reprepared = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    reprepared = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     assert _signature(reprepared) != _signature(request)
     assert reprepared.requirements[0].key.resource_id == "CupA2|777"
 
@@ -304,16 +282,12 @@ async def test_execute_consumes_locked_binding_after_scene_swap(
 async def test_cross_scene_isolation(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    first = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    first = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     backend.swap_scene(
         "alfworld-test:scene-2",
         [FakeObject("CupA2|777", ("cup a",), "object", "白杯", "他处")],
     )
-    second = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    second = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     assert first.environment_id != second.environment_id
     assert first.requirements[0].item_id != second.requirements[0].item_id
 
@@ -322,9 +296,7 @@ async def test_cross_scene_isolation(tmp_path: Path) -> None:
 async def test_unknown_and_failed_receipts(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    request = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    request = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     context = _context(tmp_path)
     binding = request.steps[1].binding_ref
     fresh = await adapter.observe(binding, context)
@@ -351,9 +323,7 @@ async def test_unknown_and_failed_receipts(tmp_path: Path) -> None:
 async def test_unknown_binding_and_release(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
     adapter = _adapter(backend)
-    request = await adapter.prepare(
-        {"action": "take", "object": "cup a"}, _context(tmp_path)
-    )
+    request = await adapter.prepare({"action": "take", "object": "cup a"}, _context(tmp_path))
     context = _context(tmp_path)
     with pytest.raises(TargetUnresolved):
         await adapter.execute("bind-nope", context)
@@ -399,9 +369,7 @@ def test_adapter_has_no_translator_import() -> None:
     offenders = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            offenders.extend(
-                alias.name for alias in node.names if "translator" in alias.name
-            )
+            offenders.extend(alias.name for alias in node.names if "translator" in alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.module and "translator" in node.module:
                 offenders.append(node.module)
@@ -442,10 +410,8 @@ async def test_nav_parity_with_legacy_helper(tmp_path: Path) -> None:
     context = ToolExecutionContext(tmp_path, metadata={})
     cases = [
         ({"action": "take", "object": "cup a"}, "cup a"),
-        ({"action": "put", "object": "cup a", "target_receptacle": "countertop"},
-         "countertop"),
-        ({"action": "heat", "object": "cup a", "tool_receptacle": "microwave"},
-         "microwave"),
+        ({"action": "put", "object": "cup a", "target_receptacle": "countertop"}, "countertop"),
+        ({"action": "heat", "object": "cup a", "tool_receptacle": "microwave"}, "microwave"),
         ({"action": "open", "target_receptacle": "microwave"}, "microwave"),
     ]
     for call, expected_nav in cases:
@@ -492,7 +458,9 @@ def _subtask() -> SimpleNamespace:
 
 def test_bare_label_with_two_instances_refuses() -> None:
     target = resolve_authoritative(
-        "desk", state=_state(), subtask=_subtask(),
+        "desk",
+        state=_state(),
+        subtask=_subtask(),
         allowed_kinds={"object", "receptacle", "toggle"},
         scene_index=_two_desk_index(),
     )
@@ -501,7 +469,9 @@ def test_bare_label_with_two_instances_refuses() -> None:
 
 def test_exact_instance_pin_accepts() -> None:
     target = resolve_authoritative(
-        "desk 1", state=_state(), subtask=_subtask(),
+        "desk 1",
+        state=_state(),
+        subtask=_subtask(),
         allowed_kinds={"object", "receptacle", "toggle"},
         scene_index=_two_desk_index(),
     )
@@ -511,7 +481,9 @@ def test_exact_instance_pin_accepts() -> None:
 
 def test_unique_bare_label_accepts() -> None:
     target = resolve_authoritative(
-        "mug", state=_state(), subtask=_subtask(),
+        "mug",
+        state=_state(),
+        subtask=_subtask(),
         allowed_kinds={"object", "receptacle", "toggle"},
         scene_index=_two_desk_index(),
     )
@@ -540,4 +512,5 @@ async def test_adapter_refuses_ambiguous_receptacle(tmp_path: Path) -> None:
     context = ToolExecutionContext(tmp_path, metadata={})
     with pytest.raises(TargetUnresolved):
         await adapter.prepare(
-            {"action": "put", "object": "cup a", "target_receptacle": "desk"}, context)
+            {"action": "put", "object": "cup a", "target_receptacle": "desk"}, context
+        )

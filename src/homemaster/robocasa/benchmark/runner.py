@@ -124,9 +124,7 @@ class RoboCasaBenchmarkRunner:
                 results.append(self._run_cell(cell, index))
         finally:
             self._shutdown_worker()
-        summary = RoboCasaSummary(
-            run_id=self.run_id, cells=results, config=self._summary_config()
-        )
+        summary = RoboCasaSummary(run_id=self.run_id, cells=results, config=self._summary_config())
         (self.run_dir / "summary.json").write_text(
             json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
@@ -284,9 +282,7 @@ class RoboCasaBenchmarkRunner:
             ]
             failure_summary, failure_advice = extract_failure_guidance(tuple(trace_steps))
             trajectory_record = RoboCasaTrajectoryRecord(
-                trajectory_id=str(
-                    uuid.uuid5(uuid.NAMESPACE_URL, f"robocasa:{cell_run_id}")
-                ),
+                trajectory_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"robocasa:{cell_run_id}")),
                 source_session_id=cell_run_id,
                 run_id=cell_run_id,
                 episode_id=cell_run_id,
@@ -429,19 +425,13 @@ class RoboCasaBenchmarkRunner:
         worker_script = self.config.worker_script
         if worker_script is None:
             worker_script = (
-                Path(__file__).resolve().parents[4]
-                / "workers"
-                / "robocasa_worker"
-                / "main.py"
+                Path(__file__).resolve().parents[4] / "workers" / "robocasa_worker" / "main.py"
             )
         python_executable = self.config.rpent_python
         if python_executable is None:
-            python_executable = (
-                self.config.rpent_root / ".venv-robocasa" / "bin" / "python"
-            )
+            python_executable = self.config.rpent_root / ".venv-robocasa" / "bin" / "python"
         vla_model = (
-            self.config.vla_model_path
-            or self.config.rpent_root / "checkpoints" / "rldx-1-ft-rc365"
+            self.config.vla_model_path or self.config.rpent_root / "checkpoints" / "rldx-1-ft-rc365"
         )
         # NOTE: ProcessDaemon prepends <rpent_root>/../rlinf to the spawned
         # servers' PYTHONPATH — the hkust4 layout (RPent and rlinf checkouts
@@ -611,9 +601,7 @@ def _started_robocasa_trajectory_writer(entry: Any) -> Any | None:
     return writer
 
 
-def _classification(
-    *, success: bool, outcome: EpisodeOutcome, error_code: str | None
-) -> str:
+def _classification(*, success: bool, outcome: EpisodeOutcome, error_code: str | None) -> str:
     if success:
         return "agent_success"
     if outcome.terminal and outcome.classification:
