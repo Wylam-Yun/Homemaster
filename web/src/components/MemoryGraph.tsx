@@ -110,6 +110,13 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
   return { nodes: [...nodes.values()], links }
 }
 
+/** Node labels stay glanceable — previews/names are capped for density. */
+const nodeLabel = (node: GraphNode): string => {
+  const limit = node.kind === 'entity' ? 16 : 12
+  const text = node.label.replace(/\s+/g, ' ').trim()
+  return text.length > limit ? `${text.slice(0, limit)}…` : text
+}
+
 type Props = {
   graph: MemoryGraphData
   onSelect: (memoryId: string) => void
@@ -119,6 +126,7 @@ export function MemoryGraph({ graph, onSelect }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const groupRef = useRef<SVGGElement>(null)
   const lineRefs = useRef<(SVGLineElement | null)[]>([])
+  const edgeLabelRefs = useRef<(SVGTextElement | null)[]>([])
   const nodeRefs = useRef<(SVGGElement | null)[]>([])
   const draggedRef = useRef(false)
   const { nodes, links } = useMemo(() => buildGraph(graph), [graph])
@@ -147,13 +155,21 @@ export function MemoryGraph({ graph, onSelect }: Props) {
     simulation.on('tick', () => {
       links.forEach((link, index) => {
         const line = lineRefs.current[index]
+        const label = edgeLabelRefs.current[index]
         const source = link.source as GraphNode
         const target = link.target as GraphNode
-        if (line == null || source.x === undefined || target.x === undefined) return
-        line.setAttribute('x1', String(source.x))
-        line.setAttribute('y1', String(source.y))
-        line.setAttribute('x2', String(target.x))
-        line.setAttribute('y2', String(target.y))
+        if (source.x === undefined || target.x === undefined
+          || source.y === undefined || target.y === undefined) return
+        if (line != null) {
+          line.setAttribute('x1', String(source.x))
+          line.setAttribute('y1', String(source.y))
+          line.setAttribute('x2', String(target.x))
+          line.setAttribute('y2', String(target.y))
+        }
+        if (label != null) {
+          label.setAttribute('x', String((source.x + target.x) / 2))
+          label.setAttribute('y', String((source.y + target.y) / 2))
+        }
       })
       renderedNodes.forEach((node, index) => {
         const element = nodeRefs.current[index]
@@ -212,12 +228,19 @@ export function MemoryGraph({ graph, onSelect }: Props) {
       <g ref={groupRef}>
         {links.map((link, index) => (
           link.anchor === true ? null : (
-            <line
-              key={`${link.rel}:${index}`}
-              ref={element => { lineRefs.current[index] = element }}
-              className={styles.edge}
-              data-rel={link.rel}
-            />
+            <g key={`${link.rel}:${index}`}>
+              <line
+                ref={element => { lineRefs.current[index] = element }}
+                className={styles.edge}
+                data-rel={link.rel}
+              />
+              <text
+                ref={element => { edgeLabelRefs.current[index] = element }}
+                className={styles.edgeLabel}
+              >
+                {link.rel}
+              </text>
+            </g>
           )
         ))}
         {renderedNodes.map((node, index) => (
@@ -235,6 +258,9 @@ export function MemoryGraph({ graph, onSelect }: Props) {
             {node.kind === 'memory'
               ? <circle r={9} fill={typeColor(node.memoryType ?? '')} />
               : <circle r={4.5} fill="var(--muted-2)" />}
+            <text className={styles.nodeLabel} y={node.kind === 'memory' ? 18 : 12}>
+              {nodeLabel(node)}
+            </text>
           </g>
         ))}
       </g>

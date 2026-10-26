@@ -463,6 +463,59 @@ async def test_list_models_falls_back_when_unreachable(tmp_path: Path) -> None:
         await service.list_models("ghost")
 
 
+@pytest.mark.asyncio
+async def test_list_models_retries_with_bearer_on_401(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Anthropic-style gateways split on credential header: x-api-key first,
+    Authorization: Bearer retry must rescue a 401 (e.g. StepFun)."""
+
+    seed = _two_provider_seed()
+    seed["providers"]["items"][0]["api_format"] = "anthropic"
+    seed["providers"]["items"][0]["auth_type"] = "api_key"
+    service, _runtime, _ = _service(tmp_path, payload=seed)
+
+    seen_headers: list[dict[str, str]] = []
+
+    class _Response:
+        def __init__(self, status: int, body: object | None = None) -> None:
+            self.status_code = status
+            self._body = body
+
+        def json(self) -> object:
+            return self._body
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            del args
+
+        async def get(self, url: str, headers: dict[str, str] | None = None):
+            del url
+            seen_headers.append(dict(headers or {}))
+            if "x-api-key" in (headers or {}) and "authorization" not in (headers or {}):
+                return _Response(401, {"error": {"message": "Incorrect API key"}})
+            return _Response(200, {"data": [{"id": "step-5-preview"}]})
+
+    import homemaster.services.provider_config as provider_config
+
+    monkeypatch.setattr(provider_config.httpx, "AsyncClient", _Client)
+
+    result = await service.list_models("alpha")
+
+    assert result["source"] == "live"
+    assert result["models"] == ["step-5-preview"]
+    # First attempt used x-api-key; the 401 retry carried Bearer.
+    assert len(seen_headers) == 2
+    assert "x-api-key" in seen_headers[0]
+    assert seen_headers[1]["authorization"].startswith("Bearer ")
+
+
 # ---------------------------------------------------------------------------
 # templates / list_profiles
 # ---------------------------------------------------------------------------

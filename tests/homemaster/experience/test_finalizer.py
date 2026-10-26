@@ -654,6 +654,47 @@ async def test_finalizer_resume_job_completes_after_crash(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_unrecoverable_job_is_marked_failed_not_left_processing(
+    tmp_path: Path,
+) -> None:
+    """A killed writer leaves job.json at 'processing' with no episode.json;
+    the next startup must record the honest terminal state, not skip it."""
+
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+    jobs_root = tmp_path / "memory" / "experience_jobs"
+    job_dir = jobs_root / "job-orphan"
+    job_dir.mkdir(parents=True)
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-orphan",
+                "status": "processing",
+                "session_id": "s1",
+                "add": {"status": "pending"},
+                "implicit_feedback": {"status": "pending"},
+                "dreaming_counter": {"status": "pending"},
+                "dreaming": {"status": "not_due"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recovered = SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=FakeMindMemOS(),
+    )
+
+    assert recovered.incomplete_jobs() == []
+    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    assert job["status"] == "failed"
+    assert job["exit_reason"] == "unrecoverable"
+    view = recovered.job_index()["s1"]
+    assert view["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_finalizer_feeds_dreaming_despite_implicit_failure(tmp_path: Path) -> None:
     trace = tmp_path / "runtime_events.jsonl"
     _write_events(trace)

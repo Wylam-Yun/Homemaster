@@ -234,10 +234,24 @@ class SessionFinalizer:
                 logger.warning("skipping finalization job without session_id: %s", job_dir.name)
                 continue
             if not (job_dir / "episode.json").exists():
+                # A killed writer can leave job.json stuck at "processing"
+                # forever; without the episode snapshot the job can never
+                # resume, so record the honest terminal state instead.
                 logger.warning(
                     "finalization job %s is unrecoverable (episode snapshot missing)",
                     job_dir.name,
                 )
+                job["status"] = "failed"
+                job["exit_reason"] = "unrecoverable"
+                job["failed_phase"] = job.get("failed_phase") or "add"
+                job["error"] = "episode snapshot missing; the job cannot be resumed"
+                try:
+                    self._write_json(job_path, job)
+                except OSError:
+                    logger.warning(
+                        "could not mark unrecoverable finalization job failed: %s",
+                        job_path,
+                    )
                 continue
             pending.append((job_dir, session_id))
         return pending
