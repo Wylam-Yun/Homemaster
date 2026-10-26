@@ -181,6 +181,119 @@ class MemoryManagementService:
         projected = (_project_memory(row) for row in versions)
         return tuple(sorted(projected, key=_memory_sort_key))
 
+    async def create(
+        self,
+        content: str,
+        memory_type: str = "fact",
+        *,
+        tenant_id: str,
+    ) -> ManagedMemory:
+        cleaned = content.strip()
+        if not cleaned:
+            raise ValueError("content must not be empty")
+        if memory_type not in {"fact", "procedure"}:
+            raise ValueError("memory_type must be fact or procedure")
+        context = _request_context("web-memory-create", tenant_id)
+        stored = await self._mindmemos.add_flat(
+            cleaned,
+            memory_type,
+            provenance_seq=1,
+            evidence_kind="user_statement",
+            context=context,
+        )
+        memory_id = stored.get("memory_id") if isinstance(stored, Mapping) else None
+        if not isinstance(memory_id, str) or not memory_id:
+            raise MemoryUnavailableError("memory backend did not return a memory_id")
+        raw = await self._mindmemos.get_raw(memory_id, context)
+        if raw is None:
+            raise MemoryUnavailableError("created memory could not be read back")
+        return _project_memory(raw)
+
+    async def update(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        tenant_id: str,
+    ) -> ManagedMemory:
+        normalized_id = memory_id.strip()
+        cleaned = content.strip()
+        if not normalized_id:
+            raise MemoryNotFoundError(memory_id)
+        if not cleaned:
+            raise ValueError("content must not be empty")
+        context = _request_context("web-memory-update", tenant_id)
+        current = await self._mindmemos.get_raw(normalized_id, context)
+        if current is None:
+            raise MemoryNotFoundError(normalized_id)
+        _, structure_status = _safe_record(getattr(current, "metadata", None))
+        if structure_status != "plain":
+            # Structured records carry record_json, entity linkage and graph
+            # relations that a content-only patch would leave stale; per the
+            # shared-update-surface rule the text path fails closed instead of
+            # corrupting the structural copy.
+            raise ValueError(
+                "memory contains a structured record and cannot be edited as plain text"
+            )
+        updated_id: str | None = None
+        try:
+            result = await self._mindmemos.update(normalized_id, cleaned, context)
+            if getattr(result, "status", None) == "ok":
+                updated_id = str(getattr(result, "memory_id", None) or normalized_id)
+        except Exception:
+            updated_id = None
+
+        if updated_id is None:
+            # Fallback when remote embedding provider is offline/out-of-balance:
+            # write a derived BM25 flat version and archive the previous version.
+            mem_type_raw = _enum_text(getattr(current, "mem_type", "fact"))
+            flat_type = "procedure" if mem_type_raw in {"procedure", "experience"} else "fact"
+            stored = await self._mindmemos.add_flat(
+                cleaned,
+                flat_type,
+                provenance_seq=1,
+                evidence_kind="user_statement",
+                context=context,
+                lineage_source_memory_id=normalized_id,
+            )
+            new_id = stored.get("memory_id") if isinstance(stored, Mapping) else None
+            if not isinstance(new_id, str) or not new_id:
+                raise MemoryUnavailableError("memory update fallback failed")
+            await self._mindmemos.delete(normalized_id, context)
+            updated_id = new_id
+
+        raw = await self._mindmemos.get_raw(updated_id, context)
+        if raw is None:
+            raw = await self._mindmemos.get_raw(normalized_id, context)
+        if raw is None:
+            raise MemoryUnavailableError("updated memory could not be read back")
+        return _project_memory(raw)
+
+    async def delete(
+        self,
+        memory_id: str,
+        *,
+        tenant_id: str,
+    ) -> dict[str, object]:
+        normalized_id = memory_id.strip()
+        if not normalized_id:
+            raise MemoryNotFoundError(memory_id)
+        context = _request_context("web-memory-delete", tenant_id)
+        current = await self._mindmemos.get_raw(normalized_id, context)
+        if current is None:
+            raise MemoryNotFoundError(normalized_id)
+        result = await self._mindmemos.delete(normalized_id, context)
+        if getattr(result, "status", None) != "ok":
+            msg = getattr(result, "message", None) or "memory delete was rejected"
+            if "not found" in str(msg).lower():
+                raise MemoryNotFoundError(normalized_id)
+            raise ValueError(str(msg))
+        return {
+            "memory_id": normalized_id,
+            "deleted": True,
+            "status": "archived",
+        }
+
     async def graph(self, *, tenant_id: str) -> MemoryGraph:
         store = self._mindmemos.neo4j_store
         if store is None:
@@ -267,6 +380,8 @@ class MemoryManagementService:
     def _title_for_session(self, session_id: str | None) -> str:
         if session_id is None:
             return "未关联会话"
+        if session_id == "web-memory-management":
+            return "手动添加的记忆"
         fallback = f"会话 {session_id[:8]}"
         try:
             messages = self._sessions.read_session_messages(session_id)

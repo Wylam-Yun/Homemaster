@@ -244,4 +244,47 @@ describe('MemoryPage', () => {
     fireEvent.click(screen.getByRole('tab', { name: '图谱' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('neo4j down')
   })
+
+  it('supports creating, updating, and deleting memories when callbacks are supplied', async () => {
+    const createMemory = vi.fn().mockResolvedValue({})
+    const updateMemory = vi.fn().mockResolvedValue(undefined)
+    const deleteMemory = vi.fn().mockResolvedValue(undefined)
+    const onRefresh = vi.fn().mockResolvedValue(undefined)
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={onRefresh}
+        loadHistory={vi.fn().mockResolvedValue({ memory_id: 'memory-active', versions: [] })}
+        createMemory={createMemory}
+        updateMemory={updateMemory}
+        deleteMemory={deleteMemory}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增记忆' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '新记忆内容' }), { target: { value: '厨房水杯放在第二层架子' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存记忆' }))
+
+    await waitFor(() => {
+      expect(createMemory).toHaveBeenCalledWith({ content: '厨房水杯放在第二层架子', memory_type: 'fact' })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /查看记忆 active memory body/ }))
+    const dialog = await screen.findByRole('dialog', { name: '记忆详情' })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '编辑' }))
+    fireEvent.change(within(dialog).getByRole('textbox', { name: '编辑记忆内容' }), { target: { value: 'updated memory body' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存修改' }))
+    await waitFor(() => {
+      expect(updateMemory).toHaveBeenCalledWith('memory-active', 'updated memory body')
+    })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    await waitFor(() => {
+      expect(deleteMemory).toHaveBeenCalledWith('memory-active')
+    })
+  })
 })

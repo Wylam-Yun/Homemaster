@@ -73,7 +73,8 @@ vi.mock('./api/http', () => ({
       environment_ref: null, ui_mode: 'act',
     })
     compactSession = vi.fn().mockResolvedValue({
-      session_id: 'session-01', generation: 2, revision: 6, triggered: true, kind: 'manual',
+      session_id: 'session-01', generation: 2, revision: 6, triggered: true, kind: 'manual_summary',
+      before_tokens: 38_000, after_tokens: 12_000, context_tokens: 38_000,
     })
     setUiMode = vi.fn().mockResolvedValue({ session_id: 'session-01', ui_mode: 'plan' })
     pendingApprovals = vi.fn().mockResolvedValue({ approvals: [] })
@@ -516,8 +517,39 @@ describe('App batch-2 integration', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '压缩上下文' }))
     await waitFor(() => { expect(api().compactSession).toHaveBeenCalledWith('session-01') })
-    expect(await screen.findByText('已触发上下文压缩')).toBeVisible()
-    expect(screen.getByText(/kind: manual/)).toBeVisible()
+    expect(await screen.findByText('上下文压缩完成')).toBeVisible()
+    expect(screen.getByText(/已生成对话摘要/)).toBeVisible()
+    expect(screen.getByText(/38,000 → 12,000 tokens/)).toBeVisible()
+  })
+
+  it('keeps the button in a busy state while compaction is in flight', async () => {
+    render(<App />)
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
+    let release!: () => void
+    api().compactSession.mockReturnValueOnce(new Promise(resolve => { release = () => resolve({
+      session_id: 'session-01', generation: 2, revision: 6, triggered: false, kind: 'none',
+    }) }))
+
+    fireEvent.click(await screen.findByRole('button', { name: '压缩上下文' }))
+    const button = await screen.findByRole('button', { name: '压缩上下文' })
+    await waitFor(() => { expect(button).toBeDisabled() })
+    expect(button).toHaveTextContent('压缩中')
+    expect(await screen.findByText(/正在调用模型压缩对话上下文/)).toBeVisible()
+
+    release()
+    expect(await screen.findByText('当前没有需要压缩的内容')).toBeVisible()
+  })
+
+  it('surfaces the compaction failure in the persistent notice', async () => {
+    render(<App />)
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
+    api().compactSession.mockRejectedValueOnce(new Error('当前会话正在运行，请稍后再试'))
+
+    fireEvent.click(await screen.findByRole('button', { name: '压缩上下文' }))
+    expect(await screen.findByText('当前会话正在运行，请稍后再试')).toBeVisible()
+    const button = await screen.findByRole('button', { name: '压缩上下文' })
+    await waitFor(() => { expect(button).toBeEnabled() })
+    expect(button).toHaveTextContent('压缩')
   })
 })
 

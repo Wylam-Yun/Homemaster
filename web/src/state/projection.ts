@@ -75,7 +75,7 @@ function toRecord(tool: ToolCallState): ToolRecord {
     status: tool.status,
     outputPreview: outputPreview(tool.output),
     error: tool.status === 'failed' ? tool.output : null,
-    durationMs: null,
+    durationMs: tool.durationMs ?? null,
     tool,
   }
 }

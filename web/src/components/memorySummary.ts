@@ -3,14 +3,23 @@ import type { ManagedMemory } from '../api/http'
 /**
  * Read-only human projection of a managed memory.
  *
- * The stored `content` of structured (ALFWorld trajectory) memories is a
- * serialized machine JSON blob. Rendering it verbatim is unreadable, so the
- * list view uses `summarizeMemory` (one human line + one anchor line) and
- * reserves the raw JSON for a collapsed debug block in the detail dialog.
- * Nothing here affects what the agent consumes; it is display-only.
+ * Stored `content` can be:
+ * 1. A structured ALFWorld trajectory (`structure_status === 'valid'`)
+ * 2. A JSON-serialized fact/experience/procedure record (`content` starts with `{`)
+ * 3. A Markdown episodic record (`# Episodic Memory Record` / `**Episode Date:...`)
+ * 4. Plain human text
+ *
+ * `summarizeMemory` extracts a clean human title, optional subtitle (`detail`),
+ * and structured key-value fields (`fields`) so the UI never dumps raw JSON or
+ * Markdown headers on memory cards.
  */
 
 export type SummaryTone = 'success' | 'failure' | 'uncertain' | 'neutral'
+
+export type MemoryField = {
+  label: string
+  value: string
+}
 
 export type MemorySummary = {
   icon: string
@@ -18,6 +27,8 @@ export type MemorySummary = {
   detail: string | null
   tone: SummaryTone
   searchText: string
+  fields?: MemoryField[]
+  rawJson?: Record<string, unknown> | null
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -30,6 +41,7 @@ const TYPE_LABELS: Record<string, string> = {
   tool_trace: '工具轨迹',
   skill_candidate: '技能候选',
   profile: '画像',
+  file_knowledge: '文件知识',
 }
 
 export function typeLabel(memoryType: string): string {
@@ -47,6 +59,7 @@ export const TYPE_GROUP_ORDER = [
   'tool_trace',
   'procedure',
   'profile',
+  'file_knowledge',
 ]
 
 const CLASSIFICATION_LABELS: Record<string, string> = {
@@ -93,6 +106,11 @@ function stringField(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 && trimmed !== 'None' ? trimmed : null
+}
+
+function capText(text: string, max = 140): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean
 }
 
 /**
@@ -173,22 +191,180 @@ export function humanizeGoal(goalType: string | null | undefined): string | null
 }
 
 /** Short anchor for an episode id: tail after the last slash. */
-export function shortEpisode(episodeId: string | null | undefined): string | null {
-  if (episodeId === null || episodeId === undefined) return null
+export function shortEpisode(episodeId: string | null | undefined): string {
+  if (episodeId === null || episodeId === undefined) return null as unknown as string
   const trimmed = episodeId.trim()
-  if (trimmed.length === 0) return null
+  if (trimmed.length === 0) return null as unknown as string
   const tail = trimmed.includes('/') ? (trimmed.split('/').pop() ?? trimmed) : trimmed
-  return tail.length > 0 ? tail : null
+  return (tail.length > 0 ? tail : null) as unknown as string
 }
 
 export function shortSession(sessionId: string | null): string {
   if (sessionId === null || sessionId.length === 0) return '未关联'
-  return sessionId.slice(0, 8)
+  const stripped = sessionId.replace(/^session[-_]/i, '')
+  return (stripped.length > 0 ? stripped : sessionId).slice(0, 8)
 }
 
 function recordString(record: Record<string, unknown> | null, key: string): string | null {
   if (record === null) return null
   return stringField(record[key])
+}
+
+const RESULT_LABELS: Record<string, string> = {
+  found: '已找到',
+  not_found: '未找到',
+  error: '执行报错',
+  success: '成功',
+  failure: '失败',
+  unknown: '待确认',
+}
+
+/**
+ * Summarize JSON-encoded plain memories (fact / experience / procedure) so raw
+ * JSON strings never leak onto memory cards.
+ */
+function summarizeJsonContent(
+  rawText: string,
+  memory: ManagedMemory,
+  label: string,
+): MemorySummary | null {
+  if (!rawText.startsWith('{')) return null
+  let parsed: Record<string, unknown>
+  try {
+    const candidate = JSON.parse(rawText) as unknown
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return null
+    parsed = candidate as Record<string, unknown>
+  } catch {
+    return null
+  }
+
+  const summary = stringField(parsed['summary'])
+  const task = stringField(parsed['task'])
+  const target = stringField(parsed['target'])
+  const objectName = stringField(parsed['object'])
+  const location = stringField(parsed['location'])
+  const obsResult = stringField(parsed['result']) ?? stringField(parsed['observation_kind']) ?? stringField(parsed['outcome'])
+  const recordType = stringField(parsed['type'])
+  const recordTime = stringField(parsed['record_time']) ?? stringField(parsed['observed_at'])
+
+  let failureLessonSummary: string | null = null
+  const failureLesson = parsed['failure_lesson']
+  if (typeof failureLesson === 'object' && failureLesson !== null) {
+    failureLessonSummary = stringField((failureLesson as Record<string, unknown>)['summary'])
+  }
+
+  const fields: MemoryField[] = []
+  if (task !== null) fields.push({ label: '关联任务', value: task })
+  if (objectName !== null) fields.push({ label: '目标对象', value: objectName })
+  if (location !== null) fields.push({ label: '所在位置', value: location })
+  if (target !== null && target !== location) fields.push({ label: '作用范围', value: target })
+  if (obsResult !== null) fields.push({ label: '状态结果', value: RESULT_LABELS[obsResult] ?? obsResult })
+  if (summary !== null) fields.push({ label: '核心摘要', value: summary })
+  if (failureLessonSummary !== null) fields.push({ label: '经验教训', value: failureLessonSummary })
+  if (Array.isArray(parsed['steps']) && parsed['steps'].length > 0) {
+    fields.push({ label: '记录步骤', value: `共 ${parsed['steps'].length} 个执行步骤` })
+  }
+  if (recordTime !== null) fields.push({ label: '记录时间', value: recordTime })
+
+  let title: string
+  let detail: string | null = null
+  if (summary !== null) {
+    title = capText(summary, 140)
+    if (task !== null) detail = `任务：${task}`
+    else if (objectName !== null && location !== null) detail = `${objectName} · ${location}`
+  } else if (task !== null) {
+    title = capText(task, 140)
+    detail = failureLessonSummary !== null ? capText(failureLessonSummary, 90) : target
+  } else if (objectName !== null && location !== null) {
+    const statusText = obsResult !== null ? (RESULT_LABELS[obsResult] ?? obsResult) : null
+    title = statusText !== null
+      ? `${objectName}（${statusText}）· ${location}`
+      : `${objectName} 位于 ${location}`
+    detail = recordType
+  } else if (failureLessonSummary !== null) {
+    title = capText(failureLessonSummary, 140)
+  } else {
+    const firstStr = Object.values(parsed).find(v => typeof v === 'string' && v.trim().length > 0) as string | undefined
+    title = firstStr !== undefined ? capText(firstStr, 140) : `${label}记录`
+  }
+
+  const tone: SummaryTone = obsResult === 'success' || obsResult === 'found'
+    ? 'success'
+    : obsResult === 'error' || obsResult === 'failure'
+      ? 'failure'
+      : 'neutral'
+  const icon = tone === 'success' ? '✅' : tone === 'failure' ? '⚠️' : memory.memory_type === 'experience' ? '💡' : '📌'
+
+  return {
+    icon,
+    title,
+    detail,
+    tone,
+    searchText: [title, detail ?? '', rawText, label, memory.memory_type, memory.memory_id].join(' '),
+    fields,
+    rawJson: parsed,
+  }
+}
+
+/**
+ * Summarize Markdown episodic memories (`# Episodic Memory Record` or
+ * `**Episode Date:...`) by stripping machine metadata headers and picking the
+ * first meaningful turn heading or user question.
+ */
+function summarizeEpisodicMarkdown(
+  rawText: string,
+  memory: ManagedMemory,
+  label: string,
+): MemorySummary | null {
+  if (!rawText.startsWith('#') && !rawText.startsWith('**Episode Date') && !rawText.startsWith('On ')) {
+    return null
+  }
+  const lines = rawText.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+  const turnHeadings: string[] = []
+  const userQuotes: string[] = []
+  const bodyLines: string[] = []
+
+  for (const line of lines) {
+    if (/^#\s+Episodic Memory Record/i.test(line)) continue
+    if (/^\*\*(Conversation timestamp|Session ID|Runtime context|Episode Date)/i.test(line)) continue
+    if (/^Session ID:/i.test(line)) continue
+    if (/^---+$/.test(line)) continue
+    if (/^##\s+Turn\s+\d+\s*[—-]\s*(.+)$/i.test(line)) {
+      const match = /^##\s+Turn\s+\d+\s*[—-]\s*(.+)$/i.exec(line)
+      if (match?.[1]) turnHeadings.push(match[1].replace(/\([^)]*UTC\)/gi, '').trim())
+      continue
+    }
+    const asked = /asked(?:\s+the\s+HomeMaster\s+assistant)?:\s*"([^"]+)"/i.exec(line)
+    if (asked?.[1]) {
+      userQuotes.push(asked[1].trim())
+    }
+    if (!/^On\s+\w+day,\s+\d{4}/i.test(line) && !/^At\s+\d{2}:\d{2}:\d{2}/i.test(line)) {
+      bodyLines.push(line.replace(/^#+\s*/, '').replace(/\*\*/g, ''))
+    }
+  }
+
+  let title: string
+  let detail: string | null = null
+  if (userQuotes.length > 0) {
+    title = capText(`对话记录：「${userQuotes[0]}」`, 140)
+    if (turnHeadings.length > 0) {
+      detail = `共 ${turnHeadings.length} 轮交互 · ${turnHeadings.slice(0, 3).join(' / ')}`
+    }
+  } else if (turnHeadings.length > 0) {
+    title = capText(`情景记录：${turnHeadings.join(' → ')}`, 140)
+  } else if (bodyLines.length > 0) {
+    title = capText(bodyLines[0]!, 140)
+  } else {
+    return null
+  }
+
+  return {
+    icon: '💬',
+    title,
+    detail,
+    tone: 'neutral',
+    searchText: [title, detail ?? '', rawText, label, memory.memory_type, memory.memory_id].join(' '),
+  }
 }
 
 export function summarizeMemory(memory: ManagedMemory): MemorySummary {
@@ -240,6 +416,12 @@ export function summarizeMemory(memory: ManagedMemory): MemorySummary {
   }
 
   const text = memory.content.trim()
+  const jsonSummary = summarizeJsonContent(text, memory, label)
+  if (jsonSummary !== null) return jsonSummary
+
+  const episodicSummary = summarizeEpisodicMarkdown(text, memory, label)
+  if (episodicSummary !== null) return episodicSummary
+
   const title = text.length > 140 ? `${text.slice(0, 140)}…` : text
   return {
     icon: '📝',
@@ -291,4 +473,44 @@ export function computeMemoryInsight(memories: ManagedMemory[]): MemoryInsight {
     if (memory.structure_status === 'plain') plain += 1
   }
   return { success, failure, plain, total: memories.length }
+}
+
+/** Shared display helpers for memory pages/dialogs (dates, enum labels). */
+export function formatDate(value: string | null): string {
+  if (value === null) return '时间未知'
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) return '时间未知'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(date)
+}
+
+export function formatFullDate(value: string | null): string {
+  if (value === null) return '未知'
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) return '未知'
+  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'medium' }).format(date)
+}
+
+export function archiveReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    user_request: '用户请求',
+    direct_structured_update: '结构化更新替换',
+  }
+  return labels[reason] ?? reason
+}
+
+export function compileStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    queued: '排队中',
+    running: '编译中',
+    succeeded: '已完成',
+    failed: '失败',
+  }
+  return labels[state] ?? state
+}
+
+export function subtaskLabel(tasksetId: string, subtaskIndex: number | null | undefined): string {
+  if (subtaskIndex === null || subtaskIndex === undefined) return tasksetId
+  return `${tasksetId} / 子任务 ${subtaskIndex + 1}`
 }

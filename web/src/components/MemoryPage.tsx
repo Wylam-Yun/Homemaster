@@ -6,9 +6,11 @@ import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
 import { MemoryDetailDialog } from './MemoryDetailDialog'
 import { MemoryGraph, typeColor } from './MemoryGraph'
+import { IconSearch } from './ui/icons'
 import styles from './MemoryPage.module.css'
 import {
   computeMemoryInsight,
+  formatDate,
   groupByType,
   summarizeMemory,
   typeLabel,
@@ -28,6 +30,9 @@ type Props = {
   loadGraph?: () => Promise<MemoryGraphData>
   compileMemory?: (memoryId: string) => Promise<{ job_id: string; status: string }>
   compileStatus?: (jobId: string) => Promise<{ status: string; error?: string }>
+  createMemory?: (payload: { content: string; memory_type: 'fact' | 'procedure' }) => Promise<unknown>
+  updateMemory?: (memoryId: string, content: string) => Promise<ManagedMemory | void>
+  deleteMemory?: (memoryId: string) => Promise<void>
 }
 
 type StatusTab = 'active' | 'archived'
@@ -37,7 +42,7 @@ type GroupMode = 'session' | 'type'
 type VisibleMemory = { memory: ManagedMemory; summary: MemorySummary }
 type ListGroup = { key: string; label: string; sessionId: string | null; items: VisibleMemory[] }
 
-export function MemoryPage({ snapshot, loading, error, unavailable = false, onRefresh, loadHistory, loadGraph, compileMemory, compileStatus }: Props) {
+export function MemoryPage({ snapshot, loading, error, unavailable = false, onRefresh, loadHistory, loadGraph, compileMemory, compileStatus, createMemory, updateMemory, deleteMemory }: Props) {
   const [tab, setTab] = useState<StatusTab>('active')
   const [view, setView] = useState<ViewMode>('list')
   const [groupMode, setGroupMode] = useState<GroupMode>('session')
@@ -48,6 +53,11 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
   const [graphLoading, setGraphLoading] = useState(false)
   const [graphError, setGraphError] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<Set<string> | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [newType, setNewType] = useState<'fact' | 'procedure'>('fact')
+  const [newContent, setNewContent] = useState('')
+  const [createBusy, setCreateBusy] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const allMemories = useMemo(
     () => (snapshot?.groups ?? []).flatMap(group => group.memories),
@@ -61,13 +71,19 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
   const sessionTitle = useMemo(() => {
     const map = new Map<string, string>()
     for (const group of snapshot?.groups ?? []) {
-      if (group.session_id !== null) map.set(group.session_id, group.title)
+      if (group.session_id !== null) {
+        const raw = group.title.trim()
+        if (raw === '' || raw === '会话 session-') {
+          const shortId = group.session_id.replace(/^session[-_]/i, '').slice(0, 8)
+          map.set(group.session_id, `会话 ${shortId}`)
+        } else {
+          map.set(group.session_id, raw)
+        }
+      }
     }
     return map
   }, [snapshot])
-  // Graph node labels reuse the list view's human titles — but for episodic /
-  // structured memories whose stored content is a JSON or markdown fragment,
-  // the title is itself unreadable; the session title is the honest anchor.
+
   const memoryLabels = useMemo(() => {
     const junk = /^[{#[\[*]/
     return Object.fromEntries(
@@ -76,9 +92,6 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
         const fromSession = memory.session_id !== null
           ? sessionTitle.get(memory.session_id)
           : undefined
-        // Session-title fallback repeats per memory in a session; the type
-        // prefix keeps same-session nodes distinguishable and survives the
-        // canvas label truncation.
         const fallback = fromSession !== undefined
           ? `${typeLabel(memory.memory_type)} · ${fromSession}`
           : typeLabel(memory.memory_type)
@@ -145,11 +158,19 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
       .filter(group => group.items.length > 0)
   }, [groupMode, matched, snapshot])
 
+  const seenGroupsRef = useState(() => new Set<string>())[0]
   useEffect(() => {
-    if (listGroups.length > 0 && expanded.size === 0) {
-      setExpanded(new Set(listGroups.map(group => group.key)))
+    if (listGroups.length === 0) return
+    const newKeys = listGroups.map(group => group.key).filter(key => !seenGroupsRef.has(key))
+    if (newKeys.length > 0) {
+      for (const key of newKeys) seenGroupsRef.add(key)
+      setExpanded(current => {
+        const next = new Set(current)
+        for (const key of newKeys) next.add(key)
+        return next
+      })
     }
-  }, [expanded.size, listGroups])
+  }, [listGroups, seenGroupsRef])
 
   const toggleGroup = (key: string) => {
     setExpanded(current => {
@@ -194,14 +215,40 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
     })
   }
 
+  const submitCreate = async () => {
+    if (!createMemory) return
+    const trimmed = newContent.trim()
+    if (!trimmed) {
+      setCreateError('请填写要保存的记忆内容。')
+      return
+    }
+    setCreateBusy(true)
+    setCreateError(null)
+    try {
+      await createMemory({ content: trimmed, memory_type: newType })
+      setNewContent('')
+      setCreating(false)
+      await onRefresh()
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : '新增记忆失败')
+    } finally {
+      setCreateBusy(false)
+    }
+  }
+
   return (
     <section className={styles.page} aria-labelledby="memory-page-title">
       <PageHeader
         eyebrow="长期记忆"
         title="记忆管理"
         titleId="memory-page-title"
-        subtitle="按来源会话或类型浏览记忆，或切到图谱查看记忆间的实体关联。"
+        subtitle="自动从历史对话中提炼事实、经验与情景记录，也支持手动添加、编辑或删除记忆。"
         actions={<>
+          {createMemory !== undefined && !unavailable && (
+            <Button variant="primary" onClick={() => { setCreating(v => !v); setCreateError(null) }}>
+              ＋ 新增记忆
+            </Button>
+          )}
           <div className={styles.viewSwitch} role="tablist" aria-label="视图">
             <button type="button" role="tab" aria-selected={view === 'list'} onClick={() => { setView('list') }}>列表</button>
             <button type="button" role="tab" aria-selected={view === 'graph'} onClick={() => { setView('graph') }} disabled={loadGraph === undefined}>图谱</button>
@@ -210,12 +257,47 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
         </>}
       />
 
+      {creating && !unavailable && (
+        <div className={styles.createPanel} aria-label="新增记忆表单">
+          <div className={styles.createRow}>
+            <label className={styles.createField}>
+              <span>记忆类型</span>
+              <select
+                value={newType}
+                aria-label="记忆类型"
+                onChange={event => { setNewType(event.target.value as 'fact' | 'procedure') }}
+              >
+                <option value="fact">事实与偏好 (fact)</option>
+                <option value="procedure">操作流程与经验 (procedure)</option>
+              </select>
+            </label>
+          </div>
+          <label className={styles.createField}>
+            <span>记忆内容</span>
+            <textarea
+              rows={3}
+              value={newContent}
+              aria-label="新记忆内容"
+              placeholder="输入希望智能助手长期记住的事实、偏好或操作流程…"
+              onChange={event => { setNewContent(event.target.value) }}
+            />
+          </label>
+          {createError !== null && <p className={styles.createError} role="alert">{createError}</p>}
+          <div className={styles.createActions}>
+            <Button variant="primary" disabled={createBusy} onClick={() => { void submitCreate() }}>
+              {createBusy ? '保存中…' : '保存记忆'}
+            </Button>
+            <Button onClick={() => { setCreating(false); setCreateError(null) }}>取消</Button>
+          </div>
+        </div>
+      )}
+
       {unavailable && (
         <div className={styles.unavailable} role="status">
           <div>
             <strong>当前为 files 轻量记忆档</strong>
-            <span>文件式记忆随会话读写，本页的长期记忆管理在 files 档下不可用。</span>
-            <span>切换到 full 档：将 memory.mode 设为 full 并接入记忆后端后重启服务。</span>
+            <span>文件式记忆随对话自动读写，本页的长期记忆库与知识图谱需要开启完整记忆模式（full 档）。</span>
+            <span>如需启用，可在终端运行 <code>homemaster setup --full</code> 并将配置中的 <code>memory.mode</code> 设为 <code>full</code>。</span>
           </div>
           <button type="button" onClick={() => { void onRefresh() }} disabled={loading}>
             {loading ? '加载中…' : '重新检测'}
@@ -254,12 +336,12 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
         </div>
         <div className={styles.filters}>
           <label className={styles.search}>
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true"><IconSearch size={14} /></span>
             <input
               type="search"
               value={query}
               onChange={event => { setQuery(event.target.value) }}
-              placeholder="搜索摘要或会话…"
+              placeholder="搜索摘要、对象、路径或会话…"
               aria-label="搜索记忆"
             />
           </label>
@@ -269,7 +351,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
       <div className={styles.groups}>
         {loading && snapshot === null && <div className={styles.empty}>正在读取记忆…</div>}
         {!loading && error === null && snapshot !== null && listGroups.length === 0 && (
-          <div className={styles.empty}>当前条件下没有记忆</div>
+          <div className={styles.empty}>当前筛选条件下没有记忆记录</div>
         )}
         {listGroups.map(group => {
           const isOpen = normalizedQuery.length > 0 || expanded.has(group.key)
@@ -303,8 +385,11 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
                         <time>{formatDate(memory.updated_at ?? memory.created_at)}</time>
                       </span>
                       <span className={styles.content}>{summary.title}</span>
+                      {summary.detail !== null && (
+                        <span className={styles.detailLine}>{summary.detail}</span>
+                      )}
                       {groupMode === 'type' && memory.session_id !== null && (
-                        <span className={styles.meta}>来自 {sessionTitle.get(memory.session_id) ?? '未知会话'}</span>
+                        <span className={styles.meta}>来自对话：{sessionTitle.get(memory.session_id) ?? '历史会话'}</span>
                       )}
                     </button>
                   ))}
@@ -344,7 +429,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
               </div>
               <span className={styles.graphHint}>圆点=记忆 · 小点=实体 · 连线=提及实体 · 拖动平移 · 滚轮缩放 · 点击查看详情</span>
               {filteredGraph.edges_truncated === true && (
-                <span className={styles.graphHint}>关系过多，仅显示部分连线</span>
+                <span className={styles.graphHint}>关系较多，当前仅显示高频核心连线</span>
               )}
             </div>
             <MemoryGraph
@@ -361,7 +446,25 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
       </>}
 
       {selected !== null && (
-        <MemoryDetailDialog memory={selected} loadHistory={loadHistory} compileMemory={compileMemory} compileStatus={compileStatus} onClose={() => { setSelected(null) }} />
+        <MemoryDetailDialog
+          memory={memoryById.get(selected.memory_id) ?? selected}
+          loadHistory={loadHistory}
+          compileMemory={compileMemory}
+          compileStatus={compileStatus}
+          onUpdate={updateMemory !== undefined ? async (id, content) => {
+            const updated = await updateMemory(id, content)
+            if (updated !== undefined && updated !== null && typeof updated === 'object' && 'memory_id' in updated) {
+              setSelected(updated)
+            }
+            await onRefresh()
+          } : undefined}
+          onDelete={deleteMemory !== undefined ? async id => {
+            await deleteMemory(id)
+            setSelected(null)
+            await onRefresh()
+          } : undefined}
+          onClose={() => { setSelected(null) }}
+        />
       )}
     </section>
   )
@@ -371,11 +474,4 @@ function Stat({ label, value, tone }: { label: string; value: number | undefined
   return <div className={styles.stat} data-tone={tone}><span>{label}</span><strong>{value ?? '—'}</strong></div>
 }
 
-function formatDate(value: string | null): string {
-  if (value === null) return '时间未知'
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) return '时间未知'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(date)
-}
+

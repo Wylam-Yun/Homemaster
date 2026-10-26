@@ -1,3 +1,4 @@
+import { IconClose } from '../ui/icons'
 import styles from './QueueDock.module.css'
 
 export type QueuedPrompt = {
@@ -38,7 +39,7 @@ export function QueueDock({
               aria-label={`移除排队消息 ${index + 1}`}
               onClick={() => { onRemove(item.id) }}
             >
-              ✕
+              <IconClose size={12} />
             </button>
           </li>
         ))}

@@ -303,6 +303,31 @@ export type MetaInfo = {
   environment: string | null
 }
 
+export type DoctorCheck = {
+  name: string
+  status: 'PASS' | 'WARN' | 'FAIL' | string
+  message: string
+  impact: string | null
+  suggestion: string | null
+  details: Record<string, unknown>
+}
+
+export type DoctorReport = {
+  live: boolean
+  config_source: string | null
+  checks: DoctorCheck[]
+}
+
+export type SkillResolveResult =
+  | { kind: 'plain' }
+  | {
+      kind: 'skill'
+      name: string
+      arguments: string
+      prompt: string
+      model_override: string | null
+    }
+
 export type SessionStatusInfo = {
   session_id: string
   generation: number
@@ -313,6 +338,7 @@ export type SessionStatusInfo = {
   task_status: string | null
   environment_ref: string | null
   ui_mode?: UiMode | null
+  context_tokens?: number
 }
 
 export type CompactResult = {
@@ -321,11 +347,28 @@ export type CompactResult = {
   revision: number
   triggered: boolean
   kind: string
+  before_tokens?: number | null
+  after_tokens?: number | null
+  context_tokens?: number | null
+}
+
+export type SendMessageAttachment = {
+  attachment_id: string
+  filename: string
+  media_type: string
+}
+
+export type UploadedAttachment = {
+  attachment_id: string
+  filename: string
+  media_type: string
+  size: number
 }
 
 export type SendMessageOptions = {
   provider_name?: string
   model?: string
+  attachments?: SendMessageAttachment[]
 }
 
 /**
@@ -382,6 +425,26 @@ export class HomeMasterApi {
 
   memories(): Promise<MemorySnapshot> {
     return this.request('/api/memories')
+  }
+
+  createMemory(payload: { content: string; memory_type?: 'fact' | 'procedure' }): Promise<{ memory: ManagedMemory; status: string }> {
+    return this.request('/api/memories', {
+      method: 'POST',
+      body: JSON.stringify({ content: payload.content, memory_type: payload.memory_type ?? 'fact' }),
+    })
+  }
+
+  updateMemory(memoryId: string, payload: { content: string }): Promise<{ memory: ManagedMemory; status: string }> {
+    return this.request(`/api/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  deleteMemory(memoryId: string): Promise<{ memory_id: string; deleted: boolean; status: string }> {
+    return this.request(`/api/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'DELETE',
+    })
   }
 
   memoryHistory(memoryId: string): Promise<MemoryHistory> {
@@ -458,8 +521,20 @@ export class HomeMasterApi {
     return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
+  resolveSkill(text: string): Promise<SkillResolveResult> {
+    return this.request('/api/skills/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    })
+  }
+
   meta(): Promise<MetaInfo> {
     return this.request('/api/meta')
+  }
+
+  doctor(options: { live?: boolean } = {}): Promise<DoctorReport> {
+    const suffix = options.live === true ? '?live=true' : ''
+    return this.request(`/api/doctor${suffix}`)
   }
 
   sessionStatus(sessionId: string): Promise<SessionStatusInfo> {
@@ -522,12 +597,25 @@ export class HomeMasterApi {
     )
   }
 
+  uploadAttachment(
+    sessionId: string,
+    payload: { filename: string; media_type: string; data_base64: string },
+  ): Promise<UploadedAttachment> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   sendMessage(sessionId: string, requestId: string, text: string, options: SendMessageOptions = {}): Promise<{ accepted: boolean }> {
-    const body: Record<string, string> = { request_id: requestId, text }
+    const body: Record<string, unknown> = { request_id: requestId, text }
     // Per-message provider/model pass-through: an in-flight turn keeps its
     // starting model; the override takes effect from the next turn.
     if (options.provider_name !== undefined && options.provider_name !== '') body.provider_name = options.provider_name
     if (options.model !== undefined && options.model !== '') body.model = options.model
+    if (options.attachments !== undefined && options.attachments.length > 0) {
+      body.attachments = options.attachments
+    }
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -587,7 +675,14 @@ export class HomeMasterApi {
     })
     // 204 (session delete) and other bodyless responses parse as `{}`.
     const text = await response.text()
-    const payload = (text.length > 0 ? JSON.parse(text) : {}) as Record<string, unknown>
+    let payload: Record<string, unknown> = {}
+    if (text.length > 0) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>
+      } catch {
+        if (response.ok) throw new HttpError(response.status, 'invalid_json', '服务返回了无法解析的响应。', true)
+      }
+    }
     if (!response.ok) {
       throw new HttpError(
         response.status,

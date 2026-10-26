@@ -18,15 +18,53 @@ class CreateSessionRequest(BaseModel):
     session_id: str | None = None
 
 
+class SendMessageAttachment(BaseModel):
+    """Reference to one session-scoped attachment uploaded prior to send."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attachment_id: str = Field(min_length=1, max_length=128)
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="application/octet-stream", max_length=128)
+
+
+class UploadAttachmentRequest(BaseModel):
+    """JSON base64 attachment upload for a session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="application/octet-stream", max_length=128)
+    data_base64: str = Field(min_length=1, max_length=15_000_000)
+
+
 class SendMessageRequest(BaseModel):
     """One immutable browser command submitted for asynchronous execution."""
 
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = Field(min_length=1)
-    text: str = Field(min_length=1)
+    text: str = Field(default="")
     provider_name: str | None = None
     model: str | None = None
+    attachments: list[SendMessageAttachment] = Field(default_factory=list, max_length=20)
+
+
+class CreateMemoryRequest(BaseModel):
+    """Create a user-authored long-term memory in MindMemOS."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=20_000)
+    memory_type: Literal["fact", "procedure"] = "fact"
+
+
+class UpdateMemoryRequest(BaseModel):
+    """Update the text content of an active memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=20_000)
 
 
 class SetSessionModeRequest(BaseModel):
@@ -278,6 +316,7 @@ __all__ = [
     "AnswerQuestionRequest",
     "ApprovalSubmissionRequest",
     "CancelApprovalRequest",
+    "CreateMemoryRequest",
     "CreateSessionRequest",
     "ItemChoiceRequest",
     "ManagedMemoryResponse",
@@ -292,8 +331,11 @@ __all__ = [
     "MemoryStatsResponse",
     "RenameSessionRequest",
     "RevokeGrantRequest",
+    "SendMessageAttachment",
     "SendMessageRequest",
     "SetSessionModeRequest",
     "SkillResolveRequest",
+    "UpdateMemoryRequest",
+    "UploadAttachmentRequest",
     "WebEvent",
 ]

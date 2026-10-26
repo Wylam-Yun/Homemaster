@@ -16,12 +16,21 @@ export type Route =
   | { kind: 'settings' }
   | { kind: 'onboarding' }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    // Malformed escapes in a hand-typed hash must not crash the router.
+    return value
+  }
+}
+
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, '').replace(/^\/+|\/+$/g, '')
   const [head, rest] = path.split('/', 2)
   switch (head) {
     case 'chat':
-      return { kind: 'chat', sessionId: rest === undefined || rest === '' ? null : decodeURIComponent(rest) }
+      return { kind: 'chat', sessionId: rest === undefined || rest === '' ? null : safeDecode(rest) }
     case 'sessions':
       return { kind: 'sessions' }
     case 'memory':

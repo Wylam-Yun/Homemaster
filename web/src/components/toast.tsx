@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
+import { IconClose } from './ui/icons'
 import styles from './toast.module.css'
 
 export type ToastAction = { label: string; onClick: () => void }
@@ -79,7 +80,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   {toast.action.label}
                 </button>
               )}
-              <button type="button" className={styles.close} aria-label="关闭通知" onClick={() => { dismiss(toast.id) }}>✕</button>
+              <button type="button" className={styles.close} aria-label="关闭通知" onClick={() => { dismiss(toast.id) }}><IconClose size={12} /></button>
             </div>
           ))}
         </div>,

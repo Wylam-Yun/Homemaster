@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
-import type { ProviderInfo, ProviderModels } from '../../api/http'
+import type { ProviderInfo, ProviderModels, ProviderProfile } from '../../api/http'
 import styles from './ModelPicker.module.css'
 
 /**
@@ -46,8 +46,6 @@ export function ModelPicker({
   const providerId = useId()
   const modelId = useId()
   const customInputRef = useRef<HTMLInputElement>(null)
-  // The custom-entry editor opens on "自定义…" and stays open while the stored
-  // selection keeps a model that no provider default covers.
   const [customOpen, setCustomOpen] = useState(false)
   const [customDraft, setCustomDraft] = useState('')
   const [enumState, setEnumState] = useState<EnumState | null>(null)
@@ -55,21 +53,19 @@ export function ModelPicker({
   const [enumRetry, setEnumRetry] = useState(0)
 
   const selected = providers.find(item => item.name === value.provider_name)
+  const defaultProvider = providers.find(item => (item as ProviderProfile).is_default === true)
+    ?? providers.find(item => item.kind !== 'embedding' && item.api_key_configured)
   const providerMissing = value.provider_name !== undefined
     && value.provider_name !== ''
     && selected === undefined
 
   useEffect(() => {
     if (providerMissing) return
-    // Selection cleared or provider switched → collapse the custom editor.
     if (value.model === undefined || (selected !== undefined && value.model === selected.model)) {
       setCustomOpen(false)
     }
   }, [providerMissing, selected, value.model])
 
-  // Lazy enumeration: fetch once per provider name, cache the result (incl.
-  // failures) so switching providers back and forth stays free. enumRetry
-  // invalidates the cache entry for the selected provider on "重试".
   useEffect(() => {
     const name = value.provider_name
     if (name === undefined || name === '' || loadModels === undefined) {
@@ -140,14 +136,10 @@ export function ModelPicker({
   }
 
   const showModelControls = selected !== undefined || providerMissing || customOpen
-  // Only 'live' enumerations populate the dropdown — 'fallback' results are
-  // configured-model + template guesses and would mislead the pick.
   const enumForProvider = enumState !== null && enumState.name === value.provider_name ? enumState : null
   const liveModels = enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'live'
     ? enumForProvider.models.models
     : []
-  // A stale/custom model renders as its own option value (never CUSTOM_VALUE)
-  // so it cannot collide with the "自定义…" editor entry.
   const modelSelectValue = customOpen
     ? CUSTOM_VALUE
     : value.model === undefined || value.model === '' || value.model === selected?.model
@@ -182,6 +174,11 @@ export function ModelPicker({
           )}
         </select>
       </label>
+      {!showModelControls && defaultProvider !== undefined && (
+        <span className={styles.activeDefault} title="当前使用系统默认模型，可在下拉框切换其它服务商">
+          当前：{defaultProvider.name}{defaultProvider.model ? ` · ${defaultProvider.model}` : ''}
+        </span>
+      )}
       {showModelControls && !customOpen && (
         <label className={styles.field} htmlFor={modelId}>
           <span className={styles.fieldLabel}>模型</span>
@@ -206,11 +203,11 @@ export function ModelPicker({
         </label>
       )}
       {enumForProvider?.status === 'loading' && (
-        <span className={styles.hint}>枚举模型中…</span>
+        <span className={styles.hint}>正在获取模型列表…</span>
       )}
       {enumForProvider?.status === 'error' && (
         <span className={styles.hint}>
-          在线枚举失败，可手动输入 model id
+          在线枚举失败，可手动输入模型名称
           <button
             type="button"
             className={styles.retryButton}
@@ -222,7 +219,7 @@ export function ModelPicker({
         </span>
       )}
       {enumForProvider?.status === 'ready' && enumForProvider.models?.source === 'fallback' && (
-        <span className={styles.hint}>在线枚举不可用，可手动输入 model id</span>
+        <span className={styles.hint}>在线枚举不可用，可手动输入模型名称</span>
       )}
       {customOpen && (
         <input
@@ -231,7 +228,7 @@ export function ModelPicker({
           type="text"
           value={customDraft}
           disabled={disabled}
-          placeholder="输入 model id，如 claude-sonnet-4"
+          placeholder="输入模型名称，如 claude-sonnet-4"
           aria-label="自定义 model id"
           onChange={event => { setCustomDraft(event.target.value) }}
           onBlur={commitCustom}

@@ -68,7 +68,7 @@ describe('WelcomePanel', () => {
 
   it('sends the suggestion text when a task card is clicked', () => {
     const suggest = vi.fn()
-    render(<WelcomePanel recentSessions={[]} sessionTitle={session => session.title} onSuggestion={suggest} onContinue={vi.fn()} />)
+    render(<WelcomePanel recentSessions={[]} providers={[]} meta={null} memoryCount={undefined} sessionTitle={session => session.title} onSuggestion={suggest} onContinue={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /巡视检查/ }))
     expect(suggest).toHaveBeenCalledWith('巡视客厅，报告有没有遗落的物品')
@@ -76,7 +76,7 @@ describe('WelcomePanel', () => {
 
   it('offers continue entries for recent sessions', () => {
     const cont = vi.fn()
-    render(<WelcomePanel recentSessions={sessions} sessionTitle={session => session.title} onSuggestion={vi.fn()} onContinue={cont} />)
+    render(<WelcomePanel recentSessions={sessions} providers={[]} meta={null} memoryCount={undefined} sessionTitle={session => session.title} onSuggestion={vi.fn()} onContinue={cont} />)
 
     fireEvent.click(screen.getByRole('button', { name: /拿过杯子/ }))
     expect(cont).toHaveBeenCalledWith('session-a')

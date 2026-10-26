@@ -10,6 +10,8 @@ export type ToolCallState = {
   status: 'running' | 'completed' | 'failed'
   output: string
   artifacts: ArtifactRef[]
+  startedAt?: number
+  durationMs?: number | null
 }
 
 export type ApprovalState = {
@@ -299,6 +301,7 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
     case 'tool.started': {
       const id = event.payload.tool_call_id
       const hasSegment = current.segments.some(segment => segment.kind === 'tool' && segment.toolCallId === id)
+      const startedAt = typeof event.ts === 'number' && event.ts > 0 ? event.ts * 1000 : undefined
       turn = {
         ...current,
         tools: { ...current.tools, [id]: {
@@ -308,6 +311,7 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
           status: 'running',
           output: '',
           artifacts: [],
+          ...(startedAt !== undefined ? { startedAt } : {}),
         } },
         segments: hasSegment ? current.segments : [...current.segments, { kind: 'tool', toolCallId: id }],
       }
@@ -317,6 +321,10 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
     case 'tool.failed': {
       const id = event.payload.tool_call_id
       const previous = current.tools[id]
+      const endMs = typeof event.ts === 'number' && event.ts > 0 ? event.ts * 1000 : undefined
+      const durationMs = previous?.startedAt !== undefined && endMs !== undefined && endMs >= previous.startedAt
+        ? Math.round(endMs - previous.startedAt)
+        : undefined
       turn = {
         ...current,
         tools: { ...current.tools, [id]: {
@@ -326,6 +334,8 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
           status: event.type === 'tool.failed' ? 'failed' : 'completed',
           output: event.payload.output,
           artifacts: event.payload.artifacts,
+          ...(previous?.startedAt !== undefined ? { startedAt: previous.startedAt } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
         } },
       }
       break

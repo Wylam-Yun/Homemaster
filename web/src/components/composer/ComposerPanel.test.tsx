@@ -106,7 +106,7 @@ describe('ComposerPanel', () => {
     expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual(['in flight'])
   })
 
-  it('warns on pasted attachments instead of staging them, and clears the warning on session change', () => {
+  it('stages pasted attachments in the rail and clears them on session change', () => {
     const base: ComposerPanelProps = {
       sessionId: 'session-01',
       busy: false,
@@ -122,12 +122,10 @@ describe('ComposerPanel', () => {
     const paste = createEvent.paste(input)
     Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
     fireEvent(input, paste)
-    // 附件没有服务端通道：落地即提示，绝不再进 rail 假装能发。
-    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
-    expect(screen.queryByRole('button', { name: '预览 shot.png' })).toBeNull()
+    expect(screen.getByRole('button', { name: '预览 shot.png' })).toBeInTheDocument()
 
     rerender(<ComposerPanel {...base} sessionId="session-02" />)
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: '预览 shot.png' })).toBeNull()
   })
 
   it('does not submit on Shift+Enter or while disabled/busy', () => {
@@ -251,7 +249,7 @@ describe('ComposerPanel', () => {
     expect(screen.queryByRole('button', { name: '发送消息' })).toBeNull()
   })
 
-  it('warns inline on pasted attachments and still sends plain text afterwards', () => {
+  it('stages pasted attachments in the rail and submits them alongside text', () => {
     const props = renderComposer()
     const input = composerInput()
     const file = new File(['pixels'], 'shot.png', { type: 'image/png' })
@@ -260,17 +258,20 @@ describe('ComposerPanel', () => {
     Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
     fireEvent(input, paste)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
+    expect(screen.getByRole('button', { name: '预览 shot.png' })).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '看图说话' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    // Nothing was staged, so the plain message goes through as text only.
-    expect(props.onSubmit).toHaveBeenCalledWith('看图说话', [])
+    expect(props.onSubmit).toHaveBeenCalledTimes(1)
+    const [sentText, sentAttachments] = (props.onSubmit as ReturnType<typeof vi.fn>).mock.calls[0]!
+    expect(sentText).toBe('看图说话')
+    expect(sentAttachments).toHaveLength(1)
+    expect(sentAttachments[0].name).toBe('shot.png')
     expect(input.value).toBe('')
   })
 
-  it('routes the same attachment warning through the toast provider when mounted', () => {
+  it('warns via toast when an empty file is pasted', () => {
     const props: ComposerPanelProps = {
       sessionId: 'session-01',
       busy: false,
@@ -281,25 +282,26 @@ describe('ComposerPanel', () => {
     }
     render(<ToastProvider><ComposerPanel {...props} /></ToastProvider>)
     const input = composerInput()
-    const file = new File(['pixels'], 'shot.png', { type: 'image/png' })
+    const emptyFile = new File([''], 'empty.png', { type: 'image/png' })
 
     const paste = createEvent.paste(input)
-    Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
+    Object.defineProperty(paste, 'clipboardData', { value: { files: [emptyFile] } })
     fireEvent(input, paste)
 
-    expect(screen.getByRole('status')).toHaveTextContent('附件上传需要服务端支持（规划中）')
+    expect(screen.getByRole('status')).toHaveTextContent('文件「empty.png」为空，已跳过')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('warns on dropped files instead of adding them to the rail', () => {
+  it('stages dropped files in the attachment rail and allows removing them', () => {
     renderComposer()
     const file = new File(['content'], 'notes.txt', { type: 'text/plain' })
 
     fireEvent.dragEnter(document, { dataTransfer: { types: ['Files'] } })
-    expect(screen.getByText('附件上传规划中，暂不支持')).toBeVisible()
+    expect(screen.getByText('松开鼠标即可添加附件')).toBeVisible()
     fireEvent.drop(document, { dataTransfer: { types: ['Files'], files: [file] } })
 
-    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
+    expect(screen.getByText('notes.txt')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '移除附件 notes.txt' }))
     expect(screen.queryByText('notes.txt')).toBeNull()
   })
 

@@ -13,6 +13,30 @@ const TOOL_STATUS_LABEL: Record<ToolCallState['status'], string> = {
   failed: '失败',
 }
 
+const TOOL_FRIENDLY_LABELS: Record<string, string> = {
+  terminal: '执行终端命令',
+  bash: '执行终端命令',
+  run_shell: '执行终端命令',
+  read_file: '读取文件',
+  write_file: '写入文件',
+  edit_file: '编辑文件',
+  search_files: '搜索文件',
+  web_search: '网页搜索',
+  web_fetch: '获取网页内容',
+  mindmemos_search: '检索长期记忆',
+  mindmemos_add: '写入长期记忆',
+  context_memory: '读写会话记忆',
+  load_skill: '加载技能说明',
+  ask_user_question: '向你提问确认',
+  task_planner: '任务规划',
+  robot_manipulate: '家居设备操作',
+  observe: '环境观察',
+}
+
+export function toolDisplayLabel(name: string): string | null {
+  return TOOL_FRIENDLY_LABELS[name] ?? null
+}
+
 export function ToolCallCard({
   tool,
   sessionId,
@@ -22,10 +46,12 @@ export function ToolCallCard({
   sessionId?: string
   defaultOpen?: boolean
 }) {
+  const friendly = toolDisplayLabel(tool.name)
   return (
     <article className={styles.card} data-state={tool.status}>
       <header>
         <span className={styles.dot} aria-hidden />
+        {friendly !== null && <span className={styles.friendly}>{friendly}</span>}
         <strong>{tool.name}</strong>
         <span className={styles.status}>{TOOL_STATUS_LABEL[tool.status] ?? tool.status}</span>
       </header>

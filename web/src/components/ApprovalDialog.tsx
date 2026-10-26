@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { ItemChoice } from '../api/http'
 import type { ApprovalItem } from '../protocol/events'
 import type { ApprovalState } from '../state/conversation'
+import { IconAlert } from './ui/icons'
 import styles from './ApprovalDialog.module.css'
 
 export type ApprovalDecisions = Record<string, ItemChoice>
@@ -188,7 +189,7 @@ export function ApprovalDialog({
     <div className={styles.backdrop} role="dialog" aria-modal="true" aria-labelledby="approval-title">
       <section ref={dialogRef} className={styles.dialog} tabIndex={-1}>
         <header>
-          <span aria-hidden>⚠</span>
+          <span aria-hidden><IconAlert size={18} /></span>
           <div>
             <h2 id="approval-title">权限申请</h2>
             <p>{approval.intentSummary}</p>

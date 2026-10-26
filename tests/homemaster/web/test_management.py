@@ -56,6 +56,10 @@ class FakeMindMemOS:
         self.history_rows = history if history is not None else rows
         self.list_contexts: list[Any] = []
         self.history_calls: list[tuple[str, Any]] = []
+        self.update_calls: list[tuple[str, str, Any]] = []
+        self.add_flat_calls: list[dict[str, Any]] = []
+        self.delete_calls: list[tuple[str, Any]] = []
+        self.update_error: Exception | None = None
 
     async def list_raw_memories(self, context: Any) -> list[SimpleNamespace]:
         self.list_contexts.append(context)
@@ -64,6 +68,24 @@ class FakeMindMemOS:
     async def get_history(self, memory_id: str, context: Any) -> list[SimpleNamespace]:
         self.history_calls.append((memory_id, context))
         return self.history_rows
+
+    async def get_raw(self, memory_id: str, context: Any) -> SimpleNamespace | None:
+        del context
+        return next((row for row in self.rows if row.memory_id == memory_id), None)
+
+    async def update(self, memory_id: str, content: str, context: Any) -> Any:
+        self.update_calls.append((memory_id, content, context))
+        if self.update_error is not None:
+            raise self.update_error
+        return SimpleNamespace(status="ok", memory_id=memory_id)
+
+    async def add_flat(self, content: str, memory_type: str, **kwargs: Any) -> dict[str, Any]:
+        self.add_flat_calls.append({"content": content, "memory_type": memory_type, **kwargs})
+        return {"memory_id": "flat-new"}
+
+    async def delete(self, memory_id: str, context: Any) -> Any:
+        self.delete_calls.append((memory_id, context))
+        return SimpleNamespace(status="ok")
 
 
 class FakeSessions:
@@ -223,3 +245,112 @@ async def test_history_forwards_tenant_scope_and_missing_is_not_found() -> None:
     mindmemos.history_rows = []
     with pytest.raises(MemoryNotFoundError):
         await service.history("missing", tenant_id="tenant-a")
+
+
+@pytest.mark.asyncio
+async def test_update_plain_memory_uses_native_pipeline() -> None:
+    mindmemos = FakeMindMemOS(
+        [raw("m1", session_id=None, status="active", content="old text")]
+    )
+    service = MemoryManagementService(mindmemos=mindmemos, sessions=FakeSessions({}))
+
+    updated = await service.update("m1", "new text", tenant_id="local")
+
+    assert updated.memory_id == "m1"
+    assert mindmemos.update_calls[0][0] == "m1"
+    assert mindmemos.update_calls[0][1] == "new text"
+    assert mindmemos.add_flat_calls == []
+    assert mindmemos.delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_falls_back_to_flat_derived_when_native_update_fails() -> None:
+    mindmemos = FakeMindMemOS(
+        [
+            raw(
+                "m1",
+                session_id=None,
+                status="active",
+                content="old text",
+                memory_type="procedure",
+            ),
+            raw("flat-new", session_id=None, status="active", content="new text"),
+        ]
+    )
+    mindmemos.update_error = RuntimeError("embedding provider offline")
+    service = MemoryManagementService(mindmemos=mindmemos, sessions=FakeSessions({}))
+
+    updated = await service.update("m1", "new text", tenant_id="local")
+
+    assert updated.memory_id == "flat-new"
+    assert mindmemos.add_flat_calls[0]["memory_type"] == "procedure"
+    assert mindmemos.add_flat_calls[0]["lineage_source_memory_id"] == "m1"
+    assert mindmemos.delete_calls[0][0] == "m1"
+
+
+@pytest.mark.asyncio
+async def test_update_fails_closed_on_structured_record() -> None:
+    record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "object", "name": "钥匙"},
+        "predicate": "location",
+        "value": "抽屉",
+        "source": "user_statement",
+    }
+    mindmemos = FakeMindMemOS(
+        [
+            raw(
+                "structured",
+                session_id=None,
+                status="active",
+                content="visible text",
+                metadata={
+                    "request_metadata": {
+                        "record_metadata": [{"record_json": json.dumps(record)}]
+                    }
+                },
+            )
+        ]
+    )
+    service = MemoryManagementService(mindmemos=mindmemos, sessions=FakeSessions({}))
+
+    with pytest.raises(ValueError, match="structured record"):
+        await service.update("structured", "edited", tenant_id="local")
+
+    # Fail-closed: neither the content-only patch nor the lossy fallback ran.
+    assert mindmemos.update_calls == []
+    assert mindmemos.add_flat_calls == []
+    assert mindmemos.delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_fails_closed_on_invalid_structured_record() -> None:
+    mindmemos = FakeMindMemOS(
+        [
+            raw(
+                "corrupt",
+                session_id=None,
+                status="active",
+                content="visible text",
+                metadata={"request_metadata": {"record_json": "not-json"}},
+            )
+        ]
+    )
+    service = MemoryManagementService(mindmemos=mindmemos, sessions=FakeSessions({}))
+
+    with pytest.raises(ValueError, match="structured record"):
+        await service.update("corrupt", "edited", tenant_id="local")
+
+    assert mindmemos.update_calls == []
+    assert mindmemos.add_flat_calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_missing_memory_raises_not_found() -> None:
+    service = MemoryManagementService(
+        mindmemos=FakeMindMemOS([]), sessions=FakeSessions({})
+    )
+
+    with pytest.raises(MemoryNotFoundError):
+        await service.update("missing", "edited", tenant_id="local")

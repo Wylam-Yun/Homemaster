@@ -1,5 +1,34 @@
 # Unreleased
 
+- Web Console review remediation + feature completion: structured
+  memory records (`structure_status` `valid`/`invalid`) now fail
+  closed on PATCH — `memory_views.update()` rejects non-plain records
+  and the route maps it to 422 `memory_update_rejected`, while the UI
+  only renders the edit button for plain memories. Compaction UX now
+  uses sticky notices (`showNotice(..., {sticky: true})`) so progress
+  and error banners survive ~60s model jobs, `manual_micro` is
+  distinguished from `none`/summary, `context.compacted` refreshes
+  `context_tokens` from `after_tokens`, and the dead `contextLimit`
+  plumbing was removed. `selectSession` re-checks the session id
+  after async history load and before attaching the EventSource.
+  Session deletion cleans `var/web_attachments/{id}`, attachment
+  writes loop `os.write` until complete, and filesystem errors are
+  typed. Robustness: safe `decodeURIComponent` for malformed hashes,
+  guarded `JSON.parse` on error bodies, busy composer with staged
+  attachments notifies instead of silently dropping, memory compile
+  polling fetches status first with a longer window, shared
+  date/label helpers deduplicated, sub-12px fonts removed, and
+  `index.html` ships the HomeMaster title with light `theme-color`.
+  New features: a ⌘K command palette (new session, page navigation,
+  theme toggle, live `GET /api/doctor` self-check, session title
+  search, ↑↓/Enter/Esc, discoverable via a ⌘K chip in the sidebar
+  search box), the skills page's fourth filter tab `自定义导入`, a
+  WelcomePanel with four suggestion categories plus a
+  model/memory-tier status strip, and the remaining Unicode glyphs
+  migrated to SVG icons (paperclip/close/file/alert/refresh across
+  composer, queue dock, attachment rail, context meter, reasoning
+  row, tool group, toasts, transcript search, approval dialog, memory
+  and skills pages).
 - Web Console UX remediation: fixed controls whose appearance lied
   about their function — the `▶执行` pill (a mode toggle styled like
   a send button) is now an explicit `执行｜规划` segmented control,

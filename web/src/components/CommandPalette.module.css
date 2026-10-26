@@ -1,0 +1,103 @@
+.backdrop {
+  position: fixed;
+  z-index: 160;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14vh 1rem 1rem;
+  background: rgb(5 8 12 / 55%);
+  backdrop-filter: blur(4px);
+}
+
+.palette {
+  width: min(34rem, 100%);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: .9rem;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg, 0 2rem 5rem rgb(0 0 0 / 35%));
+}
+
+.input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: .85rem 1.1rem;
+  color: var(--text);
+  background: transparent;
+  font-size: .95rem;
+  outline: none;
+}
+
+.input::placeholder { color: var(--muted-2); }
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: .4rem;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.list > li { display: block; }
+
+.section {
+  padding: .4rem .65rem .2rem;
+  color: var(--muted-2);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  border: 0;
+  border-radius: .55rem;
+  padding: .55rem .65rem;
+  color: var(--text);
+  background: transparent;
+  font-size: .85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item[data-active] { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
+
+.itemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemHint {
+  flex: none;
+  color: var(--muted-2);
+  font-size: .75rem;
+}
+
+.empty { padding: 1.2rem .65rem; color: var(--muted); font-size: .85rem; text-align: center; }
+
+.footer {
+  display: flex;
+  gap: 1rem;
+  padding: .55rem 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-2);
+  font-size: .75rem;
+}
+
+.footer kbd {
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: .35rem;
+  padding: .05rem .35rem;
+  color: var(--text);
+  background: var(--surface-2);
+  font-family: inherit;
+}

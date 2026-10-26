@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   HttpError,
+  type DoctorCheck,
+  type DoctorReport,
+  type MetaInfo,
   type ProviderModels,
   type ProviderPayload,
   type ProviderProfile,
@@ -23,6 +26,8 @@ export type SettingsApi = {
   deleteProvider(name: string): Promise<{ deleted: boolean; name: string; default?: string }>
   testProvider(payload: { name: string } | ProviderPayload): Promise<ProviderTestResult>
   providerModels(name: string): Promise<ProviderModels>
+  meta?(): Promise<MetaInfo>
+  doctor?(options?: { live?: boolean }): Promise<DoctorReport>
 }
 
 type Props = {
@@ -30,6 +35,8 @@ type Props = {
   /** Let the shell refresh composer pickers after a write. */
   onProvidersChanged?: () => void
 }
+
+type SettingsTab = 'providers' | 'diagnostics'
 
 type FormState = {
   target: 'new' | { name: string }
@@ -48,6 +55,30 @@ type FormState = {
   error: string | null
 }
 
+const KIND_HUMAN_LABEL: Record<string, string> = {
+  chat: '对话推理',
+  embedding: '记忆向量',
+}
+
+const DOCTOR_CHECK_LABELS: Record<string, string> = {
+  python_environment: 'Python 运行环境',
+  memory_mode: '记忆系统模式',
+  mindmemos_runtime: '记忆引擎安装状态',
+  config_source: '模型与系统配置文件',
+  embedding_endpoint: '向量模型 (Embedding) 接口',
+  memory_backend: '长期记忆数据库 (Neo4j / Qdrant)',
+  ignored_runtime_paths: '运行数据目录隔离',
+  chat_provider_live: '对话模型实时连通性',
+  embedding_provider_live: '向量模型实时连通性',
+}
+
+function doctorCheckTitle(name: string): string {
+  if (name.startsWith('import:')) {
+    return `依赖库检查：${name.slice('import:'.length)}`
+  }
+  return DOCTOR_CHECK_LABELS[name] ?? name
+}
+
 function blankForm(templates: ProviderTemplate[], hasProviders: boolean): FormState {
   const template = templates[0]
   return {
@@ -60,7 +91,6 @@ function blankForm(templates: ProviderTemplate[], hasProviders: boolean): FormSt
     apiKey: '',
     authType: 'api_key',
     embeddingUrl: '',
-    // Mirror the backend: the first configured provider becomes the default.
     setDefault: !hasProviders,
     saving: false,
     testing: false,
@@ -90,6 +120,7 @@ function formFromProfile(provider: ProviderProfile): FormState {
 
 export function SettingsPage({ api, onProvidersChanged }: Props) {
   const toast = useToast()
+  const [tab, setTab] = useState<SettingsTab>('providers')
   const [providers, setProviders] = useState<ProviderProfile[] | null>(null)
   const [templates, setTemplates] = useState<ProviderTemplate[]>([])
   const [listError, setListError] = useState<string | null>(null)
@@ -99,20 +130,49 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // System diagnostics tab state
+  const [meta, setMeta] = useState<MetaInfo | null>(null)
+  const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null)
+  const [doctorLoading, setDoctorLoading] = useState(false)
+  const [doctorError, setDoctorError] = useState<string | null>(null)
+
   const refresh = useCallback(async () => {
     try {
       const listed = await api.providers()
       setProviders(listed.providers)
       setListError(null)
     } catch (error) {
-      setListError(error instanceof Error ? error.message : 'Provider 列表加载失败。')
+      setListError(error instanceof Error ? error.message : '服务商列表加载失败。')
     }
   }, [api])
 
   useEffect(() => {
     void refresh()
     void api.providerTemplates().then(result => { setTemplates(result.templates) }).catch(() => {})
+    if (api.meta !== undefined) {
+      void api.meta().then(setMeta).catch(() => {})
+    }
   }, [api, refresh])
+
+  const runDoctor = useCallback(async (live: boolean) => {
+    if (api.doctor === undefined) return
+    setDoctorLoading(true)
+    setDoctorError(null)
+    try {
+      const report = await api.doctor({ live })
+      setDoctorReport(report)
+    } catch (error) {
+      setDoctorError(error instanceof Error ? error.message : '系统诊断执行失败。')
+    } finally {
+      setDoctorLoading(false)
+    }
+  }, [api])
+
+  useEffect(() => {
+    if (tab === 'diagnostics' && doctorReport === null && !doctorLoading && api.doctor !== undefined) {
+      void runDoctor(false)
+    }
+  }, [api.doctor, doctorLoading, doctorReport, runDoctor, tab])
 
   const selectedTemplate = useMemo(
     () => templates.find(template => template.key === form?.templateKey) ?? null,
@@ -143,7 +203,6 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
       templateKey: key,
       baseUrl: template?.base_url ?? '',
       model: template?.model ?? '',
-      // keyless templates (Ollama) take no key; stale input must not leak in.
       apiKey: template?.keyless === true ? '' : form?.apiKey ?? '',
       authType: 'api_key',
     })
@@ -166,7 +225,6 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
       if (form.templateKey !== '') payload.template = form.templateKey
       if (form.apiKey.trim().length > 0) payload.api_key = form.apiKey.trim()
     } else {
-      // PATCH: api_key is write-only; "" keeps the stored keys untouched.
       if (form.apiKey.trim().length > 0) payload.api_key = form.apiKey.trim()
     }
     return payload
@@ -214,7 +272,7 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
     if (form === null) return
     const payload = buildPayload()
     if (isNew && (payload.name === undefined || payload.name === '')) {
-      update({ error: '请填写 provider 名称。' })
+      update({ error: '请填写服务商显示名称。' })
       return
     }
     update({ saving: true, error: null })
@@ -227,7 +285,6 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
       try {
         result = await write(false)
       } catch (error) {
-        // 409 provider_conflict: same name, different settings — offer overwrite.
         const conflict = error instanceof HttpError && error.status === 409
         if (!conflict || form.target !== 'new' ||
           !window.confirm(`provider「${form.name}」已存在且配置不同，覆盖保存？`)) {
@@ -286,7 +343,6 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
   }, [api, onProvidersChanged, refresh, toast])
 
   const predictedDefault = useCallback((deletingName: string): string | null => {
-    // Backend picks the first remaining chat item as the replacement default.
     const next = (providers ?? []).find(item => item.name !== deletingName && item.kind !== 'embedding')
     return next?.name ?? null
   }, [providers])
@@ -294,244 +350,337 @@ export function SettingsPage({ api, onProvidersChanged }: Props) {
   return (
     <section className={styles.page} aria-labelledby="settings-page-title">
       <PageHeader
-        eyebrow="Provider"
+        eyebrow="模型与系统设置"
         title="Provider 设置"
         titleId="settings-page-title"
-        subtitle="管理 chat / embedding provider。保存即时生效，无需重启。"
+        subtitle="配置对话推理大模型与长期记忆向量模型（Embedding），或执行系统运行环境自检。所有配置保存后即时生效，无需重启。"
         actions={
-          <button type="button" className={styles.primary} onClick={openNew} disabled={form !== null}>
-            ＋ 新增 provider
-          </button>
+          tab === 'providers' ? (
+            <button type="button" className={styles.primary} onClick={openNew} disabled={form !== null}>
+              ＋ 新增 provider
+            </button>
+          ) : (
+            <div className={styles.cardActions}>
+              <button type="button" onClick={() => { void runDoctor(false) }} disabled={doctorLoading}>
+                {doctorLoading ? '诊断中…' : '快速自检'}
+              </button>
+              <button type="button" className={styles.primary} onClick={() => { void runDoctor(true) }} disabled={doctorLoading}>
+                {doctorLoading ? '测试中…' : '真实模型连通自检'}
+              </button>
+            </div>
+          )
         }
       />
 
-      {listError !== null && (
-        <div className={styles.error} role="alert">
-          <div><strong>Provider 列表加载失败</strong><span>{listError}</span></div>
-          <button type="button" onClick={() => { void refresh() }}>重新加载</button>
+      {api.doctor !== undefined && (
+        <div className={styles.tabs} role="tablist" aria-label="设置分类">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'providers'}
+            onClick={() => { setTab('providers') }}
+          >
+            模型服务商 ({providers?.length ?? 0})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'diagnostics'}
+            onClick={() => { setTab('diagnostics') }}
+          >
+            系统状态与环境诊断
+          </button>
         </div>
       )}
 
-      {providers !== null && providers.length === 0 && form === null && (
-        <div className={styles.empty}>
-          还没有配置 provider。<Link to="#/onboarding">打开引导向导</Link>，或点「新增 provider」手动配置。
+      {tab === 'providers' && <>
+        {listError !== null && (
+          <div className={styles.error} role="alert">
+            <div><strong>服务商列表加载失败</strong><span>{listError}</span></div>
+            <button type="button" onClick={() => { void refresh() }}>重新加载</button>
+          </div>
+        )}
+
+        {providers !== null && providers.length === 0 && form === null && (
+          <div className={styles.empty}>
+            还没有配置模型服务商。<Link to="#/onboarding">打开三步配置向导</Link>，或点右上角「新增 provider」手动添加。
+          </div>
+        )}
+
+        <div className={styles.list}>
+          {(providers ?? []).map(provider => {
+            const rowTest = rowTests[provider.name]
+            const modelsOpen = modelsPanel?.name === provider.name
+            const kindValue = provider.kind || 'chat'
+            const humanKind = KIND_HUMAN_LABEL[kindValue]
+            return (
+              <article className={styles.card} key={provider.name}>
+                <div className={styles.cardMain}>
+                  <div className={styles.cardTitle}>
+                    <strong>{provider.name}</strong>
+                    {humanKind !== undefined && <span className={styles.humanKind}>{humanKind}</span>}
+                    <span className={styles.badge}>{kindValue}</span>
+                    {provider.is_default === true && <span className={styles.defaultBadge}>默认对话模型</span>}
+                    <span className={styles.keyState} data-configured={provider.api_key_configured}>
+                      {provider.api_key_configured ? `已配置 Key ×${provider.api_key_count}` : '未配置 Key'}
+                    </span>
+                  </div>
+                  <div className={styles.cardMeta}>
+                    <span>接口协议：{provider.api_format}（{provider.auth_type}）</span>
+                    <span>模型：<code className={styles.mono}>{provider.model}</code></span>
+                    <span>地址：<code className={styles.mono}>{provider.base_url}</code></span>
+                  </div>
+                  <div className={styles.cardActions}>
+                    <button type="button" onClick={() => { void runTest('row', provider.name) }} disabled={rowTest === 'running'}>
+                      {rowTest === 'running' ? '测试中…' : '测试连接'}
+                    </button>
+                    <button type="button" onClick={() => { void listModels(provider.name) }}>
+                      {modelsOpen ? '刷新模型列表' : '枚举可用模型'}
+                    </button>
+                    {provider.is_default !== true && provider.kind !== 'embedding' && (
+                      <button type="button" onClick={() => { void setDefaultProvider(provider) }}>设为默认</button>
+                    )}
+                    <button type="button" onClick={() => { openEdit(provider) }}>编辑</button>
+                    <button
+                      type="button"
+                      className={styles.danger}
+                      onClick={() => { setConfirmDelete(current => (current === provider.name ? null : provider.name)); setForm(null) }}
+                    >删除</button>
+                  </div>
+                </div>
+
+                {confirmDelete === provider.name && (
+                  <div className={styles.confirm} role="alert">
+                    <span>
+                      确认删除「{provider.name}」？此操作不可撤销。
+                      {predictedDefault(provider.name) !== null && ` 若它是默认 provider，默认将移到 ${predictedDefault(provider.name)}。`}
+                    </span>
+                    <button type="button" className={styles.danger} disabled={deleting} onClick={() => { void remove(provider) }}>
+                      {deleting ? '删除中…' : '确认删除'}
+                    </button>
+                    <button type="button" onClick={() => { setConfirmDelete(null) }}>取消</button>
+                  </div>
+                )}
+
+                {rowTest !== undefined && rowTest !== 'running' && <ProviderTestResultCard result={rowTest} />}
+
+                {modelsOpen && (
+                  <div className={styles.models} aria-label={`${provider.name} 可用模型`}>
+                    {modelsPanel.loading && <span className={styles.muted}>正在枚举模型…</span>}
+                    {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
+                    {!modelsPanel.loading && modelsPanel.error === null && (
+                      <>
+                        {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
+                        {modelsPanel.models.length === 0
+                          ? <span className={styles.muted}>无可用模型</span>
+                          : modelsPanel.models.map(model => <span className={styles.modelChip} key={model}>{model}</span>)}
+                      </>
+                    )}
+                  </div>
+                )}
+              </article>
+            )
+          })}
         </div>
-      )}
 
-      <div className={styles.list}>
-        {(providers ?? []).map(provider => {
-          const rowTest = rowTests[provider.name]
-          const modelsOpen = modelsPanel?.name === provider.name
-          return (
-            <article className={styles.card} key={provider.name}>
-              <div className={styles.cardMain}>
-                <div className={styles.cardTitle}>
-                  <strong>{provider.name}</strong>
-                  <span className={styles.badge}>{provider.kind || 'chat'}</span>
-                  {provider.is_default === true && <span className={styles.defaultBadge}>默认</span>}
-                  <span className={styles.keyState} data-configured={provider.api_key_configured}>
-                    {provider.api_key_configured ? `已配置 Key ×${provider.api_key_count}` : '未配置 Key'}
-                  </span>
-                </div>
-                <div className={styles.cardMeta}>
-                  <span>{provider.api_format} · {provider.auth_type}</span>
-                  <span className={styles.mono}>{provider.model}</span>
-                  <span className={styles.mono}>{provider.base_url}</span>
-                </div>
-                <div className={styles.cardActions}>
-                  <button type="button" onClick={() => { void runTest('row', provider.name) }} disabled={rowTest === 'running'}>
-                    {rowTest === 'running' ? '测试中…' : '测试连接'}
-                  </button>
-                  <button type="button" onClick={() => { void listModels(provider.name) }}>
-                    {modelsOpen ? '刷新模型列表' : '枚举可用模型'}
-                  </button>
-                  {provider.is_default !== true && provider.kind !== 'embedding' && (
-                    <button type="button" onClick={() => { void setDefaultProvider(provider) }}>设为默认</button>
-                  )}
-                  <button type="button" onClick={() => { openEdit(provider) }}>编辑</button>
-                  <button
-                    type="button"
-                    className={styles.danger}
-                    onClick={() => { setConfirmDelete(current => (current === provider.name ? null : provider.name)); setForm(null) }}
-                  >删除</button>
-                </div>
-              </div>
-
-              {confirmDelete === provider.name && (
-                <div className={styles.confirm} role="alert">
-                  <span>
-                    确认删除「{provider.name}」？此操作不可撤销。
-                    {predictedDefault(provider.name) !== null && ` 若它是默认 provider，默认将移到 ${predictedDefault(provider.name)}。`}
-                  </span>
-                  <button type="button" className={styles.danger} disabled={deleting} onClick={() => { void remove(provider) }}>
-                    {deleting ? '删除中…' : '确认删除'}
-                  </button>
-                  <button type="button" onClick={() => { setConfirmDelete(null) }}>取消</button>
-                </div>
+        {form !== null && (
+          <article className={styles.form} aria-label={isNew ? '新增 provider' : `编辑 provider ${editingName ?? ''}`}>
+            <h2>{isNew ? '新增模型服务商' : `编辑服务商「${editingName}」`}</h2>
+            <div className={styles.grid}>
+              {isNew && (
+                <label className={styles.field}>
+                  <span>服务商预设模板</span>
+                  <select value={form.templateKey} onChange={event => { pickTemplate(event.target.value) }} aria-label="Provider 模板">
+                    {templates.map(template => (
+                      <option key={template.key} value={template.key}>{template.title}</option>
+                    ))}
+                    {templates.length === 0 && <option value="">自定义</option>}
+                  </select>
+                </label>
               )}
-
-              {rowTest !== undefined && rowTest !== 'running' && <ProviderTestResultCard result={rowTest} />}
-
-              {modelsOpen && (
-                <div className={styles.models} aria-label={`${provider.name} 可用模型`}>
-                  {modelsPanel.loading && <span className={styles.muted}>正在枚举模型…</span>}
-                  {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
-                  {!modelsPanel.loading && modelsPanel.error === null && (
-                    <>
-                      {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
-                      {modelsPanel.models.length === 0
-                        ? <span className={styles.muted}>无可用模型</span>
-                        : modelsPanel.models.map(model => <span className={styles.modelChip} key={model}>{model}</span>)}
-                    </>
-                  )}
-                </div>
-              )}
-            </article>
-          )
-        })}
-      </div>
-
-      {form !== null && (
-        <article className={styles.form} aria-label={isNew ? '新增 provider' : `编辑 provider ${editingName ?? ''}`}>
-          <h2>{isNew ? '新增 provider' : `编辑 provider「${editingName}」`}</h2>
-          <div className={styles.grid}>
-            {isNew && (
               <label className={styles.field}>
-                <span>模板</span>
-                <select value={form.templateKey} onChange={event => { pickTemplate(event.target.value) }} aria-label="Provider 模板">
-                  {templates.map(template => (
-                    <option key={template.key} value={template.key}>{template.title}</option>
-                  ))}
-                  {templates.length === 0 && <option value="">自定义</option>}
-                </select>
-              </label>
-            )}
-            <label className={styles.field}>
-              <span>名称</span>
-              <input
-                type="text"
-                value={form.name}
-                disabled={!isNew}
-                placeholder={selectedTemplate?.title ?? 'provider 名称'}
-                aria-label="Provider 名称"
-                onChange={event => { update({ name: event.target.value }) }}
-              />
-            </label>
-            <label className={styles.field}>
-              <span>用途 kind</span>
-              <select value={form.kind} onChange={event => { update({ kind: event.target.value }) }} aria-label="Provider 用途">
-                <option value="chat">chat</option>
-                <option value="embedding">embedding</option>
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span>base_url</span>
-              <input
-                type="text"
-                value={form.baseUrl}
-                placeholder="https://api.example.com/v1"
-                aria-label="Base URL"
-                onChange={event => { update({ baseUrl: event.target.value }) }}
-              />
-            </label>
-            <label className={styles.field}>
-              <span>model</span>
-              <div className={styles.inline}>
+                <span>显示名称</span>
                 <input
                   type="text"
-                  value={form.model}
-                  placeholder="模型 id"
-                  aria-label="Model"
-                  onChange={event => { update({ model: event.target.value }) }}
+                  value={form.name}
+                  disabled={!isNew}
+                  placeholder={selectedTemplate?.title ?? '例如：DeepSeek / Claude'}
+                  aria-label="Provider 名称"
+                  onChange={event => { update({ name: event.target.value }) }}
                 />
-                {!isNew && editingName !== null && (
-                  <button type="button" onClick={() => { void listModels(editingName) }}>枚举可用模型</button>
+              </label>
+              <label className={styles.field}>
+                <span>模型用途 (kind)</span>
+                <select value={form.kind} onChange={event => { update({ kind: event.target.value }) }} aria-label="Provider 用途">
+                  <option value="chat">对话推理模型 (chat)</option>
+                  <option value="embedding">长期记忆向量模型 (embedding)</option>
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>接口地址 (base_url)</span>
+                <input
+                  type="text"
+                  value={form.baseUrl}
+                  placeholder="https://api.example.com/v1"
+                  aria-label="Base URL"
+                  onChange={event => { update({ baseUrl: event.target.value }) }}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>默认模型名称 (model)</span>
+                <div className={styles.inline}>
+                  <input
+                    type="text"
+                    value={form.model}
+                    placeholder="填写模型 ID，如 deepseek-chat"
+                    aria-label="Model"
+                    onChange={event => { update({ model: event.target.value }) }}
+                  />
+                  {!isNew && editingName !== null && (
+                    <button type="button" onClick={() => { void listModels(editingName) }}>枚举可用模型</button>
+                  )}
+                </div>
+              </label>
+              {!keyless && (
+                <label className={styles.field}>
+                  <span>API 密钥 (API Key，只写不回显)</span>
+                  <input
+                    type="password"
+                    value={form.apiKey}
+                    placeholder={isNew ? 'sk-…' : '已安全保存，留空则保持原密钥不变'}
+                    aria-label="API Key"
+                    autoComplete="off"
+                    onChange={event => { update({ apiKey: event.target.value }) }}
+                  />
+                </label>
+              )}
+              {keyless && <p className={styles.hint}>该模板为本地免密钥服务（如 Ollama），无需填写 API Key。</p>}
+              {showAuthType && (
+                <label className={styles.field}>
+                  <span>鉴权方式 (auth_type)</span>
+                  <select value={form.authType} onChange={event => { update({ authType: event.target.value }) }} aria-label="Auth type">
+                    <option value="api_key">标准 API Key (x-api-key / Bearer)</option>
+                    <option value="auth_token">Auth Token 令牌 (auth_token)</option>
+                  </select>
+                </label>
+              )}
+              {form.kind === 'embedding' && (
+                <label className={styles.field}>
+                  <span>向量接口完整地址 (embedding_url，可选)</span>
+                  <input
+                    type="text"
+                    value={form.embeddingUrl}
+                    placeholder="留空则根据 base_url 自动拼接 /embeddings"
+                    aria-label="Embedding URL"
+                    onChange={event => { update({ embeddingUrl: event.target.value }) }}
+                  />
+                </label>
+              )}
+              {form.kind !== 'embedding' && (
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={form.setDefault}
+                    onChange={event => { update({ setDefault: event.target.checked }) }}
+                  />
+                  设为默认对话服务商
+                </label>
+              )}
+            </div>
+
+            {!isNew && editingName !== null && modelsPanel !== null && modelsPanel.name === editingName && (
+              <div className={styles.models} aria-label={`${editingName} 可用模型`}>
+                {modelsPanel.loading && <span className={styles.muted}>正在枚举模型…</span>}
+                {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
+                {!modelsPanel.loading && modelsPanel.error === null && (
+                  <>
+                    {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
+                    {modelsPanel.models.length === 0
+                      ? <span className={styles.muted}>无可用模型</span>
+                      : modelsPanel.models.map(model => (
+                        <button
+                          type="button"
+                          className={styles.modelChip}
+                          key={model}
+                          title="点选填入默认模型"
+                          onClick={() => { update({ model }) }}
+                        >{model}</button>
+                      ))}
+                  </>
                 )}
               </div>
-            </label>
-            {!keyless && (
-              <label className={styles.field}>
-                <span>API Key</span>
-                <input
-                  type="password"
-                  value={form.apiKey}
-                  placeholder={isNew ? 'sk-…' : '已配置，留空保持不变'}
-                  aria-label="API Key"
-                  autoComplete="off"
-                  onChange={event => { update({ apiKey: event.target.value }) }}
-                />
-              </label>
             )}
-            {keyless && <p className={styles.hint}>该模板为本地无 Key 服务（如 Ollama），无需 API Key。</p>}
-            {showAuthType && (
-              <label className={styles.field}>
-                <span>auth_type</span>
-                <select value={form.authType} onChange={event => { update({ authType: event.target.value }) }} aria-label="Auth type">
-                  <option value="api_key">api_key</option>
-                  <option value="auth_token">auth_token</option>
-                </select>
-              </label>
-            )}
-            {form.kind === 'embedding' && (
-              <label className={styles.field}>
-                <span>embedding_url</span>
-                <input
-                  type="text"
-                  value={form.embeddingUrl}
-                  placeholder="http://localhost:8080"
-                  aria-label="Embedding URL"
-                  onChange={event => { update({ embeddingUrl: event.target.value }) }}
-                />
-              </label>
-            )}
-            {form.kind !== 'embedding' && (
-              <label className={styles.check}>
-                <input
-                  type="checkbox"
-                  checked={form.setDefault}
-                  onChange={event => { update({ setDefault: event.target.checked }) }}
-                />
-                设为默认 provider
-              </label>
-            )}
-          </div>
 
-          {!isNew && editingName !== null && modelsPanel !== null && modelsPanel.name === editingName && (
-            <div className={styles.models} aria-label={`${editingName} 可用模型`}>
-              {modelsPanel.loading && <span className={styles.muted}>正在枚举模型…</span>}
-              {modelsPanel.error !== null && <span className={styles.errorText}>{modelsPanel.error}</span>}
-              {!modelsPanel.loading && modelsPanel.error === null && (
-                <>
-                  {modelsPanel.source === 'fallback' && <span className={styles.fallbackBadge}>在线枚举不可用，显示兜底列表</span>}
-                  {modelsPanel.models.length === 0
-                    ? <span className={styles.muted}>无可用模型</span>
-                    : modelsPanel.models.map(model => (
-                      <button
-                        type="button"
-                        className={styles.modelChip}
-                        key={model}
-                        title="点选填入 model"
-                        onClick={() => { update({ model }) }}
-                      >{model}</button>
-                    ))}
-                </>
-              )}
+            {form.error !== null && <div className={styles.errorText} role="alert">{form.error}</div>}
+            {form.testResult !== null && <ProviderTestResultCard result={form.testResult} />}
+
+            <div className={styles.formActions}>
+              <button type="button" onClick={() => { void runTest('form', '') }} disabled={form.testing || form.saving}>
+                {form.testing ? '测试中…' : '测试连接'}
+              </button>
+              <button type="button" className={styles.primary} onClick={() => { void save() }} disabled={form.saving || form.testing}>
+                {form.saving ? '保存中…' : '保存'}
+              </button>
+              <button type="button" onClick={() => { setForm(null) }}>取消</button>
+            </div>
+          </article>
+        )}
+      </>}
+
+      {tab === 'diagnostics' && (
+        <div className={styles.diagnosticsPanel} aria-label="系统状态与环境诊断">
+          {meta !== null && (
+            <div className={styles.metaGrid}>
+              <div className={styles.metaCard}>
+                <span>系统版本</span>
+                <strong>v{meta.version}</strong>
+              </div>
+              <div className={styles.metaCard}>
+                <span>运行环境</span>
+                <strong>{meta.environment === 'home' ? '家居环境 (Home)' : meta.environment === 'browser' ? '浏览器环境 (Browser)' : meta.environment ?? '标准工作台'}</strong>
+              </div>
+              <div className={styles.metaCard}>
+                <span>记忆系统档位</span>
+                <strong>{meta.memory_mode === 'full' ? '完整图谱记忆档 (full)' : '轻量文件记忆档 (files)'}</strong>
+              </div>
+              <div className={styles.metaCard}>
+                <span>配置文件路径</span>
+                <strong><code>{doctorReport?.config_source ?? '默认路径'}</code></strong>
+              </div>
             </div>
           )}
 
-          {form.error !== null && <div className={styles.errorText} role="alert">{form.error}</div>}
-          {form.testResult !== null && <ProviderTestResultCard result={form.testResult} />}
+          {doctorError !== null && (
+            <div className={styles.error} role="alert">
+              <div><strong>系统诊断失败</strong><span>{doctorError}</span></div>
+              <button type="button" onClick={() => { void runDoctor(false) }}>重试</button>
+            </div>
+          )}
 
-          <div className={styles.formActions}>
-            <button type="button" onClick={() => { void runTest('form', '') }} disabled={form.testing || form.saving}>
-              {form.testing ? '测试中…' : '测试连接'}
-            </button>
-            <button type="button" className={styles.primary} onClick={() => { void save() }} disabled={form.saving || form.testing}>
-              {form.saving ? '保存中…' : '保存'}
-            </button>
-            <button type="button" onClick={() => { setForm(null) }}>取消</button>
-          </div>
-        </article>
+          {doctorLoading && doctorReport === null && (
+            <div className={styles.empty}>正在执行系统环境检查…</div>
+          )}
+
+          {doctorReport !== null && (
+            <div className={styles.checkList}>
+              {doctorReport.checks.map((check: DoctorCheck) => (
+                <article key={check.name} className={styles.checkCard} data-status={check.status}>
+                  <div className={styles.checkHead}>
+                    <span className={styles.checkBadge} data-status={check.status}>
+                      {check.status === 'PASS' ? '正常' : check.status === 'WARN' ? '警告' : '异常'}
+                    </span>
+                    <strong>{doctorCheckTitle(check.name)}</strong>
+                    <code className={styles.mono}>{check.name}</code>
+                  </div>
+                  <p className={styles.checkMessage}>{check.message}</p>
+                  {check.suggestion !== null && (
+                    <p className={styles.checkSuggestion}>建议：{check.suggestion}</p>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </section>
   )

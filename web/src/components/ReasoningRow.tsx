@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { IconChevronDown, IconChevronRight, IconSparkles } from './ui/icons'
 import styles from './ReasoningRow.module.css'
 
 const firstLine = (text: string): string => text.split('\n', 1)[0]
@@ -50,10 +51,10 @@ export function ReasoningRow({
         aria-label={running ? '正在思考' : '思考过程'}
         onClick={() => { setExpanded(value => !value) }}
       >
-        <span className={styles.icon} aria-hidden>✦</span>
+        <span className={styles.icon} aria-hidden><IconSparkles size={13} /></span>
         <span>{running ? '思考中' : settledLabel(durationMs)}</span>
         <span className={styles.summary}>{summary}</span>
-        <span className={styles.chevron} aria-hidden>{expanded ? '⌃' : '⌄'}</span>
+        <span className={styles.chevron} aria-hidden>{expanded ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}</span>
       </button>
       {expanded && <pre className={styles.body}>{text}</pre>}
     </section>

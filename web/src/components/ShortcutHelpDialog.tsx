@@ -73,9 +73,11 @@ export function ShortcutHelpDialog({ onClose }: { onClose: () => void }) {
 export function GlobalShortcuts({
   onTranscriptSearch,
   onToggleHelp,
+  onCommandPalette,
 }: {
   onTranscriptSearch?: () => void
   onToggleHelp?: () => void
+  onCommandPalette?: () => void
 }) {
   useEffect(() => {
     const unregister = [
@@ -85,6 +87,13 @@ export function GlobalShortcuts({
         description: '转录内搜索（对话页）',
         handler: () => { onTranscriptSearch?.() },
         when: () => onTranscriptSearch !== undefined,
+      }),
+      registerShortcut({
+        id: 'global.command-palette',
+        keys: SHORTCUTS.commandPalette,
+        description: '命令面板（快速操作与会话跳转）',
+        handler: () => { onCommandPalette?.() },
+        when: () => onCommandPalette !== undefined,
       }),
       registerShortcut({
         id: 'dialog.shortcut-help',
@@ -99,7 +108,7 @@ export function GlobalShortcuts({
       detach()
       for (const off of unregister) off()
     }
-  }, [onTranscriptSearch, onToggleHelp])
+  }, [onTranscriptSearch, onToggleHelp, onCommandPalette])
 
   return null
 }

@@ -1,11 +1,13 @@
-.picker { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.picker { display: flex; align-items: center; gap: .45rem; min-width: 0; flex-wrap: wrap; }
 .field { display: inline-flex; align-items: center; gap: .35rem; min-width: 0; }
-.fieldLabel { color: var(--muted-2); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.select { min-width: 0; max-width: 12rem; border: 1px solid var(--border); border-radius: .45rem; padding: .25rem .45rem; color: var(--text); background: var(--surface-2); font: inherit; font-size: .78rem; cursor: pointer; }
+.fieldLabel { color: var(--muted-2); font-size: var(--text-xs); font-weight: 600; }
+.select { min-width: 0; max-width: 14rem; border: 1px solid var(--border); border-radius: .45rem; padding: .28rem .55rem; color: var(--text); background: var(--surface); font: inherit; font-size: var(--text-xs); font-weight: 500; cursor: pointer; }
+.select:hover:not(:disabled) { border-color: var(--border-strong); }
 .select:disabled { opacity: .55; cursor: default; }
 .select option:disabled { color: var(--muted-2); }
-.customInput { width: 13rem; border: 1px solid var(--accent-soft); border-radius: .45rem; padding: .25rem .45rem; color: var(--text); background: var(--surface-2); font: inherit; font-size: .78rem; }
+.activeDefault { padding: 2px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); font-family: "SF Mono", Consolas, monospace; }
+.customInput { width: 13rem; border: 1px solid var(--accent); border-radius: .45rem; padding: .28rem .55rem; color: var(--text); background: var(--surface); font: inherit; font-size: var(--text-xs); }
 .customInput:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.hint { color: var(--muted-2); font-size: .72rem; white-space: nowrap; }
-.retryButton { border: 0; background: none; color: var(--accent); font: inherit; font-size: .72rem; cursor: pointer; padding: 0 .3rem; text-decoration: underline; }
+.hint { color: var(--muted-2); font-size: var(--text-xs); white-space: nowrap; }
+.retryButton { border: 0; background: none; color: var(--accent); font: inherit; font-size: var(--text-xs); cursor: pointer; padding: 0 .3rem; text-decoration: underline; }
 .retryButton:disabled { color: var(--muted-2); cursor: default; text-decoration: none; }

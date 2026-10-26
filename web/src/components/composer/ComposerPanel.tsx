@@ -14,6 +14,7 @@ import type { ProviderInfo, ProviderModels, SessionStatusInfo } from '../../api/
 import type { UiMode, Usage } from '../../protocol/events'
 import type { ApprovalState, PendingQuestionState } from '../../state/conversation'
 import { useToastOptional } from '../toast'
+import { IconPaperclip } from '../ui/icons'
 import { AttachmentRail, type AttachmentDraft } from './AttachmentRail'
 import { ContextMeter } from './ContextMeter'
 import { ModeBadge } from './ModeBadge'
@@ -65,7 +66,7 @@ export interface ComposerPanelProps {
   /** 上下文用量环：最近回合 usage + session status 明细 + compact 按钮。 */
   usage?: Usage | null
   sessionStatus?: SessionStatusInfo | null
-  contextLimit?: number | null
+  compacting?: boolean
   onCompact?(): void
   /** Composer 接管：pending question 换成问答卡；pending approval 显示等待态。 */
   pendingQuestion?: PendingQuestionState | null
@@ -74,7 +75,7 @@ export interface ComposerPanelProps {
 }
 
 const MAX_TEXTAREA_HEIGHT_PX = 144 // ~6 rows at line-height 1.5
-const ATTACHMENTS_UNSUPPORTED = '附件上传需要服务端支持（规划中）'
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10 MiB
 
 type MenuState =
   | { kind: 'slash'; query: string; tokenStart: number }
@@ -102,7 +103,7 @@ export function ComposerPanel({
   loadModels,
   usage,
   sessionStatus,
-  contextLimit,
+  compacting = false,
   onCompact,
   pendingQuestion,
   onAnswerQuestion,
@@ -116,6 +117,7 @@ export function ComposerPanel({
   const [dragging, setDragging] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const composingRef = useRef(false)
   const pendingCaretRef = useRef<number | null>(null)
   const mentionSeqRef = useRef(0)
@@ -192,10 +194,32 @@ export function ComposerPanel({
     noticeTimerRef.current = setTimeout(() => { setNotice(null) }, 5000)
   }, [toast])
 
-  // 附件上传尚无服务端通道：粘贴/拖拽落地时就告知，不再收进 rail 制造"能发"的假象。
   const addFiles = useCallback((files: Iterable<File>) => {
-    if (Array.from(files).length === 0) return
-    notifyUnsupported(ATTACHMENTS_UNSUPPORTED)
+    const incoming = Array.from(files)
+    if (incoming.length === 0) return
+    const accepted: AttachmentDraft[] = []
+    for (const file of incoming) {
+      if (file.size === 0) {
+        notifyUnsupported(`文件「${file.name}」为空，已跳过`)
+        continue
+      }
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        notifyUnsupported(`文件「${file.name}」超过 10 MB 大小限制`)
+        continue
+      }
+      const blobUrl = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : ''
+      accepted.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        mime: file.type || 'application/octet-stream',
+        blobUrl,
+        file,
+      })
+    }
+    if (accepted.length > 0) {
+      setAttachments(previous => [...previous, ...accepted])
+    }
   }, [notifyUnsupported])
 
   // Full-page drag overlay: only drags carrying Files raise it.
@@ -351,15 +375,18 @@ export function ComposerPanel({
   const submit = (): void => {
     if (disabled) return
     const trimmed = text.trim()
-    if (trimmed.length === 0 && attachments.length === 0) return
-    // No upload channel exists yet: keep the draft, never drop attachments silently.
-    if (attachments.length > 0) {
-      notifyUnsupported(ATTACHMENTS_UNSUPPORTED)
-      return
-    }
+    const stagedAttachments = attachments
+    if (trimmed.length === 0 && stagedAttachments.length === 0) return
     // busy 时 Enter/发送按钮把消息排进本地队列——输入不丢，回合终态自动按序发出。
     if (busy) {
-      if (onEnqueue === undefined) return
+      if (stagedAttachments.length > 0) {
+        notifyUnsupported('附件暂不支持排队发送，请等待当前任务完成后再试。')
+        return
+      }
+      if (onEnqueue === undefined) {
+        notifyUnsupported('当前任务仍在运行，请稍候再发送。')
+        return
+      }
       onEnqueue(trimmed)
       history.record(trimmed)
       setText('')
@@ -372,9 +399,7 @@ export function ComposerPanel({
     // text and persists it as the session draft so typing is never lost.
     const finish = (sent: boolean): void => {
       if (sent) {
-        history.record(trimmed)
-        // The send resolved asynchronously — the user may have typed more in
-        // the meantime, so drop only the submitted prefix and keep the rest.
+        if (trimmed.length > 0) history.record(trimmed)
         const current = textareaRef.current?.value ?? text
         const leftover = current === text
           ? ''
@@ -382,6 +407,10 @@ export function ComposerPanel({
         setText(leftover)
         if (leftover.length === 0) history.clearDraft()
         else history.persistDraft(leftover)
+        for (const item of stagedAttachments) {
+          if (item.blobUrl) URL.revokeObjectURL(item.blobUrl)
+        }
+        setAttachments(previous => previous.filter(item => !stagedAttachments.some(s => s.id === item.id)))
         closeMenu()
       } else {
         history.persistDraft(text)
@@ -390,7 +419,7 @@ export function ComposerPanel({
     }
     let outcome: void | Promise<boolean>
     try {
-      outcome = onSubmit(trimmed, [])
+      outcome = onSubmit(trimmed, stagedAttachments)
     } catch {
       outcome = Promise.resolve(false)
     }
@@ -552,8 +581,8 @@ export function ComposerPanel({
           <ContextMeter
             usage={usage ?? null}
             status={sessionStatus ?? null}
-            contextLimit={contextLimit}
-            disabled={disabled}
+            disabled={disabled || busy}
+            compacting={compacting}
             onCompact={onCompact}
           />
           <ModeBadge mode={mode} disabled={disabled || onModeChange === undefined} onToggle={next => { onModeChange?.(next) }} />
@@ -654,15 +683,39 @@ export function ComposerPanel({
             ↑
           </button>
         )}
-        <small className={styles.hint}>
-          {busy && onEnqueue !== undefined ? 'Enter 加入队列 · Esc 中断运行' : 'Enter 发送 · Shift+Enter 换行'}
-        </small>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          aria-label="选择附件文件"
+          onChange={event => {
+            const list = event.target.files
+            if (list && list.length > 0) addFiles(list)
+            event.target.value = ''
+          }}
+        />
+        <div className={styles.bottomBar}>
+          <button
+            type="button"
+            className={styles.attachBtn}
+            disabled={disabled}
+            aria-label="添加附件"
+            title="上传图片、代码或文档附件（也可直接粘贴或拖拽）"
+            onClick={() => { fileInputRef.current?.click() }}
+          >
+            <IconPaperclip size={14} /> 添加附件
+          </button>
+          <small className={styles.hint}>
+            {busy && onEnqueue !== undefined ? 'Enter 加入队列 · Esc 中断运行' : 'Enter 发送 · Shift+Enter 换行 · 支持粘贴/拖拽文件'}
+          </small>
+        </div>
       </div>
       )}
       {notice !== null && <div className={styles.notice} role="alert">{notice}</div>}
       {dragging && (
         <div className={styles.dropOverlay} role="presentation">
-          <div className={styles.dropBox}>附件上传规划中，暂不支持</div>
+          <div className={styles.dropBox}>松开鼠标即可添加附件</div>
         </div>
       )}
     </div>

@@ -166,4 +166,29 @@ describe('SettingsPage', () => {
     expect(await screen.findByText(/已删除 provider「embedder」/)).toBeInTheDocument()
     expect(screen.getByText(/当前默认 provider：primary/)).toBeInTheDocument()
   })
+
+  it('switches to the system diagnostics tab and renders /api/doctor checks', async () => {
+    const calls = renderPage({
+      'GET /api/providers': { body: PROVIDERS },
+      'GET /api/provider-templates': { body: TEMPLATES },
+      'GET /api/meta': { body: { version: '0.2.0', memory_mode: 'full', environment: 'home' } },
+      'GET /api/doctor': {
+        body: {
+          live: false,
+          config_source: 'config/homemaster.yaml',
+          checks: [
+            { name: 'python_environment', status: 'PASS', message: 'python ok', impact: null, suggestion: null, details: {} },
+            { name: 'memory_backend', status: 'FAIL', message: 'neo4j unreachable', impact: null, suggestion: 'Start Neo4j first.', details: {} },
+          ],
+        },
+      },
+    })
+
+    fireEvent.click(await screen.findByRole('tab', { name: '系统状态与环境诊断' }))
+
+    expect(await screen.findByText('Python 运行环境')).toBeInTheDocument()
+    expect(screen.getByText('长期记忆数据库 (Neo4j / Qdrant)')).toBeInTheDocument()
+    expect(screen.getByText('建议：Start Neo4j first.')).toBeInTheDocument()
+    expect(calls.some(call => call.key === 'GET /api/doctor')).toBe(true)
+  })
 })

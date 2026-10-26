@@ -220,6 +220,16 @@ describe('ContextMeter', () => {
     fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }))
     expect(onCompact).toHaveBeenCalledTimes(1)
   })
+
+  it('disables the compact button and shows progress while compacting', () => {
+    const onCompact = vi.fn()
+    render(<ContextMeter usage={null} status={null} compacting onCompact={onCompact} />)
+    const button = screen.getByRole('button', { name: '压缩上下文' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveTextContent('压缩中')
+    fireEvent.click(button)
+    expect(onCompact).not.toHaveBeenCalled()
+  })
 })
 
 describe('QueueDock', () => {

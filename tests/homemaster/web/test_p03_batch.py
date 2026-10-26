@@ -182,6 +182,21 @@ def test_delete_in_memory_only_session() -> None:
         assert client.get("/api/sessions").json()["sessions"] == []
 
 
+def test_delete_session_removes_uploaded_attachments(tmp_path) -> None:
+    application = _P03Application()
+    application.working_directory = tmp_path
+    app = _app(application)
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        attachment_dir = tmp_path / "var" / "web_attachments" / session_id
+        attachment_dir.mkdir(parents=True)
+        (attachment_dir / "upload.txt").write_text("payload", encoding="utf-8")
+
+        assert client.delete(f"/api/sessions/{session_id}").status_code == 204
+        assert not attachment_dir.exists()
+
+
 def test_delete_session_during_active_run_is_conflict(tmp_path) -> None:
     application = _P03Application(session_root=tmp_path)
     app = _app(application)

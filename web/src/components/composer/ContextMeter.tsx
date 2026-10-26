@@ -1,5 +1,6 @@
 import type { SessionStatusInfo } from '../../api/http'
 import type { Usage } from '../../protocol/events'
+import { IconRefresh } from '../ui/icons'
 import styles from './ContextMeter.module.css'
 
 // The status endpoint carries no context-window size yet; the ring's
@@ -7,21 +8,26 @@ import styles from './ContextMeter.module.css'
 // future status field) reveals the real window.
 export const FALLBACK_CONTEXT_TOKENS = 200_000
 
-function contextTokens(usage: Usage | null): number {
-  if (usage === null) return 0
-  // Per-request prompt size is the real window occupancy; the *_tokens fields
-  // are session-cumulative billing counters, kept as fallback for older
-  // servers that predate the context_tokens field.
-  const context = usage.context_tokens
-  if (typeof context === 'number' && Number.isFinite(context)) {
-    return Math.max(0, context)
+function contextTokens(usage: Usage | null, status?: SessionStatusInfo | null): number {
+  if (usage !== null) {
+    // Per-request prompt size is the real window occupancy; the *_tokens fields
+    // are session-cumulative billing counters, kept as fallback for older
+    // servers that predate the context_tokens field.
+    const context = usage.context_tokens
+    if (typeof context === 'number' && Number.isFinite(context)) {
+      return Math.max(0, context)
+    }
+    if (typeof usage.total_tokens === 'number' && Number.isFinite(usage.total_tokens)) {
+      return Math.max(0, usage.total_tokens)
+    }
+    const input = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0
+    const output = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0
+    if (input + output > 0) return Math.max(0, input + output)
   }
-  if (typeof usage.total_tokens === 'number' && Number.isFinite(usage.total_tokens)) {
-    return Math.max(0, usage.total_tokens)
+  if (status !== null && status !== undefined && typeof status.context_tokens === 'number' && Number.isFinite(status.context_tokens)) {
+    return Math.max(0, status.context_tokens)
   }
-  const input = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0
-  const output = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0
-  return Math.max(0, input + output)
+  return 0
 }
 
 function formatTokens(tokens: number): string {
@@ -36,21 +42,18 @@ function formatTokens(tokens: number): string {
 export function ContextMeter({
   usage,
   status,
-  contextLimit,
   disabled = false,
+  compacting = false,
   onCompact,
 }: {
   usage: Usage | null
   status: SessionStatusInfo | null
-  /** Observed context ceiling (e.g. the last compaction's before_tokens). */
-  contextLimit?: number | null
   disabled?: boolean
+  compacting?: boolean
   onCompact?: () => void
 }) {
-  const tokens = contextTokens(usage)
-  const limit = contextLimit !== undefined && contextLimit !== null && contextLimit > 0
-    ? contextLimit
-    : FALLBACK_CONTEXT_TOKENS
+  const tokens = contextTokens(usage, status)
+  const limit = FALLBACK_CONTEXT_TOKENS
   const fraction = Math.min(1, tokens / limit)
   const percent = Math.round(fraction * 100)
 
@@ -87,11 +90,12 @@ export function ContextMeter({
           type="button"
           className={styles.compact}
           aria-label="压缩上下文"
-          title="手动触发上下文压缩"
-          disabled={disabled}
+          title={compacting ? '正在压缩对话上下文，请稍候…' : '手动触发上下文压缩'}
+          disabled={disabled || compacting}
+          data-compacting={compacting || undefined}
           onClick={onCompact}
         >
-          压缩
+          {compacting ? <><IconRefresh size={12} className={styles.spin} /> 压缩中…</> : '压缩'}
         </button>
       )}
     </div>

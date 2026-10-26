@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconClose } from './ui/icons'
 import styles from './TranscriptSearch.module.css'
 
 export type TranscriptSearchEntry = {
@@ -89,7 +90,7 @@ export function TranscriptSearch({
       </span>
       <button type="button" aria-label="上一处" onClick={() => { step(-1) }}>↑</button>
       <button type="button" aria-label="下一处" onClick={() => { step(1) }}>↓</button>
-      <button type="button" aria-label="关闭搜索" onClick={onClose}>✕</button>
+      <button type="button" aria-label="关闭搜索" onClick={onClose}><IconClose size={12} /></button>
     </div>
   )
 }
