@@ -65,6 +65,27 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
     }
     return map
   }, [snapshot])
+  // Graph node labels reuse the list view's human titles — but for episodic /
+  // structured memories whose stored content is a JSON or markdown fragment,
+  // the title is itself unreadable; the session title is the honest anchor.
+  const memoryLabels = useMemo(() => {
+    const junk = /^[{#[\[*]/
+    return Object.fromEntries(
+      allMemories.map(memory => {
+        const title = summarizeMemory(memory).title.trim()
+        const fromSession = memory.session_id !== null
+          ? sessionTitle.get(memory.session_id)
+          : undefined
+        // Session-title fallback repeats per memory in a session; the type
+        // prefix keeps same-session nodes distinguishable and survives the
+        // canvas label truncation.
+        const fallback = fromSession !== undefined
+          ? `${typeLabel(memory.memory_type)} · ${fromSession}`
+          : typeLabel(memory.memory_type)
+        return [memory.memory_id, junk.test(title) ? fallback : title]
+      }),
+    )
+  }, [allMemories, sessionTitle])
 
   const loadGraphData = useCallback(async () => {
     if (loadGraph === undefined || graph !== null || graphLoading) return
@@ -320,13 +341,14 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
                 ))}
                 <span className={styles.legendItem}><span style={{ background: 'var(--muted-2)' }} />实体</span>
               </div>
-              <span className={styles.graphHint}>圆点=记忆 · 小点=实体 · 拖动平移 · 滚轮缩放 · 点击查看详情</span>
+              <span className={styles.graphHint}>圆点=记忆 · 小点=实体 · 连线=提及实体 · 拖动平移 · 滚轮缩放 · 点击查看详情</span>
               {filteredGraph.edges_truncated === true && (
                 <span className={styles.graphHint}>关系过多，仅显示部分连线</span>
               )}
             </div>
             <MemoryGraph
               graph={filteredGraph}
+              memoryLabels={memoryLabels}
               onSelect={memoryId => {
                 const memory = memoryById.get(memoryId)
                 if (memory !== undefined) setSelected(memory)

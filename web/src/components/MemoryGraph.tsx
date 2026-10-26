@@ -54,7 +54,10 @@ const memoryNodeId = (memoryId: string): string => `mem:${memoryId}`
 const entityNodeId = (entityId: string): string => `ent:${entityId}`
 const anchorNodeId = (sessionId: string): string => `ses:${sessionId}`
 
-function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphLink[] } {
+function buildGraph(
+  graph: MemoryGraphData,
+  memoryLabels: Record<string, string> | undefined,
+): { nodes: GraphNode[]; links: GraphLink[] } {
   const nodes = new Map<string, GraphNode>()
   const links: GraphLink[] = []
   const mentioned = new Set<string>()
@@ -63,7 +66,9 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
     nodes.set(memoryNodeId(node.memory_id), {
       id: memoryNodeId(node.memory_id),
       kind: 'memory',
-      label: node.preview,
+      // Structured memories store serialized JSON in preview — the human
+      // label (from summarizeMemory in the page) wins when available.
+      label: memoryLabels?.[node.memory_id] ?? node.preview,
       degree: 0,
       memoryType: node.memory_type,
       memoryId: node.memory_id,
@@ -136,17 +141,22 @@ const nodeLabel = (node: GraphNode): string => {
 
 type Props = {
   graph: MemoryGraphData
+  /** Human labels per memory_id (summarizeMemory titles); raw preview fallback. */
+  memoryLabels?: Record<string, string>
   onSelect: (memoryId: string) => void
 }
 
-export function MemoryGraph({ graph, onSelect }: Props) {
+export function MemoryGraph({ graph, memoryLabels, onSelect }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const groupRef = useRef<SVGGElement>(null)
   const lineRefs = useRef<(SVGLineElement | null)[]>([])
   const edgeLabelRefs = useRef<(SVGTextElement | null)[]>([])
   const nodeRefs = useRef<(SVGGElement | null)[]>([])
   const draggedRef = useRef(false)
-  const { nodes, links } = useMemo(() => buildGraph(graph), [graph])
+  const { nodes, links } = useMemo(
+    () => buildGraph(graph, memoryLabels),
+    [graph, memoryLabels],
+  )
   // DOM order must match this array 1:1 — anchors simulate invisibly but
   // are skipped by the renderer, so they cannot join the d3 data binding.
   const renderedNodes = useMemo(() => nodes.filter(node => node.kind !== 'anchor'), [nodes])
@@ -251,12 +261,16 @@ export function MemoryGraph({ graph, onSelect }: Props) {
                 className={styles.edge}
                 data-rel={link.rel}
               />
-              <text
-                ref={element => { edgeLabelRefs.current[index] = element }}
-                className={styles.edgeLabel}
-              >
-                {link.rel}
-              </text>
+              {/* MENTIONS is the default entity-link semantics; only rarer
+                  relationship types earn an on-canvas label. */}
+              {link.rel !== 'MENTIONS' && (
+                <text
+                  ref={element => { edgeLabelRefs.current[index] = element }}
+                  className={styles.edgeLabel}
+                >
+                  {link.rel}
+                </text>
+              )}
             </g>
           )
         ))}
