@@ -1,5 +1,15 @@
 # Unreleased
 
+- Schema-episode entity prompts: replaced serial placeholder names in
+  the three fixed-domain extraction prompts (`observation-1`,
+  `search-1`, `task-1`) with content-derived stable identities
+  (e.g. "watch on desk 1", "put watch on safe"), and added explicit
+  naming rules forbidding serial placeholders and bare
+  relation/location words. The example names contradicted the entity
+  modeling contract ("stable identity") and were copied verbatim by
+  the extractor, producing `search-1..7`/`observation-N`/`task-N`
+  graph entities. New extractions only; stored entities unchanged.
+  Prompt schema_version bumped to `homemaster.schema_episode.prompts.v2`.
 - Plan evidence cleanup: removed ~335 generated evidence artifacts
   (`png`/`json`/`jsonl`/`log`/`lock`/…) under `plan/` — 47MB → 3.4MB.
   All Markdown plan/design documents are preserved; release-gate
