@@ -62,6 +62,14 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         result = _status_to_dict(status)
         result["ui_mode"] = _session_ui_mode(application, session_id)
+        try:
+            rt = application.session_manager.get(session_id)
+            est = getattr(rt.agent_state, "estimated_context_tokens", 0) or 0
+            if est <= 0 and rt.session.messages:
+                est = sum(len(str(getattr(m, "content", ""))) for m in rt.session.messages) // 3
+            result["context_tokens"] = int(est)
+        except Exception:
+            result["context_tokens"] = 0
         return result
 
     @app.post("/api/sessions/{session_id}/compact")
@@ -125,7 +133,19 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "The session could not be compacted.",
                 retryable=True,
             )
-        return asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
+        payload = asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
+        try:
+            rt = application.session_manager.get(session_id)
+            last_comp = getattr(rt.agent_state, "last_compaction", None)
+            if last_comp is not None and payload.get("triggered"):
+                payload["before_tokens"] = getattr(last_comp, "before_tokens", None)
+                payload["after_tokens"] = getattr(last_comp, "after_tokens", None)
+            est = getattr(rt.agent_state, "estimated_context_tokens", None)
+            if isinstance(est, int) and est > 0:
+                payload["context_tokens"] = est
+        except Exception:
+            pass
+        return payload
 
     @app.post("/api/sessions/{session_id}/archive", status_code=202)
     async def archive_session(session_id: str) -> object:

@@ -65,27 +65,42 @@ export function ShortcutHelpDialog({ onClose }: { onClose: () => void }) {
 
 /**
  * Self-contained global-shortcut wiring: installs the document-level dispatch
- * and registers the built-in handlers (Mod+/ toggles this help page, Mod+F
- * forwards to the transcript search owner). A real command palette lands in
- * P1 — until then Mod+K is deliberately not registered or advertised.
+ * and registers the built-in handlers. The dialog itself is rendered by the
+ * parent via `onToggleHelp` so the topbar '?' entry shares the same state;
+ * Mod+F forwards to the transcript search owner and is gated off on non-chat
+ * routes so the browser's native find stays reachable.
  */
-export function GlobalShortcuts({ onTranscriptSearch }: { onTranscriptSearch?: () => void }) {
-  const [helpOpen, setHelpOpen] = useState(false)
-
+export function GlobalShortcuts({
+  onTranscriptSearch,
+  onToggleHelp,
+  onCommandPalette,
+}: {
+  onTranscriptSearch?: () => void
+  onToggleHelp?: () => void
+  onCommandPalette?: () => void
+}) {
   useEffect(() => {
     const unregister = [
       registerShortcut({
         id: 'transcript.search',
         keys: SHORTCUTS.transcriptSearch,
-        description: '转录内搜索',
+        description: '转录内搜索（对话页）',
         handler: () => { onTranscriptSearch?.() },
         when: () => onTranscriptSearch !== undefined,
+      }),
+      registerShortcut({
+        id: 'global.command-palette',
+        keys: SHORTCUTS.commandPalette,
+        description: '命令面板（快速操作与会话跳转）',
+        handler: () => { onCommandPalette?.() },
+        when: () => onCommandPalette !== undefined,
       }),
       registerShortcut({
         id: 'dialog.shortcut-help',
         keys: SHORTCUTS.shortcutHelp,
         description: '快捷键帮助（本页）',
-        handler: () => { setHelpOpen(open => !open) },
+        handler: () => { onToggleHelp?.() },
+        when: () => onToggleHelp !== undefined,
       }),
     ]
     const detach = installGlobalShortcuts()
@@ -93,7 +108,7 @@ export function GlobalShortcuts({ onTranscriptSearch }: { onTranscriptSearch?: (
       detach()
       for (const off of unregister) off()
     }
-  }, [onTranscriptSearch])
+  }, [onTranscriptSearch, onToggleHelp, onCommandPalette])
 
-  return helpOpen ? <ShortcutHelpDialog onClose={() => { setHelpOpen(false) }} /> : null
+  return null
 }

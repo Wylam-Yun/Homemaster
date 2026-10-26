@@ -1,13 +1,20 @@
 import { useState } from 'react'
 
 import type { ToolRecord } from '../state/projection'
-import { ToolCallCard } from './ToolCallCard'
+import { ToolCallCard, toolDisplayLabel } from './ToolCallCard'
+import { IconCheck, IconChevronDown, IconChevronRight, IconClose } from './ui/icons'
 import styles from './ToolGroup.module.css'
 
-const STATUS_ICON: Record<ToolRecord['status'], string> = {
-  running: '●',
-  completed: '✓',
-  failed: '✕',
+function StatusIcon({ status }: { status: ToolRecord['status'] }) {
+  if (status === 'running') return <span className={styles.pulse} />
+  if (status === 'completed') return <IconCheck size={12} />
+  return <IconClose size={12} />
+}
+
+function formatDuration(ms: number | null | undefined): string | null {
+  if (ms === null || ms === undefined || ms < 0) return null
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 export function ToolGroup({
@@ -29,6 +36,8 @@ export function ToolGroup({
         const toggle = () => {
           setOpenItems(items => ({ ...items, [record.toolCallId]: !expanded }))
         }
+        const label = toolDisplayLabel(record.name)
+        const duration = formatDuration(record.durationMs)
         return (
           <div
             className={styles.item}
@@ -42,10 +51,12 @@ export function ToolGroup({
               aria-label={`工具调用 ${record.name}`}
               onClick={toggle}
             >
-              <span className={styles.status} data-state={record.status} aria-hidden>{STATUS_ICON[record.status]}</span>
+              <span className={styles.status} data-state={record.status} aria-hidden><StatusIcon status={record.status} /></span>
+              {label !== null && <span className={styles.friendlyLabel}>{label}</span>}
               <span className={styles.name}>{record.name}</span>
               <span className={styles.summary}>{record.argSummary}</span>
-              <span className={styles.chevron} aria-hidden>{expanded ? '⌃' : '⌄'}</span>
+              {duration !== null && <span className={styles.duration}>{duration}</span>}
+              <span className={styles.chevron} aria-hidden>{expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}</span>
             </button>
             {expanded && (
               <div className={styles.detail}>

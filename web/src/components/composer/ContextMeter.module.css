@@ -1,10 +1,14 @@
-.meter { display: inline-flex; align-items: center; gap: .35rem; }
-.ring { width: 1.35rem; height: 1.35rem; transform: rotate(-90deg); }
+.meter { display: inline-flex; align-items: center; gap: .38rem; }
+.ring { width: 1.25rem; height: 1.25rem; transform: rotate(-90deg); }
 .ringTrack { fill: none; stroke: var(--border); stroke-width: 2.4; }
 .ringFill { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; transition: stroke-dashoffset .25s ease; }
 .ringFill[data-level='mid'] { stroke: var(--warning); }
 .ringFill[data-level='high'] { stroke: var(--danger); }
-.readout { color: var(--muted-2); font-size: .72rem; font-variant-numeric: tabular-nums; }
-.compact { display: inline-grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 1px solid var(--border); border-radius: .45rem; color: var(--muted); background: transparent; font-size: .78rem; cursor: pointer; }
-.compact:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
-.compact:disabled { opacity: .5; cursor: default; }
+.readout { color: var(--muted); font-size: var(--text-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.compact { display: inline-flex; align-items: center; height: 1.65rem; border: 1px solid var(--border); border-radius: .45rem; padding: 0 .55rem; color: var(--muted); background: var(--surface); font-size: var(--text-xs); font-weight: 500; cursor: pointer; }
+.compact:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); border-color: var(--border-strong); }
+.compact:disabled { opacity: .55; cursor: default; }
+.compact[data-compacting] { color: var(--accent); border-color: var(--accent); opacity: 1; cursor: wait; }
+
+@keyframes meterSpin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; vertical-align: -1px; animation: meterSpin 1s linear infinite; }

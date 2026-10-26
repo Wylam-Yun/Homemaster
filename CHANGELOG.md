@@ -1,5 +1,65 @@
 # Unreleased
 
+- Web Console review remediation + feature completion: structured
+  memory records (`structure_status` `valid`/`invalid`) now fail
+  closed on PATCH — `memory_views.update()` rejects non-plain records
+  and the route maps it to 422 `memory_update_rejected`, while the UI
+  only renders the edit button for plain memories. Compaction UX now
+  uses sticky notices (`showNotice(..., {sticky: true})`) so progress
+  and error banners survive ~60s model jobs, `manual_micro` is
+  distinguished from `none`/summary, `context.compacted` refreshes
+  `context_tokens` from `after_tokens`, and the dead `contextLimit`
+  plumbing was removed. `selectSession` re-checks the session id
+  after async history load and before attaching the EventSource.
+  Session deletion cleans `var/web_attachments/{id}`, attachment
+  writes loop `os.write` until complete, and filesystem errors are
+  typed. Robustness: safe `decodeURIComponent` for malformed hashes,
+  guarded `JSON.parse` on error bodies, busy composer with staged
+  attachments notifies instead of silently dropping, memory compile
+  polling fetches status first with a longer window, shared
+  date/label helpers deduplicated, sub-12px fonts removed, and
+  `index.html` ships the HomeMaster title with light `theme-color`.
+  New features: a ⌘K command palette (new session, page navigation,
+  theme toggle, live `GET /api/doctor` self-check, session title
+  search, ↑↓/Enter/Esc, discoverable via a ⌘K chip in the sidebar
+  search box), the skills page's fourth filter tab `自定义导入`, a
+  WelcomePanel with four suggestion categories plus a
+  model/memory-tier status strip, and the remaining Unicode glyphs
+  migrated to SVG icons (paperclip/close/file/alert/refresh across
+  composer, queue dock, attachment rail, context meter, reasoning
+  row, tool group, toasts, transcript search, approval dialog, memory
+  and skills pages).
+- Web Console UX remediation: fixed controls whose appearance lied
+  about their function — the `▶执行` pill (a mode toggle styled like
+  a send button) is now an explicit `执行｜规划` segmented control,
+  the `⇓` glyph is a labelled `压缩` action, and the approval dialog's
+  `关闭` is now `取消审批` with initial focus moved off the
+  destructive button. The fake `Offline` badge no longer renders
+  outside chat pages, and draft mode hides the indicator entirely.
+  `新建会话` is now lazy: it opens a draft and the backend session is
+  only created on the first sent message (pending composer draft,
+  provider/model pick, and `ui_mode` are migrated to the new session;
+  `waitConnected()` gates the POST on SSE subscription readiness with
+  stale-session guards). Paste/drop attachments are rejected up-front
+  with a clear notice instead of entering a dead-end rail, error
+  notices render globally (fixed overlay) instead of only inside the
+  chat pane, `⌘F` no longer swallows the browser find on non-chat
+  pages, transcript search and shortcut help gained visible topbar
+  entries, destructive actions (revoke long-lived permission, clear
+  queued messages) now confirm, the permissions page scrolls, the
+  topbar shows the session title instead of the raw id, and
+  frequent mixed English/Chinese copy was normalized to Chinese with
+  contrast and `:focus-visible` fixes.
+- Schema-episode entity prompts: replaced serial placeholder names in
+  the three fixed-domain extraction prompts (`observation-1`,
+  `search-1`, `task-1`) with content-derived stable identities
+  (e.g. "watch on desk 1", "put watch on safe"), and added explicit
+  naming rules forbidding serial placeholders and bare
+  relation/location words. The example names contradicted the entity
+  modeling contract ("stable identity") and were copied verbatim by
+  the extractor, producing `search-1..7`/`observation-N`/`task-N`
+  graph entities. New extractions only; stored entities unchanged.
+  Prompt schema_version bumped to `homemaster.schema_episode.prompts.v2`.
 - Plan evidence cleanup: removed ~335 generated evidence artifacts
   (`png`/`json`/`jsonl`/`log`/`lock`/…) under `plan/` — 47MB → 3.4MB.
   All Markdown plan/design documents are preserved; release-gate

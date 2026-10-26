@@ -155,6 +155,33 @@ export type MemorySnapshot = { stats: MemoryStats; groups: MemoryGroup[] }
 export type MemoryHistory = { memory_id: string; versions: ManagedMemory[] }
 export type CompileJob = { job_id: string; status: string; memory_id?: string; derived_memory_id?: string; error?: string }
 
+/** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
+ * Neo4j relationships actually stored between them. */
+export type MemoryGraphNode = {
+  memory_id: string
+  preview: string
+  memory_type: string
+  status: string
+  session_id: string | null
+  updated_at: string | null
+}
+
+export type MemoryGraphEdge = {
+  src: string
+  rel: 'MENTIONS' | 'EXTRACTED_FROM' | 'RELATES_TO' | 'DERIVED_FROM' | string
+  dst: string
+  dst_label: string
+  entity_name: string | null
+}
+
+export type MemoryGraph = {
+  nodes: MemoryGraphNode[]
+  entities: { entity_id: string; name: string }[]
+  edges: MemoryGraphEdge[]
+  sessions: { session_id: string; title: string }[]
+  edges_truncated?: boolean
+}
+
 export type UiMode = 'plan' | 'act'
 
 export type ProviderInfo = {
@@ -179,6 +206,8 @@ export type ProviderProfile = {
   api_key_configured: boolean
   api_key_count: number
   keyless: boolean
+  /** Only present on GET /api/providers list entries (write responses omit it). */
+  is_default?: boolean
 }
 
 /** One selectable row from GET /api/provider-templates. */
@@ -256,6 +285,16 @@ export type SkillInfo = {
   source: string
   user_invocable: boolean
   enabled: boolean
+  /** Server-side delete eligibility (raw provenance === 'user'). */
+  deletable?: boolean
+}
+
+/** One rejected skill source reported alongside the skill list. */
+export type SkillIssueInfo = {
+  source: string
+  code: string
+  detail: string
+  path: string | null
 }
 
 export type MetaInfo = {
@@ -263,6 +302,31 @@ export type MetaInfo = {
   memory_mode: string
   environment: string | null
 }
+
+export type DoctorCheck = {
+  name: string
+  status: 'PASS' | 'WARN' | 'FAIL' | string
+  message: string
+  impact: string | null
+  suggestion: string | null
+  details: Record<string, unknown>
+}
+
+export type DoctorReport = {
+  live: boolean
+  config_source: string | null
+  checks: DoctorCheck[]
+}
+
+export type SkillResolveResult =
+  | { kind: 'plain' }
+  | {
+      kind: 'skill'
+      name: string
+      arguments: string
+      prompt: string
+      model_override: string | null
+    }
 
 export type SessionStatusInfo = {
   session_id: string
@@ -274,6 +338,7 @@ export type SessionStatusInfo = {
   task_status: string | null
   environment_ref: string | null
   ui_mode?: UiMode | null
+  context_tokens?: number
 }
 
 export type CompactResult = {
@@ -282,11 +347,28 @@ export type CompactResult = {
   revision: number
   triggered: boolean
   kind: string
+  before_tokens?: number | null
+  after_tokens?: number | null
+  context_tokens?: number | null
+}
+
+export type SendMessageAttachment = {
+  attachment_id: string
+  filename: string
+  media_type: string
+}
+
+export type UploadedAttachment = {
+  attachment_id: string
+  filename: string
+  media_type: string
+  size: number
 }
 
 export type SendMessageOptions = {
   provider_name?: string
   model?: string
+  attachments?: SendMessageAttachment[]
 }
 
 /**
@@ -345,8 +427,32 @@ export class HomeMasterApi {
     return this.request('/api/memories')
   }
 
+  createMemory(payload: { content: string; memory_type?: 'fact' | 'procedure' }): Promise<{ memory: ManagedMemory; status: string }> {
+    return this.request('/api/memories', {
+      method: 'POST',
+      body: JSON.stringify({ content: payload.content, memory_type: payload.memory_type ?? 'fact' }),
+    })
+  }
+
+  updateMemory(memoryId: string, payload: { content: string }): Promise<{ memory: ManagedMemory; status: string }> {
+    return this.request(`/api/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  deleteMemory(memoryId: string): Promise<{ memory_id: string; deleted: boolean; status: string }> {
+    return this.request(`/api/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'DELETE',
+    })
+  }
+
   memoryHistory(memoryId: string): Promise<MemoryHistory> {
     return this.request(`/api/memories/${encodeURIComponent(memoryId)}/history`)
+  }
+
+  memoryGraph(): Promise<MemoryGraph> {
+    return this.request('/api/memories/graph')
   }
 
   compileMemory(memoryId: string): Promise<CompileJob> {
@@ -396,12 +502,39 @@ export class HomeMasterApi {
     return this.request(`/api/providers/${encodeURIComponent(name)}/models`)
   }
 
-  listSkills(): Promise<{ skills: SkillInfo[] }> {
+  listSkills(): Promise<{ skills: SkillInfo[]; issues?: SkillIssueInfo[] }> {
     return this.request('/api/skills')
+  }
+
+  /** Import a skill folder as JSON files; paths are relative like `dir/SKILL.md`. */
+  importSkill(
+    files: Array<{ path: string; content: string }>,
+    overwrite = false,
+  ): Promise<{ status: string; skill: SkillInfo }> {
+    return this.request('/api/skills/import', {
+      method: 'POST',
+      body: JSON.stringify({ files, overwrite }),
+    })
+  }
+
+  deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }> {
+    return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  resolveSkill(text: string): Promise<SkillResolveResult> {
+    return this.request('/api/skills/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    })
   }
 
   meta(): Promise<MetaInfo> {
     return this.request('/api/meta')
+  }
+
+  doctor(options: { live?: boolean } = {}): Promise<DoctorReport> {
+    const suffix = options.live === true ? '?live=true' : ''
+    return this.request(`/api/doctor${suffix}`)
   }
 
   sessionStatus(sessionId: string): Promise<SessionStatusInfo> {
@@ -464,12 +597,25 @@ export class HomeMasterApi {
     )
   }
 
+  uploadAttachment(
+    sessionId: string,
+    payload: { filename: string; media_type: string; data_base64: string },
+  ): Promise<UploadedAttachment> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   sendMessage(sessionId: string, requestId: string, text: string, options: SendMessageOptions = {}): Promise<{ accepted: boolean }> {
-    const body: Record<string, string> = { request_id: requestId, text }
+    const body: Record<string, unknown> = { request_id: requestId, text }
     // Per-message provider/model pass-through: an in-flight turn keeps its
     // starting model; the override takes effect from the next turn.
     if (options.provider_name !== undefined && options.provider_name !== '') body.provider_name = options.provider_name
     if (options.model !== undefined && options.model !== '') body.model = options.model
+    if (options.attachments !== undefined && options.attachments.length > 0) {
+      body.attachments = options.attachments
+    }
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -529,7 +675,14 @@ export class HomeMasterApi {
     })
     // 204 (session delete) and other bodyless responses parse as `{}`.
     const text = await response.text()
-    const payload = (text.length > 0 ? JSON.parse(text) : {}) as Record<string, unknown>
+    let payload: Record<string, unknown> = {}
+    if (text.length > 0) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>
+      } catch {
+        if (response.ok) throw new HttpError(response.status, 'invalid_json', '服务返回了无法解析的响应。', true)
+      }
+    }
     if (!response.ok) {
       throw new HttpError(
         response.status,

@@ -25,6 +25,7 @@ class SkillLoadIssue:
     source: str
     code: str
     detail: str
+    path: str | None = None
 
 
 class SkillRegistry:

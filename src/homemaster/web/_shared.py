@@ -9,7 +9,10 @@ approval/grant projections are consumed by several domains.
 
 from __future__ import annotations
 
+import re
+import tempfile
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from fastapi.responses import JSONResponse
@@ -46,6 +49,37 @@ def _error(status_code: int, code: str, message: str, *, retryable: bool) -> JSO
         status_code=status_code,
         content={"code": code, "message": message, "retryable": retryable},
     )
+
+
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._\-一-鿿]+")
+
+
+def _sanitize_filename(raw: str) -> str:
+    leaf = Path(raw).name.strip()
+    cleaned = _SAFE_FILENAME_RE.sub("_", leaf).strip("._")
+    if not cleaned:
+        return "attachment.bin"
+    return cleaned[:120]
+
+
+def _web_attachments_root(application: Any, *, create: bool = True) -> Path:
+    working_dir = getattr(application, "working_directory", None)
+    if isinstance(working_dir, Path):
+        base = working_dir / "var" / "web_attachments"
+    else:
+        base = Path(tempfile.gettempdir()) / "homemaster_web_attachments"
+    if create:
+        base.mkdir(parents=True, exist_ok=True)
+    return base.resolve()
+
+
+def _session_attachment_dir(root: Path, session_id: str, *, create: bool = True) -> Path:
+    safe_sid = _SAFE_FILENAME_RE.sub("_", session_id).strip("._") or "session"
+    target = (root / safe_sid).resolve()
+    target.relative_to(root)
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def _provider_config_error(exc: ProviderConfigError) -> JSONResponse:
@@ -92,7 +126,18 @@ def _provider_selection_error(
             if provider.name.casefold() == target
             or str(getattr(provider, "model", "")).casefold() == target
         }
-        if len(matches) != 1:
+        if len(matches) > 1:
+            return _error(
+                422,
+                "unknown_model",
+                "The model must match exactly one configured chat provider.",
+                retryable=False,
+            )
+        if len(matches) == 0:
+            # With an explicit provider the model is a literal per-message
+            # override; without one it must still select a provider.
+            if provider_name is not None:
+                return None
             return _error(
                 422,
                 "unknown_model",

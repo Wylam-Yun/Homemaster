@@ -18,15 +18,53 @@ class CreateSessionRequest(BaseModel):
     session_id: str | None = None
 
 
+class SendMessageAttachment(BaseModel):
+    """Reference to one session-scoped attachment uploaded prior to send."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attachment_id: str = Field(min_length=1, max_length=128)
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="application/octet-stream", max_length=128)
+
+
+class UploadAttachmentRequest(BaseModel):
+    """JSON base64 attachment upload for a session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="application/octet-stream", max_length=128)
+    data_base64: str = Field(min_length=1, max_length=15_000_000)
+
+
 class SendMessageRequest(BaseModel):
     """One immutable browser command submitted for asynchronous execution."""
 
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = Field(min_length=1)
-    text: str = Field(min_length=1)
+    text: str = Field(default="")
     provider_name: str | None = None
     model: str | None = None
+    attachments: list[SendMessageAttachment] = Field(default_factory=list, max_length=20)
+
+
+class CreateMemoryRequest(BaseModel):
+    """Create a user-authored long-term memory in MindMemOS."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=20_000)
+    memory_type: Literal["fact", "procedure"] = "fact"
+
+
+class UpdateMemoryRequest(BaseModel):
+    """Update the text content of an active memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=20_000)
 
 
 class SetSessionModeRequest(BaseModel):
@@ -59,6 +97,24 @@ class SkillResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1)
+
+
+class SkillImportFile(BaseModel):
+    """One file of an uploaded skill folder (path relative, POSIX-style)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=1_000_000)
+
+
+class SkillImportRequest(BaseModel):
+    """JSON folder upload: every file sits under one top-level directory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[SkillImportFile] = Field(min_length=1, max_length=200)
+    overwrite: bool = False
 
 
 class ItemChoiceRequest(BaseModel):
@@ -165,6 +221,55 @@ class MemoryHistoryResponse(BaseModel):
         return cls.model_validate({"memory_id": memory_id, "versions": versions})
 
 
+class MemoryGraphNodeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: str
+    preview: str
+    memory_type: str
+    status: str
+    session_id: str | None
+    updated_at: datetime | None
+
+
+class MemoryGraphEdgeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    src: str
+    rel: str
+    dst: str
+    dst_label: str
+    entity_name: str | None
+
+
+class MemoryGraphEntityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_id: str
+    name: str
+
+
+class MemoryGraphSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: str
+    title: str
+
+
+class MemoryGraphResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    nodes: tuple[MemoryGraphNodeResponse, ...]
+    entities: tuple[MemoryGraphEntityResponse, ...]
+    edges: tuple[MemoryGraphEdgeResponse, ...]
+    sessions: tuple[MemoryGraphSessionResponse, ...]
+    edges_truncated: bool = False
+
+    @classmethod
+    def from_domain(cls, graph: Any) -> MemoryGraphResponse:
+        return cls.model_validate(graph)
+
+
 @dataclass(frozen=True)
 class WebEvent:
     """One browser-facing event after Runtime field projection.
@@ -211,17 +316,26 @@ __all__ = [
     "AnswerQuestionRequest",
     "ApprovalSubmissionRequest",
     "CancelApprovalRequest",
+    "CreateMemoryRequest",
     "CreateSessionRequest",
     "ItemChoiceRequest",
     "ManagedMemoryResponse",
+    "MemoryGraphEdgeResponse",
+    "MemoryGraphEntityResponse",
+    "MemoryGraphNodeResponse",
+    "MemoryGraphResponse",
+    "MemoryGraphSessionResponse",
     "MemoryGroupResponse",
     "MemoryHistoryResponse",
     "MemorySnapshotResponse",
     "MemoryStatsResponse",
     "RenameSessionRequest",
     "RevokeGrantRequest",
+    "SendMessageAttachment",
     "SendMessageRequest",
     "SetSessionModeRequest",
     "SkillResolveRequest",
+    "UpdateMemoryRequest",
+    "UploadAttachmentRequest",
     "WebEvent",
 ]

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ProviderInfo, SessionStatusInfo } from '../../api/http'
+import type { ProviderInfo, ProviderModels, SessionStatusInfo } from '../../api/http'
 import type { PendingQuestionState } from '../../state/conversation'
 import { ContextMeter, FALLBACK_CONTEXT_TOKENS } from './ContextMeter'
 import { ModeBadge } from './ModeBadge'
@@ -24,7 +24,7 @@ describe('ModelPicker', () => {
   it('lists configured providers and disables entries without an API key', () => {
     render(<ModelPicker providers={PROVIDERS} value={{}} onChange={vi.fn()} />)
 
-    const select = screen.getByRole('combobox', { name: 'Provider' })
+    const select = screen.getByRole('combobox', { name: '服务商' })
     const options = Array.from(select.querySelectorAll('option'))
     expect(options.map(option => option.textContent)).toEqual([
       '默认',
@@ -38,7 +38,7 @@ describe('ModelPicker', () => {
     const onChange = vi.fn()
     render(<ModelPicker providers={PROVIDERS} value={{}} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: 'primary' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '服务商' }), { target: { value: 'primary' } })
     expect(onChange).toHaveBeenCalledWith({ provider_name: 'primary' })
   })
 
@@ -46,7 +46,7 @@ describe('ModelPicker', () => {
     const onChange = vi.fn()
     render(<ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: '__custom__' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '模型' }), { target: { value: '__custom__' } })
     const input = await screen.findByRole('textbox', { name: '自定义 model id' })
     fireEvent.change(input, { target: { value: 'claude-opus-4.5' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -54,9 +54,109 @@ describe('ModelPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith({ provider_name: 'primary', model: 'claude-opus-4.5' })
   })
 
-  it('keeps a stale provider selectable as an unavailable option', () => {
+  it('keeps a stale provider visible but disabled as an unavailable option', () => {
     render(<ModelPicker providers={PROVIDERS} value={{ provider_name: 'gone', model: 'x' }} onChange={vi.fn()} />)
-    expect(screen.getByRole('option', { name: /gone（已不可用）/ })).toBeInTheDocument()
+    const option = screen.getByRole('option', { name: /gone（已不可用）/ })
+    expect(option).toBeInTheDocument()
+    expect(option).toBeDisabled()
+  })
+
+  it('retries a failed model enumeration on demand', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValue({ name: 'primary', models: ['claude-opus-4.5'], source: 'live' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByText(/在线枚举失败/)
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    await screen.findByRole('option', { name: 'claude-opus-4.5' })
+    expect(loadModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a stale custom model as its own option instead of duplicating 自定义…', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4'], source: 'live' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary', model: 'claude-opus-4.5' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByRole('option', { name: 'claude-opus-4.5' })
+    const select = screen.getByRole('combobox', { name: '模型' })
+    // Exactly one option carries the editor sentinel value.
+    const sentinels = Array.from(select.querySelectorAll('option'))
+      .filter(option => option.value === '__custom__')
+    expect(sentinels).toHaveLength(1)
+    expect(sentinels[0].textContent).toBe('自定义…')
+  })
+
+  it('lazily enumerates live models for the selected provider and emits them on pick', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4', 'claude-opus-4.5'], source: 'live' })
+    const onChange = vi.fn()
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={onChange}
+        loadModels={loadModels}
+      />,
+    )
+
+    await waitFor(() => { expect(loadModels).toHaveBeenCalledWith('primary') })
+    const select = await screen.findByRole('combobox', { name: '模型' })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'claude-opus-4.5' })).toBeInTheDocument()
+    })
+    // Configured model stays as the 默认 option; the live list adds the rest.
+    expect(select.querySelectorAll('option').length).toBeGreaterThanOrEqual(3)
+
+    fireEvent.change(select, { target: { value: 'claude-opus-4.5' } })
+    expect(onChange).toHaveBeenLastCalledWith({ provider_name: 'primary', model: 'claude-opus-4.5' })
+  })
+
+  it('caches enumeration per provider instead of refetching on rerender', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['m1'], source: 'live' })
+    const { rerender } = render(
+      <ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={vi.fn()} loadModels={loadModels} />,
+    )
+    await waitFor(() => { expect(loadModels).toHaveBeenCalledTimes(1) })
+    rerender(
+      <ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={vi.fn()} loadModels={loadModels} />,
+    )
+    await screen.findByRole('option', { name: 'm1' })
+    expect(loadModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a fallback enumeration as unavailable instead of listing template models', async () => {
+    const loadModels = vi.fn<(name: string) => Promise<ProviderModels>>()
+      .mockResolvedValue({ name: 'primary', models: ['claude-sonnet-4', 'template-x'], source: 'fallback' })
+    render(
+      <ModelPicker
+        providers={PROVIDERS}
+        value={{ provider_name: 'primary' }}
+        onChange={vi.fn()}
+        loadModels={loadModels}
+      />,
+    )
+
+    await screen.findByText(/在线枚举不可用/)
+    // Fallback models are misleading templates: only 默认 + 自定义… remain.
+    expect(screen.queryByRole('option', { name: 'template-x' })).toBeNull()
+    expect(screen.getByRole('option', { name: '自定义…' })).toBeInTheDocument()
   })
 })
 
@@ -65,16 +165,21 @@ describe('ModeBadge', () => {
     const onToggle = vi.fn()
     const { rerender } = render(<ModeBadge mode="act" onToggle={onToggle} />)
 
-    const badge = screen.getByRole('button', { name: /执行/ })
-    expect(badge).toHaveAttribute('aria-pressed', 'false')
-    expect(badge).toHaveAttribute('data-mode', 'act')
-    fireEvent.click(badge)
+    const act = screen.getByRole('button', { name: '执行' })
+    const plan = screen.getByRole('button', { name: '规划' })
+    expect(act).toHaveAttribute('aria-pressed', 'true')
+    expect(plan).toHaveAttribute('aria-pressed', 'false')
+
+    // Clicking the already-active option is a no-op; the other option toggles.
+    fireEvent.click(act)
+    expect(onToggle).not.toHaveBeenCalled()
+    fireEvent.click(plan)
     expect(onToggle).toHaveBeenCalledWith('plan')
 
     rerender(<ModeBadge mode="plan" onToggle={onToggle} />)
-    expect(screen.getByRole('button', { name: /规划/ })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: /规划/ }))
-    expect(onToggle).toHaveBeenCalledWith('act')
+    expect(screen.getByRole('button', { name: '规划' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '执行' }))
+    expect(onToggle).toHaveBeenLastCalledWith('act')
   })
 })
 
@@ -114,6 +219,16 @@ describe('ContextMeter', () => {
     render(<ContextMeter usage={null} status={null} onCompact={onCompact} />)
     fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }))
     expect(onCompact).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the compact button and shows progress while compacting', () => {
+    const onCompact = vi.fn()
+    render(<ContextMeter usage={null} status={null} compacting onCompact={onCompact} />)
+    const button = screen.getByRole('button', { name: '压缩上下文' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveTextContent('压缩中')
+    fireEvent.click(button)
+    expect(onCompact).not.toHaveBeenCalled()
   })
 })
 

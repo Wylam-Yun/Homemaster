@@ -152,6 +152,34 @@ describe('summarizeMemory', () => {
     expect(summary.title.endsWith('…')).toBe(true)
     expect(summary.title.length).toBe(141)
   })
+
+  it('extracts human summaries from JSON-encoded fact and experience memories', () => {
+    const factJson = JSON.stringify({
+      location: '/Users/wylam',
+      object: 'agentscope project',
+      result: 'found',
+      summary: 'Located agentscope project at /Users/wylam/Documents/workspace/agentscope',
+    })
+    const factSummary = summarizeMemory(memory({ memory_id: 'm-fact-json', memory_type: 'fact', content: factJson }))
+    expect(factSummary.title).toBe('Located agentscope project at /Users/wylam/Documents/workspace/agentscope')
+    expect(factSummary.title).not.toContain('{')
+    expect(factSummary.detail).toBe('agentscope project · /Users/wylam')
+    expect(factSummary.fields?.some(f => f.label === '目标对象' && f.value === 'agentscope project')).toBe(true)
+  })
+
+  it('extracts human summaries from Markdown episodic memories', () => {
+    const episodicMd = [
+      '# Episodic Memory Record',
+      '**Conversation timestamp:** 2026-10-22 02:48:27 (Thursday)',
+      '**Session ID:** session-3631fa362c24',
+      '---',
+      '## Turn 1 — Working Directory Check (02:29:59 UTC)',
+      'At 02:29:59 UTC, the user asked the HomeMaster assistant: "帮我看看你处于什么工作目录里面".',
+    ].join('\n')
+    const epSummary = summarizeMemory(memory({ memory_id: 'm-ep-md', memory_type: 'episodic', content: episodicMd }))
+    expect(epSummary.title).toContain('帮我看看你处于什么工作目录里面')
+    expect(epSummary.title).not.toContain('# Episodic Memory Record')
+  })
 })
 
 describe('groupByType', () => {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -144,3 +145,114 @@ async def test_memory_get_routes_do_not_write_isolated_quiescent_root(
 
     await app.state.aclose()
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_graph_joins_qdrant_nodes_with_neo4j_edges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    infra_db = importlib.import_module("mindmemos.infra.db")
+    memory_id = "00000000-0000-0000-0000-0000000000aa"
+    related_id = "00000000-0000-0000-0000-0000000000bb"
+    entity_id = "ent-001"
+
+    class FakeNeo4jStore:
+        def __init__(self, _config: Any) -> None:
+            self.queries: list[str] = []
+
+        async def ensure_schema(self) -> None:
+            pass
+
+        async def run_read(self, query: str, **_params: Any) -> list[dict[str, Any]]:
+            self.queries.append(query)
+            if "MENTIONS" not in query:
+                return []
+            return [
+                {
+                    "src": memory_id,
+                    "rel": "MENTIONS",
+                    "dst": entity_id,
+                    "dst_label": "Entity",
+                    "entity_name": "厨房",
+                },
+                {
+                    "src": memory_id,
+                    "rel": "RELATES_TO",
+                    "dst": related_id,
+                    "dst_label": "Memory",
+                    "entity_name": None,
+                },
+            ]
+
+        async def close(self) -> None:
+            pass
+
+    store = FakeNeo4jStore(None)
+    monkeypatch.setattr(infra_db, "Neo4jStore", lambda _config: store)
+    data_root = tmp_path / "memory-root"
+    config = HomeMasterConfig(
+        providers={
+            "items": [
+                _provider("Mimo", kind="chat"),
+                _provider("MemoryEmbedding", kind="embedding"),
+            ]
+        },
+        memory={"data_root": data_root, "embedding_dimensions": 8},
+    )
+    runtime = runtime_module.EmbeddedMindMemOS(config)
+    await runtime.start()
+    assert runtime.available, runtime.unavailable_cause
+    await runtime.qdrant.upsert_memories(
+        [
+            _point(memory_id, status="active", session_id="session-01"),
+            _point(related_id, status="active", session_id="session-01"),
+        ]
+    )
+
+    sessions = SessionManager(session_root=tmp_path / "sessions")
+    app = create_web_app(
+        application=_Application(sessions),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=MemoryManagementService(runtime, sessions),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/memories/graph")
+
+    assert response.status_code == 200
+    body = response.json()
+    # Node fields come from the Qdrant payload, never from Neo4j properties.
+    nodes = {node["memory_id"]: node for node in body["nodes"]}
+    assert nodes[memory_id]["preview"] == "active fixture"
+    assert nodes[memory_id]["memory_type"] == "fact"
+    assert nodes[memory_id]["session_id"] == "session-01"
+    assert {edge["rel"] for edge in body["edges"]} == {"MENTIONS", "RELATES_TO"}
+    assert body["entities"] == [{"entity_id": entity_id, "name": "厨房"}]
+    # No session file on disk → the service falls back to the truncated-id label.
+    assert body["sessions"] == [{"session_id": "session-01", "title": "会话 session-"}]
+    assert any("MENTIONS" in query for query in store.queries)
+
+    await app.state.aclose()
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_graph_reports_unavailable_without_neo4j(tmp_path: Path) -> None:
+    async def _list_raw(_context: Any) -> list[Any]:
+        return []
+
+    fake = SimpleNamespace(neo4j_store=None, list_raw_memories=_list_raw)
+    sessions = SessionManager(session_root=tmp_path / "sessions")
+    app = create_web_app(
+        application=_Application(sessions),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=MemoryManagementService(fake, sessions),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/memories/graph")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "memory_unavailable"

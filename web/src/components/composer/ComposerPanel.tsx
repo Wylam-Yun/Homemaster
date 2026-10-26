@@ -10,16 +10,17 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 
-import type { ProviderInfo, SessionStatusInfo } from '../../api/http'
+import type { ProviderInfo, ProviderModels, SessionStatusInfo } from '../../api/http'
 import type { UiMode, Usage } from '../../protocol/events'
 import type { ApprovalState, PendingQuestionState } from '../../state/conversation'
 import { useToastOptional } from '../toast'
+import { IconPaperclip } from '../ui/icons'
 import { AttachmentRail, type AttachmentDraft } from './AttachmentRail'
 import { ContextMeter } from './ContextMeter'
 import { ModeBadge } from './ModeBadge'
 import { ModelPicker, type ModelSelection } from './ModelPicker'
 import { ApprovalWaitingCard, QuestionCard } from './TakeoverCard'
-import { usePromptHistory } from './usePromptHistory'
+import { draftStorageKey, usePromptHistory } from './usePromptHistory'
 import styles from './ComposerPanel.module.css'
 
 export type { AttachmentDraft } from './AttachmentRail'
@@ -60,10 +61,12 @@ export interface ComposerPanelProps {
   providers?: ProviderInfo[]
   modelValue?: ModelSelection
   onModelChange?(selection: ModelSelection): void
+  /** Lazy provider model enumeration for the picker's model dropdown. */
+  loadModels?(providerName: string): Promise<ProviderModels>
   /** 上下文用量环：最近回合 usage + session status 明细 + compact 按钮。 */
   usage?: Usage | null
   sessionStatus?: SessionStatusInfo | null
-  contextLimit?: number | null
+  compacting?: boolean
   onCompact?(): void
   /** Composer 接管：pending question 换成问答卡；pending approval 显示等待态。 */
   pendingQuestion?: PendingQuestionState | null
@@ -72,25 +75,11 @@ export interface ComposerPanelProps {
 }
 
 const MAX_TEXTAREA_HEIGHT_PX = 144 // ~6 rows at line-height 1.5
-const ATTACHMENTS_UNSUPPORTED = '附件上传需要服务端支持（规划中）'
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10 MiB
 
 type MenuState =
   | { kind: 'slash'; query: string; tokenStart: number }
   | { kind: 'mention'; query: string; tokenStart: number; items: MentionItem[] }
-
-function filesToDrafts(files: Iterable<File>): AttachmentDraft[] {
-  const drafts: AttachmentDraft[] = []
-  for (const file of files) {
-    drafts.push({
-      id: crypto.randomUUID(),
-      name: file.name || 'pasted-file',
-      size: file.size,
-      mime: file.type || 'application/octet-stream',
-      blobUrl: URL.createObjectURL(file),
-    })
-  }
-  return drafts
-}
 
 /** '/cmd' token: '/' must start the text or follow whitespace (incl. newlines). */
 const SLASH_TRIGGER = /(?:^|\s)\/(\S*)$/
@@ -111,9 +100,10 @@ export function ComposerPanel({
   providers,
   modelValue,
   onModelChange,
+  loadModels,
   usage,
   sessionStatus,
-  contextLimit,
+  compacting = false,
   onCompact,
   pendingQuestion,
   onAnswerQuestion,
@@ -127,6 +117,7 @@ export function ComposerPanel({
   const [dragging, setDragging] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const composingRef = useRef(false)
   const pendingCaretRef = useRef<number | null>(null)
   const mentionSeqRef = useRef(0)
@@ -136,8 +127,25 @@ export function ComposerPanel({
   const toast = useToastOptional()
 
   // Per-session draft restore + reset transient UI when switching sessions.
+  const prevSessionIdRef = useRef<string | null>(sessionId)
   useEffect(() => {
-    setText(history.loadDraft())
+    const previous = prevSessionIdRef.current
+    prevSessionIdRef.current = sessionId
+    let restored = history.loadDraft()
+    let adoptTarget: string | null = null
+    try { adoptTarget = localStorage.getItem('hm.draft.adopt') } catch { /* ignore */ }
+    if (previous === null && sessionId !== null && adoptTarget === sessionId) {
+      // 仅在草稿物化（带 hm.draft.adopt 令牌）时领养 hm.draft.new；用户在草稿态
+      // 打字后直接点已有老会话不会走这里，两边草稿各自保留。
+      try { localStorage.removeItem('hm.draft.adopt') } catch { /* ignore */ }
+      const orphan = localStorage.getItem(draftStorageKey(null))
+      if (orphan !== null) localStorage.removeItem(draftStorageKey(null))
+      if (orphan !== null && orphan.length > 0) {
+        restored = orphan
+        history.persistDraft(orphan)
+      }
+    }
+    setText(restored)
     setMenu(null)
     setNotice(null)
     if (noticeTimerRef.current !== null) {
@@ -176,11 +184,43 @@ export function ComposerPanel({
     history.reset()
   }, [injectDraft, text, history])
 
+  const notifyUnsupported = useCallback((message: string) => {
+    if (toast !== null) {
+      toast.show({ title: message })
+      return
+    }
+    setNotice(message)
+    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = setTimeout(() => { setNotice(null) }, 5000)
+  }, [toast])
+
   const addFiles = useCallback((files: Iterable<File>) => {
-    const drafts = filesToDrafts(files)
-    if (drafts.length === 0) return
-    setAttachments(previous => [...previous, ...drafts])
-  }, [])
+    const incoming = Array.from(files)
+    if (incoming.length === 0) return
+    const accepted: AttachmentDraft[] = []
+    for (const file of incoming) {
+      if (file.size === 0) {
+        notifyUnsupported(`文件「${file.name}」为空，已跳过`)
+        continue
+      }
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        notifyUnsupported(`文件「${file.name}」超过 10 MB 大小限制`)
+        continue
+      }
+      const blobUrl = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : ''
+      accepted.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        mime: file.type || 'application/octet-stream',
+        blobUrl,
+        file,
+      })
+    }
+    if (accepted.length > 0) {
+      setAttachments(previous => [...previous, ...accepted])
+    }
+  }, [notifyUnsupported])
 
   // Full-page drag overlay: only drags carrying Files raise it.
   useEffect(() => {
@@ -256,16 +296,6 @@ export function ComposerPanel({
       textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT_PX)}px`
     }
   }, [text])
-
-  const notifyUnsupported = useCallback((message: string) => {
-    if (toast !== null) {
-      toast.show({ title: message })
-      return
-    }
-    setNotice(message)
-    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current)
-    noticeTimerRef.current = setTimeout(() => { setNotice(null) }, 5000)
-  }, [toast])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments(previous => {
@@ -345,15 +375,18 @@ export function ComposerPanel({
   const submit = (): void => {
     if (disabled) return
     const trimmed = text.trim()
-    if (trimmed.length === 0 && attachments.length === 0) return
-    // No upload channel exists yet: keep the draft, never drop attachments silently.
-    if (attachments.length > 0) {
-      notifyUnsupported(ATTACHMENTS_UNSUPPORTED)
-      return
-    }
+    const stagedAttachments = attachments
+    if (trimmed.length === 0 && stagedAttachments.length === 0) return
     // busy 时 Enter/发送按钮把消息排进本地队列——输入不丢，回合终态自动按序发出。
     if (busy) {
-      if (onEnqueue === undefined) return
+      if (stagedAttachments.length > 0) {
+        notifyUnsupported('附件暂不支持排队发送，请等待当前任务完成后再试。')
+        return
+      }
+      if (onEnqueue === undefined) {
+        notifyUnsupported('当前任务仍在运行，请稍候再发送。')
+        return
+      }
       onEnqueue(trimmed)
       history.record(trimmed)
       setText('')
@@ -366,9 +399,7 @@ export function ComposerPanel({
     // text and persists it as the session draft so typing is never lost.
     const finish = (sent: boolean): void => {
       if (sent) {
-        history.record(trimmed)
-        // The send resolved asynchronously — the user may have typed more in
-        // the meantime, so drop only the submitted prefix and keep the rest.
+        if (trimmed.length > 0) history.record(trimmed)
         const current = textareaRef.current?.value ?? text
         const leftover = current === text
           ? ''
@@ -376,6 +407,10 @@ export function ComposerPanel({
         setText(leftover)
         if (leftover.length === 0) history.clearDraft()
         else history.persistDraft(leftover)
+        for (const item of stagedAttachments) {
+          if (item.blobUrl) URL.revokeObjectURL(item.blobUrl)
+        }
+        setAttachments(previous => previous.filter(item => !stagedAttachments.some(s => s.id === item.id)))
         closeMenu()
       } else {
         history.persistDraft(text)
@@ -384,7 +419,7 @@ export function ComposerPanel({
     }
     let outcome: void | Promise<boolean>
     try {
-      outcome = onSubmit(trimmed, [])
+      outcome = onSubmit(trimmed, stagedAttachments)
     } catch {
       outcome = Promise.resolve(false)
     }
@@ -524,10 +559,10 @@ export function ComposerPanel({
     || usage !== undefined
   const canEnqueue = !disabled && onEnqueue !== undefined && text.trim().length > 0 && attachments.length === 0
   const placeholder = disabled
-    ? 'Waiting for connection…'
+    ? '等待连接恢复…'
     : mode === 'plan'
       ? '规划模式：描述目标，先讨论计划再执行…'
-      : 'Message…'
+      : '输入消息…'
 
   return (
     <div className={styles.composer} data-mode={mode}>
@@ -539,14 +574,15 @@ export function ComposerPanel({
               value={modelValue ?? {}}
               disabled={disabled}
               onChange={selection => { onModelChange?.(selection) }}
+              loadModels={loadModels}
             />
           )}
           <span className={styles.toolbarSpacer} />
           <ContextMeter
             usage={usage ?? null}
             status={sessionStatus ?? null}
-            contextLimit={contextLimit}
-            disabled={disabled}
+            disabled={disabled || busy}
+            compacting={compacting}
             onCompact={onCompact}
           />
           <ModeBadge mode={mode} disabled={disabled || onModeChange === undefined} onToggle={next => { onModeChange?.(next) }} />
@@ -558,6 +594,7 @@ export function ComposerPanel({
           question={pendingQuestion}
           disabled={disabled || onAnswerQuestion === undefined}
           onSubmit={(questionId, text) => onAnswerQuestion?.(questionId, text) ?? false}
+          onCancel={busy ? onCancel : undefined}
         />
       ) : pendingApproval !== undefined && pendingApproval !== null ? (
         <ApprovalWaitingCard itemCount={pendingApproval.items.length} />
@@ -569,7 +606,7 @@ export function ComposerPanel({
           value={text}
           disabled={disabled}
           placeholder={placeholder}
-          aria-label="Message"
+          aria-label="消息输入"
           aria-expanded={menu !== null || undefined}
           aria-controls={menu !== null ? listboxId : undefined}
           aria-activedescendant={activeOptionId}
@@ -633,28 +670,52 @@ export function ComposerPanel({
                 ⇥
               </button>
             )}
-            <button className={styles.stop} type="button" onClick={onCancel} aria-label="Stop run">■</button>
+            <button className={styles.stop} type="button" onClick={onCancel} aria-label="停止运行" title="停止当前回合">■</button>
           </>
         ) : (
           <button
             className={styles.send}
             type="button"
             disabled={!canSend}
-            aria-label="Send message"
+            aria-label="发送消息"
             onClick={submit}
           >
             ↑
           </button>
         )}
-        <small className={styles.hint}>
-          {busy && onEnqueue !== undefined ? 'Enter 加入队列 · Esc 中断运行' : 'Enter to send · Shift+Enter for a new line'}
-        </small>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          aria-label="选择附件文件"
+          onChange={event => {
+            const list = event.target.files
+            if (list && list.length > 0) addFiles(list)
+            event.target.value = ''
+          }}
+        />
+        <div className={styles.bottomBar}>
+          <button
+            type="button"
+            className={styles.attachBtn}
+            disabled={disabled}
+            aria-label="添加附件"
+            title="上传图片、代码或文档附件（也可直接粘贴或拖拽）"
+            onClick={() => { fileInputRef.current?.click() }}
+          >
+            <IconPaperclip size={14} /> 添加附件
+          </button>
+          <small className={styles.hint}>
+            {busy && onEnqueue !== undefined ? 'Enter 加入队列 · Esc 中断运行' : 'Enter 发送 · Shift+Enter 换行 · 支持粘贴/拖拽文件'}
+          </small>
+        </div>
       </div>
       )}
       {notice !== null && <div className={styles.notice} role="alert">{notice}</div>}
       {dragging && (
         <div className={styles.dropOverlay} role="presentation">
-          <div className={styles.dropBox}>松开以添加附件</div>
+          <div className={styles.dropBox}>松开鼠标即可添加附件</div>
         </div>
       )}
     </div>

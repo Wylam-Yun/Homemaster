@@ -23,7 +23,7 @@ type Props = {
   onDone?: () => void
 }
 
-const STEPS = ['选择服务商', '填写连接信息', '测试并保存'] as const
+const STEPS = ['选择模型服务商', '填写连接密钥', '测试并保存'] as const
 
 export function OnboardingPage({ api, onDone }: Props) {
   const toast = useToast()
@@ -49,8 +49,6 @@ export function OnboardingPage({ api, onDone }: Props) {
   }, [api])
 
   const pickTemplate = useCallback((picked: ProviderTemplate) => {
-    // detection≠consent: selecting a template only prefills the form — nothing
-    // is probed or persisted until the user runs the test and hits 保存并进入.
     setTemplate(picked)
     setName(current => (current.trim().length > 0 ? current : picked.key))
     setBaseUrl(picked.base_url)
@@ -77,9 +75,9 @@ export function OnboardingPage({ api, onDone }: Props) {
   }, [apiKey, authType, baseUrl, model, name, template])
 
   const next = useCallback(() => {
-    if (name.trim().length === 0) { setFieldError('请填写 provider 名称。'); return }
-    if (baseUrl.trim().length === 0) { setFieldError('请填写 base_url。'); return }
-    if (model.trim().length === 0) { setFieldError('请填写 model。'); return }
+    if (name.trim().length === 0) { setFieldError('请填写服务商名称。'); return }
+    if (baseUrl.trim().length === 0) { setFieldError('请填写接口地址 (base_url)。'); return }
+    if (model.trim().length === 0) { setFieldError('请填写默认模型名称 (model)。'); return }
     if (template?.keyless !== true && apiKey.trim().length === 0) {
       setFieldError('请填写 API Key。')
       return
@@ -124,9 +122,9 @@ export function OnboardingPage({ api, onDone }: Props) {
   return (
     <section className={styles.page} aria-labelledby="onboarding-title">
       <div className={styles.head}>
-        <p className={styles.eyebrow}>首次配置</p>
+        <p className={styles.eyebrow}>首次启动配置</p>
         <h1 id="onboarding-title">接入一个模型服务，开始使用</h1>
-        <p className={styles.sub}>三步完成 provider 配置。探测到的默认值只用于预填——只有你点「测试并保存」后才会落盘。</p>
+        <p className={styles.sub}>三步完成模型接入。选择服务商模板会自动预填推荐参数——只有通过连接测试并点击「保存并进入」后才会写入配置文件。</p>
         <ol className={styles.steps} aria-label="引导步骤">
           {STEPS.map((label, index) => (
             <li key={label} data-active={index === step || undefined} data-done={index < step || undefined}>
@@ -134,13 +132,13 @@ export function OnboardingPage({ api, onDone }: Props) {
             </li>
           ))}
         </ol>
-        <Link className={styles.skip} to="#/chat">跳过，稍后在 Settings 里配 →</Link>
+        <Link className={styles.skip} to="#/chat">跳过引导，稍后在设置页里配置 →</Link>
       </div>
 
       {step === 0 && (
         <div className={styles.stepBody}>
-          {templatesError !== null && <div className={styles.errorText} role="alert">模板列表加载失败:{templatesError}</div>}
-          {templates === null && templatesError === null && <div className={styles.muted}>正在加载模板…</div>}
+          {templatesError !== null && <div className={styles.errorText} role="alert">模板列表加载失败：{templatesError}</div>}
+          {templates === null && templatesError === null && <div className={styles.muted}>正在加载预设模板…</div>}
           <div className={styles.cards}>
             {(templates ?? []).map(item => (
               <button
@@ -150,9 +148,9 @@ export function OnboardingPage({ api, onDone }: Props) {
                 onClick={() => { pickTemplate(item) }}
               >
                 <strong>{item.title}</strong>
-                <span className={styles.cardMeta}>{item.model || '自定义模型'}</span>
-                <span className={styles.cardMeta}>{item.base_url || '自定义 base_url'}</span>
-                {item.keyless && <span className={styles.keylessBadge}>本地 · 无需 Key</span>}
+                <span className={styles.cardMeta}>推荐模型：{item.model || '自定义模型'}</span>
+                <span className={styles.cardMeta}>{item.base_url || '自定义接口地址'}</span>
+                {item.keyless && <span className={styles.keylessBadge}>本地运行 · 无需 API Key</span>}
               </button>
             ))}
           </div>
@@ -162,17 +160,17 @@ export function OnboardingPage({ api, onDone }: Props) {
       {step === 1 && template !== null && (
         <div className={styles.stepBody}>
           <p className={styles.muted}>
-            模板：<strong>{template.title}</strong>
-            <button type="button" className={styles.linkish} onClick={() => { setStep(0) }}>换一个</button>
+            已选模板：<strong>{template.title}</strong>
+            <button type="button" className={styles.linkish} onClick={() => { setStep(0) }}>重新选择模板</button>
           </p>
           <div className={styles.grid}>
             <label className={styles.field}>
-              <span>provider 名称</span>
+              <span>显示名称</span>
               <input type="text" value={name} aria-label="Provider 名称" onChange={event => { setName(event.target.value) }} />
             </label>
             {template.keyless !== true && (
               <label className={styles.field}>
-                <span>API Key</span>
+                <span>API 密钥 (API Key)</span>
                 <input
                   type="password"
                   value={apiKey}
@@ -185,29 +183,29 @@ export function OnboardingPage({ api, onDone }: Props) {
             )}
             {template.supports_auth_token && (
               <label className={styles.field}>
-                <span>auth_type</span>
+                <span>鉴权方式 (auth_type)</span>
                 <select value={authType} aria-label="Auth type" onChange={event => { setAuthType(event.target.value) }}>
-                  <option value="api_key">api_key</option>
-                  <option value="auth_token">auth_token</option>
+                  <option value="api_key">标准 API Key (api_key)</option>
+                  <option value="auth_token">Auth Token 令牌 (auth_token)</option>
                 </select>
               </label>
             )}
             <label className={styles.field}>
-              <span>base_url</span>
+              <span>接口地址 (base_url)</span>
               <input type="text" value={baseUrl} aria-label="Base URL" onChange={event => { setBaseUrl(event.target.value) }} />
             </label>
             <label className={styles.field}>
-              <span>model</span>
+              <span>默认模型名称 (model)</span>
               <input
                 type="text"
                 value={model}
-                placeholder={template.model || '模型 id，自由输入'}
+                placeholder={template.model || '输入模型名称'}
                 aria-label="Model"
                 onChange={event => { setModel(event.target.value) }}
               />
             </label>
           </div>
-          <p className={styles.hint}>保存后可到 Settings 页「枚举可用模型」挑选线上模型列表。</p>
+          <p className={styles.hint}>保存后可随时在「模型与设置」页在线拉取该服务商支持的全部模型列表。</p>
           {fieldError !== null && <div className={styles.errorText} role="alert">{fieldError}</div>}
           <div className={styles.actions}>
             <button type="button" onClick={() => { setStep(0) }}>上一步</button>
@@ -220,9 +218,9 @@ export function OnboardingPage({ api, onDone }: Props) {
         <div className={styles.stepBody}>
           <div className={styles.summary}>
             <strong>{name}</strong>
-            <span>{template.title} · <code>{model}</code></span>
-            <span className={styles.muted}><code>{baseUrl}</code></span>
-            {template.keyless !== true && <span className={styles.muted}>API Key 已填写（不回显）</span>}
+            <span>{template.title} · 模型：<code>{model}</code></span>
+            <span className={styles.muted}>接口地址：<code>{baseUrl}</code></span>
+            {template.keyless !== true && <span className={styles.muted}>API Key 已填写（安全保护，不回显明文）</span>}
           </div>
           <div className={styles.actions}>
             <button type="button" className={styles.primary} onClick={() => { void runTest() }} disabled={testing || saving}>
@@ -239,7 +237,7 @@ export function OnboardingPage({ api, onDone }: Props) {
             </div>
           )}
           {testResult?.ok === false && (
-            <p className={styles.hint}>测试未通过：按上方建议修正后重新测试；也可以「返回修改」调整字段。</p>
+            <p className={styles.hint}>连接测试未通过：请根据上方提示检查后重试，或点击「返回修改」调整配置。</p>
           )}
           {saveError !== null && <div className={styles.errorText} role="alert">{saveError}</div>}
         </div>

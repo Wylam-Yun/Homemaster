@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+
 from fastapi import FastAPI, Response
 
 from homemaster.application.session import SessionConflictError
@@ -9,7 +11,9 @@ from homemaster.web._shared import (
     _ensure_session_loaded,
     _error,
     _history_message,
+    _session_attachment_dir,
     _session_ids,
+    _web_attachments_root,
 )
 from homemaster.web.context import WebAppContext
 from homemaster.web.schemas import CreateSessionRequest, RenameSessionRequest
@@ -154,6 +158,13 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "The requested session does not exist.",
                 retryable=False,
             )
+        # Hard delete also covers uploaded attachments under
+        # var/web_attachments/{session_id} — the user-facing "彻底删除"
+        # promise includes user files, not just the session store.
+        attachment_dir = _session_attachment_dir(
+            _web_attachments_root(application, create=False), session_id, create=False
+        )
+        shutil.rmtree(attachment_dir, ignore_errors=True)
         return Response(status_code=204)
 
     @app.post("/api/sessions/{session_id}/cancel")

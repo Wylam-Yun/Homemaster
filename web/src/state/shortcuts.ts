@@ -25,6 +25,7 @@ export const SHORTCUTS = {
   historyNext: 'arrowdown',
   escape: 'escape',
   transcriptSearch: 'mod+f',
+  commandPalette: 'mod+k',
   shortcutHelp: 'mod+/',
 } as const
 
@@ -36,6 +37,7 @@ const BUILTIN_SHORTCUTS: ShortcutRegistration[] = [
   { id: 'composer.history-next', keys: SHORTCUTS.historyNext, description: '历史回放中返回较新条目 / 草稿', displayOnly: true },
   { id: 'global.escape', keys: SHORTCUTS.escape, description: '逐级退出：菜单 → 中断运行 → 关闭对话框', displayOnly: true },
   { id: 'transcript.search', keys: SHORTCUTS.transcriptSearch, description: '转录内搜索' },
+  { id: 'global.command-palette', keys: SHORTCUTS.commandPalette, description: '命令面板（快速操作与会话跳转）' },
   { id: 'dialog.shortcut-help', keys: SHORTCUTS.shortcutHelp, description: '快捷键帮助（本页）' },
 ]
 

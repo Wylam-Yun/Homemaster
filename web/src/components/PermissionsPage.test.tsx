@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Grant } from '../api/http'
 import { PermissionsPage, type GrantsApi } from './PermissionsPage'
@@ -81,6 +81,8 @@ function makeApi(grants: Grant[], onRevoke?: (grantId: string) => void): GrantsA
 }
 
 describe('PermissionsPage', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
   it('groups object grants by action and revokes one without touching the other', async () => {
     const live = [pickGrant, placeGrant]
     const api = makeApi(live, grantId => {
@@ -93,7 +95,9 @@ describe('PermissionsPage', () => {
     expect(screen.getByText('拿取')).toBeVisible()
     expect(screen.getByText('放置')).toBeVisible()
 
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: '撤销白色杯子的拿取' }))
+    expect(confirm).toHaveBeenCalledTimes(1)
     await waitFor(() => {
       expect(api.revokeGrant).toHaveBeenCalledWith('grant-pick-1', {
         submission_id: expect.any(String),
@@ -153,11 +157,24 @@ describe('PermissionsPage', () => {
     expect(await screen.findByText('已允许放置 · 2026-09-10T01:00:00Z')).toBeVisible()
   })
 
+  it('does not revoke when the confirmation is declined', async () => {
+    const api = makeApi([pickGrant])
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<PermissionsPage api={api} refreshSignal={0} />)
+
+    expect(await screen.findByText('已允许拿取 · 2026-09-10T01:00:00Z')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '撤销白色杯子的拿取' }))
+    // Give any accidental async revoke a tick to surface.
+    await new Promise(resolve => { setTimeout(resolve, 20) })
+    expect(api.revokeGrant).not.toHaveBeenCalled()
+  })
+
   it('reuses the locked submission id when retrying a failed revoke', async () => {
     const revokeGrant = vi.fn()
       .mockRejectedValueOnce(new Error('network down'))
       .mockResolvedValueOnce({ ...pickGrant, revoked_at: '2026-09-10T02:00:00Z', status: 'revoked' as const })
     const api: GrantsApi = { listGrants: makeApi([pickGrant]).listGrants, revokeGrant }
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<PermissionsPage api={api} refreshSignal={0} />)
 
     expect(await screen.findByText('已允许拿取 · 2026-09-10T01:00:00Z')).toBeVisible()

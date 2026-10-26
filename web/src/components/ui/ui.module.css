@@ -1,0 +1,112 @@
+/* Shared primitives for pages rebuilt in the console overhaul. */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.pageHeader h1 {
+  margin: .2rem 0 .35rem;
+  font-size: 1.4rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+.subtitle {
+  margin: 0;
+  max-width: 48rem;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+.subtitle code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: .48rem .95rem;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background .12s ease, border-color .12s ease;
+}
+.button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+.buttonPrimary {
+  border-color: transparent;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-weight: 600;
+}
+.buttonPrimary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.06);
+}
+.buttonDanger {
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--danger);
+  font-weight: 600;
+}
+.buttonDanger:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(1.06);
+}
+.buttonGhost {
+  border-color: var(--border);
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+}
+.buttonGhost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.badgeAccent { background: var(--accent-subtle); color: var(--accent); }
+.badgeSuccess { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.badgeWarning { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.badgeDanger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.badgeMuted { background: var(--surface-2); color: var(--muted); }

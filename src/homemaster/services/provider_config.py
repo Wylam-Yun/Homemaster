@@ -520,7 +520,29 @@ class ProviderConfigService:
     def list_profiles(self) -> list[dict[str, Any]]:
         """Masked provider views — key material is never echoed."""
 
-        return [_profile_summary(item) for item in self._current_items()]
+        default_name = self._default_name()
+        profiles = [_profile_summary(item) for item in self._current_items()]
+        for profile in profiles:
+            profile["is_default"] = (
+                default_name is not None
+                and profile["name"].casefold() == default_name.casefold()
+            )
+        return profiles
+
+    def _default_name(self) -> str | None:
+        """Runtime default first, then the on-disk ``providers.default``."""
+
+        runtime_default = getattr(
+            getattr(self._runtime_config, "providers", None), "default", None
+        )
+        if isinstance(runtime_default, str) and runtime_default.strip():
+            return runtime_default.strip()
+        providers = self._read_existing().get("providers")
+        if isinstance(providers, Mapping):
+            configured = providers.get("default")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+        return None
 
     # -- writes ------------------------------------------------------------
 
@@ -1017,14 +1039,22 @@ class ProviderConfigService:
             env_override_hint(profile.name), ""
         )
         headers: dict[str, str] = {}
+        alt_headers: dict[str, str] | None = None
         if profile.api_format in ANTHROPIC_WIRE_FORMATS:
             url = f"{base_url}/v1/models"
             if api_key:
+                # Anthropic-style gateways disagree on the credential header:
+                # some take x-api-key, others only Authorization: Bearer. Send
+                # the configured scheme first and retry the other on 401/403.
                 if profile.auth_type == "auth_token":
                     headers["authorization"] = f"Bearer {api_key}"
+                    alt_headers = {"x-api-key": api_key}
                 else:
                     headers["x-api-key"] = api_key
+                    alt_headers = {"authorization": f"Bearer {api_key}"}
             headers["anthropic-version"] = "2023-06-01"
+            if alt_headers is not None:
+                alt_headers["anthropic-version"] = "2023-06-01"
         else:
             path = urlsplit(base_url).path.rstrip("/")
             suffix = "/models" if re.search(r"/v\d+[a-z0-9.]*$", path) else "/v1/models"
@@ -1035,6 +1065,8 @@ class ProviderConfigService:
             timeout=httpx.Timeout(_MODELS_TIMEOUT_S), trust_env=False
         ) as client:
             response = await client.get(url, headers=headers)
+            if response.status_code in (401, 403) and alt_headers is not None:
+                response = await client.get(url, headers=alt_headers)
         if response.status_code != 200:
             return None
         try:

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Grant } from '../api/http'
+import { PageHeader } from './ui/PageHeader'
 import styles from './PermissionsPage.module.css'
 
 export type GrantsApi = {
@@ -133,16 +134,17 @@ export function PermissionsPage({ api, refreshSignal }: Props) {
 
   return (
     <section className={styles.page} aria-labelledby="permissions-page-title">
-      <div className={styles.headingRow}>
-        <div>
-          <p className={styles.eyebrow}>长期权限</p>
-          <h1 id="permissions-page-title">权限管理</h1>
-          <p>查看长期有效的授权并按动作撤销。区域权限只检查目的地，不限制途经区域。</p>
-        </div>
-        <button type="button" className={styles.refresh} onClick={() => { void reloadAll() }} disabled={loading}>
-          {loading ? '加载中…' : '刷新'}
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="长期权限"
+        title="权限管理"
+        titleId="permissions-page-title"
+        subtitle="查看长期有效的授权并按动作撤销。区域权限只检查目的地，不限制途经区域。"
+        actions={
+          <button type="button" className={styles.refresh} onClick={() => { void reloadAll() }} disabled={loading}>
+            {loading ? '加载中…' : '刷新'}
+          </button>
+        }
+      />
 
       {failure !== null && (
         <div className={styles.error} role="alert">
@@ -189,7 +191,11 @@ export function PermissionsPage({ api, refreshSignal }: Props) {
                   type="button"
                   aria-label={`撤销${grantTitle(grant)}的${grantAction(grant)}`}
                   disabled={revokingId !== null}
-                  onClick={() => { void submitRevoke(prepareRevoke(grant)) }}
+                  onClick={() => {
+                    if (window.confirm(`撤销「${grantTitle(grant)}」的${grantAction(grant)}长期授权？`)) {
+                      void submitRevoke(prepareRevoke(grant))
+                    }
+                  }}
                 >
                   {revokingId === grant.grant_id ? '撤销中…' : `撤销${grantAction(grant)}`}
                 </button>

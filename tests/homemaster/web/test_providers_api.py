@@ -103,6 +103,8 @@ def test_provider_crud_lifecycle_over_http(tmp_path: Path) -> None:
             "api_key_configured": True,
             "api_key_count": 1,
             "keyless": False,
+            # The first configured chat provider becomes the default.
+            "is_default": True,
         }
         assert API_KEY not in listed.text
 

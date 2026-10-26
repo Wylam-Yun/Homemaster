@@ -41,7 +41,8 @@
 **测试**：`conversation.test.ts` 增加用例——
 - thinking/answer 各两轮 + 工具段穿插：每轮 snapshot 后各段顺序与文本正确、中间轮文本不丢；
 - 无 delta 仅有连续 snapshot（重连场景）：按序追加；
-- snapshot 后同轮继续 delta：追加到最后一个同类段（不新建段）。
+- snapshot 后同轮继续 delta：新建一个同类段（已结算段不回写——delta 若为同轮
+  残余文本会造成重复，但 snapshot 才是该轮权威文本，残余 delta 属异常情况）。
 
 ## WS-2 Skills 刷新 + 管理
 
@@ -49,14 +50,17 @@
 - `GET /api/skills`：list 前调用 `registry.refresh()`（refresher 已在
   `application/composition/skills.py:30` 接线）；响应增加 `issues` 数组
   （`registry.issues` 的 source/code/detail），前端显示加载失败条目。
-- `POST /api/skills/import`：`multipart/form-data` 上传（前端
-  `<input type="file" webkitdirectory>` 选文件夹，逐文件上传）。
+- `POST /api/skills/import`：前端 `<input type="file" webkitdirectory>` 选文件夹，
+  逐文件读文本后以 **JSON body**（`files:[{path,content}]`，总量上限）上传
+  （不引入 python-multipart；二进制资源文件本期不支持）。
   服务端校验：必须含 `SKILL.md`，frontmatter 经 loader 同款解析；
-  目标目录固定 `~/.homemaster/skills/<skill-dir-name>/`（skill name 与目录名校验，
-  拒绝路径穿越）；重名 → 409，`?overwrite=true` 覆盖。成功后 `registry.refresh()`，
-  返回新 skill 摘要。
-- `DELETE /api/skills/{name}`：仅允许 provenance 为 user/project 来源的；
-  bundled/builtin 一律 403。删除目录 + rescan。
+  目标目录固定 `<user_skills_dir>/<顶层目录名>/`（拒绝路径穿越；目录名与
+  frontmatter name 不强制一致——loader 本就区分 name 与 command_name）；
+  重名 → 409，overwrite 时整目录删后重写。成功后 `registry.refresh()` 并回读
+  确认可见，返回新 skill 摘要。
+- `DELETE /api/skills/{name}`：仅允许 provenance 为 **user** 来源的
+  （project 源涉及 repo 内文件，本期不放开）；bundled/builtin/explicit 一律 403。
+  删除目录 + rescan。列表项带服务端计算的 `deletable` 标志，前端不猜。
 
 **前端**（`pages/SkillsPage.tsx`）：
 - "导入技能"按钮 → `webkitdirectory` 文件选择 → FormData 上传 → toast 结果；
@@ -69,11 +73,15 @@ delete user skill 成功、delete builtin 403；前端组件测试刷新调用�
 ## WS-3 记忆页重做
 
 **后端新增** `GET /api/memories/graph`（`routes/memory.py`）：
-- 直查 managed Neo4j（full 档；files 档 503 `memory_unavailable`，与 snapshot 一致）。
-- nodes：`Memory`(memory_id, memory_type, status, 摘要标题, session_id, updated_at)、
-  `Entity`(name)、`Source`(session_id, title)。
-- edges：`EXTRACTED_FROM`(Memory→Source)、`MENTIONS`(Memory→Entity)。
-- 不返回记忆全文/原始 JSON；字段走显式 allowlist。
+- 混合数据源（full 档；files 档 503 `memory_unavailable`，与 snapshot 一致）：
+  - **节点字段**取 `list_raw_memories`（Qdrant payload 才有 mem_type/status/
+    session_id/update_at——Neo4j Memory 节点只有 content/status）；
+  - **边**取 `neo4j_store.run_read`：`MENTIONS`(Memory→Entity)、`EXTRACTED_FROM`
+    (Memory→Source)、`RELATES_TO`/`DERIVED_FROM`(Memory→Memory)，带 LIMIT；
+  - session title 经 `_title_for_session` 解析。
+- 返回：memory nodes（id/type/status/截断 preview/session_id/updated_at）、
+  entities（id/name）、edges、sessions（id/title）。
+- 不返回记忆全文（preview 服务端截断）；字段走显式 allowlist。
 
 **前端 `MemoryPage` 重写**（仍只读）：
 - 视图切换：**列表 / 图谱**（`?view=` 或组件内 state；默认列表）。

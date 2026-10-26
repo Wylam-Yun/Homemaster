@@ -43,14 +43,14 @@ describe('ToolGroup', () => {
     expect(screen.getByText('run_shell')).toBeVisible()
     expect(screen.getByText('$ ls -la')).toBeVisible()
     expect(screen.getByText('/tmp/a.txt')).toBeVisible()
-    expect(screen.queryByText('Arguments')).toBeNull()
+    expect(screen.queryByText('参数')).toBeNull()
 
     fireEvent.click(rows[1]!)
     expect(rows[1]).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Arguments')).toBeVisible()
+    expect(screen.getByText('参数')).toBeVisible()
 
     fireEvent.click(rows[1]!)
-    expect(screen.queryByText('Arguments')).toBeNull()
+    expect(screen.queryByText('参数')).toBeNull()
   })
 
   it('marks failed records with the failed state', () => {
@@ -68,7 +68,7 @@ describe('WelcomePanel', () => {
 
   it('sends the suggestion text when a task card is clicked', () => {
     const suggest = vi.fn()
-    render(<WelcomePanel recentSessions={[]} sessionTitle={session => session.title} onSuggestion={suggest} onContinue={vi.fn()} />)
+    render(<WelcomePanel recentSessions={[]} providers={[]} meta={null} memoryCount={undefined} sessionTitle={session => session.title} onSuggestion={suggest} onContinue={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /巡视检查/ }))
     expect(suggest).toHaveBeenCalledWith('巡视客厅，报告有没有遗落的物品')
@@ -76,7 +76,7 @@ describe('WelcomePanel', () => {
 
   it('offers continue entries for recent sessions', () => {
     const cont = vi.fn()
-    render(<WelcomePanel recentSessions={sessions} sessionTitle={session => session.title} onSuggestion={vi.fn()} onContinue={cont} />)
+    render(<WelcomePanel recentSessions={sessions} providers={[]} meta={null} memoryCount={undefined} sessionTitle={session => session.title} onSuggestion={vi.fn()} onContinue={cont} />)
 
     fireEvent.click(screen.getByRole('button', { name: /拿过杯子/ }))
     expect(cont).toHaveBeenCalledWith('session-a')

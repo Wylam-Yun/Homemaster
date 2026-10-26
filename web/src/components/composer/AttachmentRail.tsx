@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 
 import { ImageLightbox } from '../ImageLightbox'
+import { IconClose, IconFile } from '../ui/icons'
 import styles from './AttachmentRail.module.css'
 
 export type AttachmentDraft = {
@@ -9,6 +10,7 @@ export type AttachmentDraft = {
   size: number
   mime: string
   blobUrl: string
+  file?: File
 }
 
 function isImage(attachment: AttachmentDraft): boolean {
@@ -52,7 +54,7 @@ export function AttachmentRail({
             </button>
           ) : (
             <div className={styles.fileBody}>
-              <span className={styles.fileIcon} aria-hidden>📄</span>
+              <span className={styles.fileIcon} aria-hidden><IconFile size={18} /></span>
               <div className={styles.fileMeta}>
                 <span className={styles.fileName}>{attachment.name}</span>
                 <small>{attachment.mime || '文件'} · {formatAttachmentSize(attachment.size)}</small>
@@ -68,7 +70,7 @@ export function AttachmentRail({
               onRemove(attachment.id)
             }}
           >
-            ×
+            <IconClose size={12} />
           </button>
         </div>
       ))}

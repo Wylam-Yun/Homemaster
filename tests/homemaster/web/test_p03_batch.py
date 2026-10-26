@@ -17,7 +17,7 @@ import homemaster
 from homemaster.agent.messages import UserMessage
 from homemaster.application import SessionManager
 from homemaster.events.bus import EventBus
-from homemaster.skills.registry import SkillProvenance, SkillRegistry
+from homemaster.skills.registry import SkillLoadIssue, SkillProvenance, SkillRegistry
 from homemaster.skills.types import SkillDefinition
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
@@ -182,6 +182,21 @@ def test_delete_in_memory_only_session() -> None:
         assert client.get("/api/sessions").json()["sessions"] == []
 
 
+def test_delete_session_removes_uploaded_attachments(tmp_path) -> None:
+    application = _P03Application()
+    application.working_directory = tmp_path
+    app = _app(application)
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        attachment_dir = tmp_path / "var" / "web_attachments" / session_id
+        attachment_dir.mkdir(parents=True)
+        (attachment_dir / "upload.txt").write_text("payload", encoding="utf-8")
+
+        assert client.delete(f"/api/sessions/{session_id}").status_code == 204
+        assert not attachment_dir.exists()
+
+
 def test_delete_session_during_active_run_is_conflict(tmp_path) -> None:
     application = _P03Application(session_root=tmp_path)
     app = _app(application)
@@ -234,6 +249,7 @@ def _skill_registry() -> SkillRegistry:
             source="user",
             command_name="research",
             user_invocable=False,
+            base_dir="/u/research",
         ),
         provenance=SkillProvenance(source="user", path=Path("/u"), root=Path("/u")),
     )
@@ -252,7 +268,9 @@ def _skill_registry() -> SkillRegistry:
 
 def test_list_skills_returns_readable_sources_and_enabled_flag() -> None:
     application = _P03Application(services={"skill_registry": _skill_registry()})
-    app = _app(application)
+    # deletable requires base_dir inside a configured user skill root.
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=(Path("/u"),)))
+    app = _app(application, config=config)
 
     with TestClient(app) as client:
         response = client.get("/api/skills")
@@ -267,15 +285,71 @@ def test_list_skills_returns_readable_sources_and_enabled_flag() -> None:
         "source": "builtin",
         "user_invocable": True,
         "enabled": True,
+        "deletable": False,
     }
     assert skills["research"]["source"] == "user"
     assert skills["research"]["user_invocable"] is False
+    # Only the user skill root is deletable; bundled/builtin stay protected.
+    assert skills["research"]["deletable"] is True
     # Bundled content surfaces under the builtin label for the UI.
     assert skills["deploy"]["source"] == "builtin"
+    assert skills["deploy"]["deletable"] is False
 
 
 def test_list_skills_reports_unavailable_registry() -> None:
     application = _P03Application()
+    app = _app(application)
+
+    with TestClient(app) as client:
+        response = client.get("/api/skills")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "skill_registry_unavailable"
+
+
+def test_list_skills_refreshes_registry_and_surfaces_load_issues() -> None:
+    """GET /api/skills must re-scan sources, not serve a stale snapshot."""
+
+    refreshed = _skill_registry()
+    refreshed.record_issue(
+        SkillLoadIssue(
+            source="user",
+            code="invalid_skill",
+            detail="ValueError",
+            path="/u/bad/SKILL.md",
+        )
+    )
+    registry = SkillRegistry()
+    calls = {"count": 0}
+
+    def _refresher() -> SkillRegistry:
+        calls["count"] += 1
+        return refreshed
+
+    registry.set_refresher(_refresher)
+    application = _P03Application(services={"skill_registry": registry})
+    app = _app(application)
+
+    with TestClient(app) as client:
+        response = client.get("/api/skills")
+
+    assert response.status_code == 200
+    assert calls["count"] == 1
+    body = response.json()
+    assert {skill["name"] for skill in body["skills"]} == {"clean", "research", "deploy"}
+    assert body["issues"] == [
+        {"source": "user", "code": "invalid_skill", "detail": "ValueError", "path": "/u/bad/SKILL.md"}
+    ]
+
+
+def test_list_skills_reports_refresh_failure() -> None:
+    registry = SkillRegistry()
+
+    def _failing() -> SkillRegistry:
+        raise RuntimeError("disk gone")
+
+    registry.set_refresher(_failing)
+    application = _P03Application(services={"skill_registry": registry})
     app = _app(application)
 
     with TestClient(app) as client:

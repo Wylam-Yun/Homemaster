@@ -187,7 +187,9 @@ def _load_plugin_skill_sources(
             root = expanded.resolve(strict=True)
         except OSError as exc:
             registry.record_issue(
-                SkillLoadIssue(source="plugin", code="invalid_plugin", detail=type(exc).__name__)
+                SkillLoadIssue(
+                    source="plugin", code="invalid_plugin", detail=type(exc).__name__, path=str(expanded)
+                )
             )
             continue
         for raw_plugin in sorted(path for path in root.iterdir() if path.is_dir()):
@@ -224,12 +226,14 @@ def _load_plugin_skill_sources(
                     )
             except _UnsafeSkillRootError as exc:
                 registry.record_issue(
-                    SkillLoadIssue(source="plugin", code="unsafe_root", detail=type(exc).__name__)
+                    SkillLoadIssue(
+                        source="plugin", code="unsafe_root", detail=type(exc).__name__, path=str(raw_plugin)
+                    )
                 )
             except (json.JSONDecodeError, OSError, ValueError) as exc:
                 registry.record_issue(
                     SkillLoadIssue(
-                        source="plugin", code="invalid_plugin", detail=type(exc).__name__
+                        source="plugin", code="invalid_plugin", detail=type(exc).__name__, path=str(raw_plugin)
                     )
                 )
 
@@ -284,7 +288,7 @@ def _load_automatic_sources(
             root = expanded.resolve(strict=True)
         except OSError as exc:
             registry.record_issue(
-                SkillLoadIssue(source=source, code="invalid_skill", detail=type(exc).__name__)
+                SkillLoadIssue(source=source, code="invalid_skill", detail=type(exc).__name__, path=str(expanded))
             )
             continue
         for path in sorted(root.glob("*/SKILL.md")):
@@ -297,7 +301,7 @@ def _load_automatic_sources(
                 )
             except (OSError, ValueError) as exc:
                 registry.record_issue(
-                    SkillLoadIssue(source=source, code="invalid_skill", detail=type(exc).__name__)
+                    SkillLoadIssue(source=source, code="invalid_skill", detail=type(exc).__name__, path=str(path))
                 )
 
 
@@ -339,6 +343,7 @@ def _discover_project_skill_dirs(
                         source="project",
                         code="unsafe_root",
                         detail="project skill root resolves outside the git root",
+                        path=str(resolved),
                     )
                 )
                 continue

@@ -138,6 +138,39 @@ class _FakeMemoryManagementService:
             raise MemoryNotFoundError(memory_id)
         return (_managed_memory(memory_id),)
 
+    async def create(
+        self,
+        content: str,
+        memory_type: str = "fact",
+        *,
+        tenant_id: str,
+    ) -> ManagedMemory:
+        del content, memory_type, tenant_id
+        return _managed_memory("memory-created")
+
+    async def update(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        tenant_id: str,
+    ) -> ManagedMemory:
+        del content, tenant_id
+        if memory_id == "missing":
+            raise MemoryNotFoundError(memory_id)
+        return _managed_memory(memory_id)
+
+    async def delete(
+        self,
+        memory_id: str,
+        *,
+        tenant_id: str,
+    ) -> dict[str, object]:
+        del tenant_id
+        if memory_id == "missing":
+            raise MemoryNotFoundError(memory_id)
+        return {"memory_id": memory_id, "deleted": True, "status": "archived"}
+
 
 class _FakeCompileJobs:
     def __init__(self) -> None:
@@ -458,8 +491,16 @@ def test_memory_snapshot_and_history_are_get_only() -> None:
         assert history.json()["memory_id"] == "memory-01"
         assert service.snapshot_tenants == ["local"]
         assert service.history_calls == [("memory-01", "local")]
-        for method in (client.post, client.put, client.patch, client.delete):
+        for method in (client.put, client.patch, client.delete):
             assert method("/api/memories").status_code == 405
+        created = client.post("/api/memories", json={"content": "new fact", "memory_type": "fact"})
+        assert created.status_code == 201
+        assert created.json()["memory"]["memory_id"] == "memory-created"
+        updated = client.patch("/api/memories/memory-01", json={"content": "updated fact"})
+        assert updated.status_code == 200
+        deleted = client.delete("/api/memories/memory-01")
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] is True
 
 
 def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
@@ -507,6 +548,36 @@ def test_alfworld_compile_routes_only_admit_and_read_server_owned_jobs() -> None
     assert missing.status_code == 404
 
 
+def test_session_attachment_upload_and_message_delivery(tmp_path: Path) -> None:
+    import base64
+
+    application = _FakeApplication()
+    application.working_directory = tmp_path
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        encoded = base64.b64encode(b"hello attachment content").decode("ascii")
+        uploaded = client.post(
+            f"/api/sessions/{session_id}/attachments",
+            json={
+                "filename": "notes.txt",
+                "media_type": "text/plain",
+                "data_base64": encoded,
+            },
+        )
+        assert uploaded.status_code == 201
+        att = uploaded.json()
+        assert att["filename"] == "notes.txt"
+        assert att["size"] == len(b"hello attachment content")
+        files = list((tmp_path / "var" / "web_attachments").rglob("*notes.txt"))
+        assert len(files) == 1
+        assert files[0].read_bytes() == b"hello attachment content"
+
+
 def test_web_route_table_is_stable() -> None:
     """Pin the public API surface so route refactors cannot silently drift.
 
@@ -535,6 +606,10 @@ def test_web_route_table_is_stable() -> None:
         ("/api/doctor", ("GET",)),
         ("/api/health", ("GET",)),
         ("/api/memories", ("GET",)),
+        ("/api/memories", ("POST",)),
+        ("/api/memories/graph", ("GET",)),
+        ("/api/memories/{memory_id}", ("DELETE",)),
+        ("/api/memories/{memory_id}", ("PATCH",)),
         ("/api/memories/{memory_id}/compile", ("POST",)),
         ("/api/memories/{memory_id}/history", ("GET",)),
         ("/api/memory-compilations/{job_id}", ("GET",)),
@@ -555,6 +630,7 @@ def test_web_route_table_is_stable() -> None:
         ("/api/sessions/{session_id}/approvals", ("GET",)),
         ("/api/sessions/{session_id}/archive", ("POST",)),
         ("/api/sessions/{session_id}/archive-status", ("GET",)),
+        ("/api/sessions/{session_id}/attachments", ("POST",)),
         ("/api/sessions/{session_id}/cancel", ("POST",)),
         ("/api/sessions/{session_id}/compact", ("POST",)),
         ("/api/sessions/{session_id}/history", ("GET",)),
@@ -565,6 +641,8 @@ def test_web_route_table_is_stable() -> None:
         ("/api/sessions/{session_id}/status", ("GET",)),
         ("/api/sessions/{session_id}/stream", ("GET",)),
         ("/api/skills", ("GET",)),
+        ("/api/skills/import", ("POST",)),
         ("/api/skills/resolve", ("POST",)),
+        ("/api/skills/{name}", ("DELETE",)),
     ]
     assert actual == expected

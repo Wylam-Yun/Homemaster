@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { ItemChoice } from '../api/http'
 import type { ApprovalItem } from '../protocol/events'
 import type { ApprovalState } from '../state/conversation'
+import { IconAlert } from './ui/icons'
 import styles from './ApprovalDialog.module.css'
 
 export type ApprovalDecisions = Record<string, ItemChoice>
@@ -100,7 +101,8 @@ export function ApprovalDialog({
   // 行内确认条确认后才落 decision；选别的档或取消都会解除 arm。
   const [alwaysArmed, setAlwaysArmed] = useState<string | null>(null)
   const sawBusyRef = useRef(false)
-  const closeRef = useRef<HTMLButtonElement>(null)
+  // 初始焦点落在对话框本体而不是「取消审批」——避免用户开框就按 Enter 误取消。
+  const dialogRef = useRef<HTMLElement>(null)
 
   const locked = busy || latched
   const countdown = useApprovalCountdown(approval.expiresAt)
@@ -126,7 +128,7 @@ export function ApprovalDialog({
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
-    closeRef.current?.focus()
+    dialogRef.current?.focus()
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
@@ -185,14 +187,14 @@ export function ApprovalDialog({
 
   return createPortal(
     <div className={styles.backdrop} role="dialog" aria-modal="true" aria-labelledby="approval-title">
-      <section className={styles.dialog}>
+      <section ref={dialogRef} className={styles.dialog} tabIndex={-1}>
         <header>
-          <span aria-hidden>⚠</span>
+          <span aria-hidden><IconAlert size={18} /></span>
           <div>
             <h2 id="approval-title">权限申请</h2>
             <p>{approval.intentSummary}</p>
             <p className={styles.hint}>
-              逐项决定后提交；「本会话」在当前会话内复用，「始终允许」写入长期授权。
+              逐项决定后提交；「本会话」在当前会话内复用，「始终允许」写入长期授权。Esc/取消审批 = 放弃本次申请。
               {countdown !== null && (
                 countdown > 0
                   ? <span className={styles.countdown}>剩余 {formatCountdown(countdown)}</span>
@@ -261,7 +263,7 @@ export function ApprovalDialog({
         </ul>
         {error && <p className={styles.error} role="alert">{error}</p>}
         <footer>
-          <button ref={closeRef} type="button" disabled={locked} onClick={close}>关闭</button>
+          <button type="button" disabled={locked} onClick={close} title="放弃本次申请（Agent 会收到取消）">取消审批</button>
           <button
             className={styles.approve}
             type="button"
