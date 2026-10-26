@@ -11,9 +11,9 @@ const firstLine = (text: string): string => text.split('\n', 1)[0]
 const latestLine = (text: string): string => text.trimEnd().split('\n').at(-1) ?? ''
 
 function settledLabel(durationMs: number | null): string {
-  if (durationMs === null) return 'Thought'
+  if (durationMs === null) return '已思考'
   const seconds = Math.max(1, Math.round(durationMs / 1000))
-  return `Thought for ${seconds}s`
+  return `已思考 ${seconds} 秒`
 }
 
 export function ReasoningRow({
@@ -47,11 +47,11 @@ export function ReasoningRow({
         type="button"
         className={styles.toggle}
         aria-expanded={expanded}
-        aria-label={running ? 'Thinking, streaming' : 'Thinking'}
+        aria-label={running ? '正在思考' : '思考过程'}
         onClick={() => { setExpanded(value => !value) }}
       >
         <span className={styles.icon} aria-hidden>✦</span>
-        <span>{running ? 'Thinking' : settledLabel(durationMs)}</span>
+        <span>{running ? '思考中' : settledLabel(durationMs)}</span>
         <span className={styles.summary}>{summary}</span>
         <span className={styles.chevron} aria-hidden>{expanded ? '⌃' : '⌄'}</span>
       </button>

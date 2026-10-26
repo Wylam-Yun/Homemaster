@@ -157,13 +157,13 @@ export function ModelPicker({
   return (
     <div className={styles.picker} aria-label="模型选择">
       <label className={styles.field} htmlFor={providerId}>
-        <span className={styles.fieldLabel}>Provider</span>
+        <span className={styles.fieldLabel}>服务商</span>
         <select
           id={providerId}
           className={styles.select}
           value={value.provider_name ?? ''}
           disabled={disabled}
-          aria-label="Provider"
+          aria-label="服务商"
           onChange={event => { pickProvider(event.target.value) }}
         >
           <option value="">默认</option>
@@ -184,13 +184,13 @@ export function ModelPicker({
       </label>
       {showModelControls && !customOpen && (
         <label className={styles.field} htmlFor={modelId}>
-          <span className={styles.fieldLabel}>Model</span>
+          <span className={styles.fieldLabel}>模型</span>
           <select
             id={modelId}
             className={styles.select}
             value={modelSelectValue}
             disabled={disabled || selected === undefined}
-            aria-label="Model"
+            aria-label="模型"
             onChange={event => { pickModel(event.target.value) }}
           >
             <option value="">默认{selected?.model ? ` · ${selected.model}` : ''}</option>

@@ -8,4 +8,6 @@
 .answerInput:disabled { opacity: .6; }
 .answerSubmit { border: 0; border-radius: .6rem; padding: .45rem .95rem; color: #062118; background: var(--accent); font-weight: 600; cursor: pointer; }
 .answerSubmit:disabled { opacity: .4; cursor: not-allowed; }
+.answerCancel { border: 1px solid var(--border-strong); border-radius: .6rem; padding: .45rem .8rem; color: var(--muted); background: transparent; font-weight: 600; cursor: pointer; }
+.answerCancel:hover { color: var(--danger); border-color: var(--danger); }
 .takeoverHint { display: block; margin-top: .45rem; color: var(--muted-2); font-size: .68rem; }

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     rejectMemories: false,
     memoryUnavailable: false,
     noProviders: false,
+    connectResult: true,
     HttpError: MockHttpError,
     stop: vi.fn(),
     emitters: [] as Array<{ onEvent: (event: unknown) => void }>,
@@ -130,6 +131,7 @@ vi.mock('./api/connection', () => ({
 
     start() { this.callbacks.onStateChange('connected') }
     stop() { mocks.stop() }
+    waitConnected() { return Promise.resolve(mocks.connectResult) }
   },
 }))
 
@@ -157,7 +159,7 @@ describe('App memory navigation', () => {
     render(<App />)
 
     expect(await screen.findByRole('button', { name: '对话' })).toBeVisible()
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
   })
 
   it('switches to memory view and collapses history without changing the session', async () => {
@@ -180,7 +182,7 @@ describe('App memory navigation', () => {
 
     expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
     expect(document.querySelector('.shell')).toHaveAttribute('data-recording', 'true')
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
     window.history.replaceState({}, '', '/')
   })
 
@@ -245,7 +247,7 @@ describe('App memory navigation', () => {
 
   it('keeps the composer text and shows a notice when sending fails', async () => {
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
 
     const api = mocks.apis[mocks.apis.length - 1]! as unknown as {
@@ -257,7 +259,7 @@ describe('App memory navigation', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await waitFor(() => { expect(api.sendMessage).toHaveBeenCalledTimes(1) })
-    expect(await screen.findByRole('alert')).toHaveTextContent('Message could not be sent.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('消息发送失败。')
     // The failed send must leave the typed input and out of prompt history.
     expect((input as HTMLTextAreaElement).value).toBe('do not lose this')
     expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual([])
@@ -265,7 +267,7 @@ describe('App memory navigation', () => {
 
   it('clears the composer text after a successful send', async () => {
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
 
     const api = mocks.apis[mocks.apis.length - 1]! as unknown as {
@@ -282,7 +284,7 @@ describe('App memory navigation', () => {
 
   it('decides every approval item and submits the structured protocol body', async () => {
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     const emitter = mocks.emitters[mocks.emitters.length - 1]!
     await act(async () => {
@@ -394,7 +396,7 @@ describe('App batch-2 integration', () => {
 
   it('takes over the composer on question.asked and answers through the REST endpoint', async () => {
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     await emit({
       type: 'request.accepted', session_id: 'session-01', run_id: 'run-01', request_id: 'request-01', payload: {},
@@ -404,7 +406,7 @@ describe('App batch-2 integration', () => {
       payload: { question_id: 'q-01', question: '杯子要什么颜色？', tool_call_id: 'call-1' },
     })
 
-    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '消息输入' })).toBeNull()
     expect(screen.getByText('杯子要什么颜色？')).toBeVisible()
 
     const answer = screen.getByRole('textbox', { name: '回答 Agent 的问题' })
@@ -413,12 +415,12 @@ describe('App batch-2 integration', () => {
 
     await waitFor(() => { expect(api().answerQuestion).toHaveBeenCalledWith('session-01', 'q-01', '蓝色') })
     // Optimistic removal restores the composer editor immediately.
-    await waitFor(() => { expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument() })
+    await waitFor(() => { expect(screen.getByRole('textbox', { name: '消息输入' })).toBeInTheDocument() })
   })
 
   it('queues composer input while busy and flushes in order on run completion', async () => {
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
 
     await emit({
@@ -452,10 +454,10 @@ describe('App batch-2 integration', () => {
 
   it('toggles plan/act mode through the badge and echoes it optimistically', async () => {
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
-    const badge = await screen.findByRole('button', { name: '执行' })
-    fireEvent.click(badge)
+    // 分段开关：执行是激活档，点「规划」那一档才发起切换。
+    fireEvent.click(await screen.findByRole('button', { name: '规划' }))
 
     await waitFor(() => { expect(api().setUiMode).toHaveBeenCalledWith('session-01', 'plan') })
     expect(await screen.findByRole('button', { name: '规划' })).toHaveAttribute('aria-pressed', 'true')
@@ -475,7 +477,7 @@ describe('App batch-2 integration', () => {
       messages: [{ role: 'user', text: '旧的提问' }],
     })
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
     expect(await screen.findByText('旧的提问')).toBeVisible()
 
@@ -492,11 +494,11 @@ describe('App batch-2 integration', () => {
 
   it('passes the picked provider/model through sendMessage and persists per session', async () => {
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
-    expect(await screen.findByRole('combobox', { name: 'Provider' })).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: '服务商' })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: 'primary' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '服务商' }), { target: { value: 'primary' } })
     expect(localStorage.getItem('hm.model.session-01')).toBe(JSON.stringify({ provider_name: 'primary' }))
 
     fireEvent.change(input, { target: { value: '带模型的消息' } })
@@ -510,7 +512,7 @@ describe('App batch-2 integration', () => {
 
   it('posts manual compaction and surfaces the triggered/kind toast', async () => {
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     fireEvent.click(await screen.findByRole('button', { name: '压缩上下文' }))
     await waitFor(() => { expect(api().compactSession).toHaveBeenCalledWith('session-01') })
@@ -540,7 +542,7 @@ describe('App P0 routing and wiring', () => {
 
   it('routes between pages through the hash', async () => {
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: '技能' }))
     expect(await screen.findByRole('heading', { name: '技能' })).toBeVisible()
@@ -551,11 +553,11 @@ describe('App P0 routing and wiring', () => {
     expect(await screen.findByRole('heading', { name: 'Provider 设置' })).toBeVisible()
     expect(window.location.hash).toBe('#/settings')
 
-    fireEvent.click(screen.getByRole('button', { name: '会话列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '会话管理' }))
     expect(await screen.findByRole('heading', { name: '会话管理' })).toBeVisible()
     fireEvent.click(screen.getByRole('link', { name: '打开会话 first request title' }))
     await waitFor(() => { expect(window.location.hash).toBe('#/chat/session-01') })
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
   })
 
   it('redirects first launch to onboarding when no chat provider is configured', async () => {
@@ -582,7 +584,7 @@ describe('App P0 routing and wiring', () => {
   it('deletes the selected session via DELETE and lands on #/sessions', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: '删除会话 first request title' }))
 
@@ -594,7 +596,7 @@ describe('App P0 routing and wiring', () => {
 
   it('injects only user-invocable skills into the composer slash menu', async () => {
     render(<App />)
-    const input = await screen.findByPlaceholderText('Message…')
+    const input = await screen.findByPlaceholderText('输入消息…')
     await waitFor(() => { expect(input).toBeEnabled() })
 
     fireEvent.change(input, { target: { value: '/' } })
@@ -605,11 +607,100 @@ describe('App P0 routing and wiring', () => {
   it('shows the files-tier degraded card instead of an error on memory 503', async () => {
     mocks.memoryUnavailable = true
     render(<App />)
-    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('输入消息…')).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: '记忆管理' }))
     expect(await screen.findByRole('heading', { name: '记忆管理' })).toBeVisible()
     expect(await screen.findByText('当前为 files 轻量记忆档')).toBeVisible()
     expect(screen.queryByText('记忆数据加载失败')).not.toBeInTheDocument()
+  })
+})
+
+describe('App draft sessions', () => {
+  const SESSION_LIST_DEFAULT = { sessions: [{ session_id: 'session-01', title: 'first request title', message_count: 2, updated_at: '2026-09-10T03:00:00+00:00' }] }
+
+  beforeEach(() => {
+    mocks.rejectMemories = false
+    mocks.memoryUnavailable = false
+    mocks.noProviders = false
+    mocks.connectResult = true
+    mocks.stop.mockClear()
+    mocks.emitters.length = 0
+    localStorage.clear()
+    window.HTMLElement.prototype.scrollIntoView = vi.fn()
+  })
+
+  afterEach(() => {
+    window.history.replaceState({}, '', '/')
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as Record<string, ReturnType<typeof vi.fn>>
+    api.listSessions.mockResolvedValue(SESSION_LIST_DEFAULT)
+    vi.clearAllMocks()
+    vi.restoreAllMocks()
+  })
+
+  it('does not persist an empty session when 新建会话 is clicked', async () => {
+    render(<App />)
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: /新建会话/ }))
+
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as Record<string, ReturnType<typeof vi.fn>>
+    expect(api.createSession).not.toHaveBeenCalled()
+    const input = await screen.findByPlaceholderText('输入消息…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+    expect(screen.getByText('新会话（发送首条消息后创建）')).toBeVisible()
+    expect(window.location.hash).toBe('#/chat')
+  })
+
+  it('creates the session lazily on the first send and posts after the stream connects', async () => {
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as Record<string, ReturnType<typeof vi.fn>>
+    api.listSessions.mockResolvedValue({ sessions: [] })
+    render(<App />)
+
+    // No sessions → draft mode: composer usable immediately, nothing persisted yet.
+    const input = await screen.findByPlaceholderText('输入消息…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: '第一句' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => { expect(api.createSession).toHaveBeenCalledTimes(1) })
+    await waitFor(() => {
+      expect(api.sendMessage).toHaveBeenCalledWith('session-new', expect.any(String), '第一句', expect.anything())
+    })
+  })
+
+  it('keeps the typed text when the new session stream never connects', async () => {
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as Record<string, ReturnType<typeof vi.fn>>
+    api.listSessions.mockResolvedValue({ sessions: [] })
+    mocks.connectResult = false
+    render(<App />)
+
+    const input = await screen.findByPlaceholderText('输入消息…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+    fireEvent.change(input, { target: { value: '别丢这条' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => { expect(api.createSession).toHaveBeenCalled() })
+    expect(await screen.findByRole('alert')).toHaveTextContent('连接未建立')
+    expect(api.sendMessage).not.toHaveBeenCalled()
+    expect((input as HTMLTextAreaElement).value).toBe('别丢这条')
+  })
+
+  it('does not overwrite an existing session draft when switching out of an unsent new-chat draft', async () => {
+    localStorage.setItem('hm.draft.session-01', '老会话草稿')
+    render(<App />)
+    const input = (await screen.findByPlaceholderText('输入消息…')) as HTMLTextAreaElement
+    await waitFor(() => { expect(input.value).toBe('老会话草稿') })
+
+    fireEvent.click(screen.getByRole('button', { name: /新建会话/ }))
+    await waitFor(() => { expect(input.value).toBe('') })
+    fireEvent.change(input, { target: { value: '新会话未发草稿' } })
+
+    // 不点发送，直接切回老会话：老草稿不该被覆盖，新草稿也留在 hm.draft.new 里。
+    fireEvent.click(screen.getByRole('button', { name: '打开会话 first request title' }))
+    await waitFor(() => { expect(input.value).toBe('老会话草稿') })
+    expect(localStorage.getItem('hm.draft.new')).toBe('新会话未发草稿')
   })
 })

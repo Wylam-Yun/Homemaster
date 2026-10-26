@@ -29,7 +29,7 @@ function renderComposer(overrides: Partial<ComposerPanelProps> = {}) {
 }
 
 function composerInput(): HTMLTextAreaElement {
-  return screen.getByRole('textbox', { name: 'Message' })
+  return screen.getByRole('textbox', { name: '消息输入' })
 }
 
 describe('ComposerPanel', () => {
@@ -106,7 +106,7 @@ describe('ComposerPanel', () => {
     expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual(['in flight'])
   })
 
-  it('clears staged attachments when the session changes', () => {
+  it('warns on pasted attachments instead of staging them, and clears the warning on session change', () => {
     const base: ComposerPanelProps = {
       sessionId: 'session-01',
       busy: false,
@@ -122,11 +122,12 @@ describe('ComposerPanel', () => {
     const paste = createEvent.paste(input)
     Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
     fireEvent(input, paste)
-    expect(screen.getByRole('button', { name: '预览 shot.png' })).toBeVisible()
+    // 附件没有服务端通道：落地即提示，绝不再进 rail 假装能发。
+    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
+    expect(screen.queryByRole('button', { name: '预览 shot.png' })).toBeNull()
 
     rerender(<ComposerPanel {...base} sessionId="session-02" />)
-    expect(screen.queryByRole('button', { name: '预览 shot.png' })).toBeNull()
-    expect(URL.revokeObjectURL).toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('does not submit on Shift+Enter or while disabled/busy', () => {
@@ -243,14 +244,14 @@ describe('ComposerPanel', () => {
     const props = renderComposer({ busy: true })
     const input = composerInput()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stop run' }))
+    fireEvent.click(screen.getByRole('button', { name: '停止运行' }))
     expect(props.onCancel).toHaveBeenCalledTimes(1)
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(props.onCancel).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '发送消息' })).toBeNull()
   })
 
-  it('keeps draft and attachments with an inline alert when submitting attachments without upload support', () => {
+  it('warns inline on pasted attachments and still sends plain text afterwards', () => {
     const props = renderComposer()
     const input = composerInput()
     const file = new File(['pixels'], 'shot.png', { type: 'image/png' })
@@ -259,15 +260,14 @@ describe('ComposerPanel', () => {
     Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
     fireEvent(input, paste)
 
-    expect(screen.getByRole('button', { name: '预览 shot.png' })).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
 
     fireEvent.change(input, { target: { value: '看图说话' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(props.onSubmit).not.toHaveBeenCalled()
-    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
-    expect(input.value).toBe('看图说话')
-    expect(screen.getByRole('button', { name: '预览 shot.png' })).toBeVisible()
+    // Nothing was staged, so the plain message goes through as text only.
+    expect(props.onSubmit).toHaveBeenCalledWith('看图说话', [])
+    expect(input.value).toBe('')
   })
 
   it('routes the same attachment warning through the toast provider when mounted', () => {
@@ -286,24 +286,20 @@ describe('ComposerPanel', () => {
     const paste = createEvent.paste(input)
     Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } })
     fireEvent(input, paste)
-    fireEvent.change(input, { target: { value: 'x' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(props.onSubmit).not.toHaveBeenCalled()
     expect(screen.getByRole('status')).toHaveTextContent('附件上传需要服务端支持（规划中）')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('adds dropped files to the rail and removes them via the delete button', () => {
+  it('warns on dropped files instead of adding them to the rail', () => {
     renderComposer()
     const file = new File(['content'], 'notes.txt', { type: 'text/plain' })
 
     fireEvent.dragEnter(document, { dataTransfer: { types: ['Files'] } })
-    expect(screen.getByText('松开以添加附件')).toBeVisible()
+    expect(screen.getByText('附件上传规划中，暂不支持')).toBeVisible()
     fireEvent.drop(document, { dataTransfer: { types: ['Files'], files: [file] } })
 
-    expect(screen.getByText('notes.txt')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '移除附件 notes.txt' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('附件上传需要服务端支持（规划中）')
     expect(screen.queryByText('notes.txt')).toBeNull()
   })
 
@@ -377,7 +373,7 @@ describe('ComposerPanel batch-2 surfaces', () => {
     expect(input.value).toBe('')
     expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual(['排队消息'])
     expect(screen.getByRole('button', { name: '排队发送' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Stop run' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '停止运行' })).toBeVisible()
   })
 
   it('keeps busy submissions blocked when no enqueue callback exists', () => {
@@ -426,7 +422,7 @@ describe('ComposerPanel batch-2 surfaces', () => {
       slashCommands={COMMANDS} resolveMentions={noMentions}
       pendingQuestion={question} onAnswerQuestion={onAnswer}
     />)
-    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '消息输入' })).toBeNull()
     expect(screen.getByText('要继续吗？')).toBeVisible()
 
     fireEvent.change(screen.getByRole('textbox', { name: '回答 Agent 的问题' }), { target: { value: '继续' } })
@@ -453,15 +449,15 @@ describe('ComposerPanel batch-2 surfaces', () => {
       },
     })
     expect(screen.getByText('等待审批')).toBeVisible()
-    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '消息输入' })).toBeNull()
   })
 
   it('renders the toolbar chrome and switches placeholder in plan mode', () => {
     const props = renderComposer({ providers, mode: 'plan', onModeChange: vi.fn(), onCompact: vi.fn() })
-    expect(screen.getByRole('combobox', { name: 'Provider' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '服务商' })).toBeVisible()
     expect(screen.getByPlaceholderText(/规划模式/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /规划/ }))
+    fireEvent.click(screen.getByRole('button', { name: '执行' }))
     expect(props.onModeChange).toHaveBeenCalledWith('act')
     fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }))
     expect(props.onCompact).toHaveBeenCalledTimes(1)

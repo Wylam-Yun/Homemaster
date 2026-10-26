@@ -43,14 +43,14 @@ describe('ToolGroup', () => {
     expect(screen.getByText('run_shell')).toBeVisible()
     expect(screen.getByText('$ ls -la')).toBeVisible()
     expect(screen.getByText('/tmp/a.txt')).toBeVisible()
-    expect(screen.queryByText('Arguments')).toBeNull()
+    expect(screen.queryByText('参数')).toBeNull()
 
     fireEvent.click(rows[1]!)
     expect(rows[1]).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Arguments')).toBeVisible()
+    expect(screen.getByText('参数')).toBeVisible()
 
     fireEvent.click(rows[1]!)
-    expect(screen.queryByText('Arguments')).toBeNull()
+    expect(screen.queryByText('参数')).toBeNull()
   })
 
   it('marks failed records with the failed state', () => {

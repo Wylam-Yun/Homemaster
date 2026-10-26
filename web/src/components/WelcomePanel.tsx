@@ -21,8 +21,8 @@ export function WelcomePanel({
   return (
     <div className={styles.welcome}>
       <span className={styles.spark} aria-hidden>✦</span>
-      <h1>What should we work on?</h1>
-      <p>Can reason, use local tools, and ask before dangerous operations.</p>
+      <h1>想做点什么？</h1>
+      <p>可以推理、调用本机工具；危险操作会先征得同意。</p>
       <div className={styles.suggestions} aria-label="建议任务">
         {SUGGESTIONS.map(suggestion => (
           <button

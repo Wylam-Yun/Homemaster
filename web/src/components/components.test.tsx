@@ -31,10 +31,10 @@ function imageTool() {
 describe('ReasoningRow', () => {
   it('stays absent for empty reasoning and discloses streaming text on demand', () => {
     const { rerender } = render(<ReasoningRow text="" running />)
-    expect(screen.queryByRole('button', { name: /thinking/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /思考/ })).toBeNull()
 
     rerender(<ReasoningRow text={'first\nlatest'} running />)
-    const toggle = screen.getByRole('button', { name: /thinking/i })
+    const toggle = screen.getByRole('button', { name: /思考/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText('latest')).toBeVisible()
     fireEvent.click(toggle)
@@ -46,7 +46,7 @@ describe('ReasoningRow', () => {
 
   it('can stay expanded for a recording view', () => {
     render(<ReasoningRow text="full reasoning" running defaultExpanded />)
-    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /思考/ })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText((_, element) => element?.tagName === 'PRE' && element.textContent === 'full reasoning')).toBeVisible()
   })
 })
@@ -54,7 +54,7 @@ describe('ReasoningRow', () => {
 describe('ToolCallCard', () => {
   it('can keep arguments open for a recording view', () => {
     render(<ToolCallCard tool={imageTool()} defaultOpen />)
-    expect(screen.getByText('Arguments').closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('参数').closest('details')).toHaveAttribute('open')
   })
 
   it('renders one independently keyed tool instance and artifact metadata', () => {
@@ -75,7 +75,7 @@ describe('ToolCallCard', () => {
     expect(screen.getByText('search_files')).toBeVisible()
     expect(screen.getByText('not found')).toBeVisible()
     expect(screen.getByText('result.txt')).toBeVisible()
-    expect(screen.getByText('failed')).toBeVisible()
+    expect(screen.getByText('失败')).toBeVisible()
   })
 
   it('previews image artifacts and opens an accessible lightbox with the same URL', () => {
@@ -85,9 +85,9 @@ describe('ToolCallCard', () => {
     expect(screen.getByRole('img', { name: 'frame-0004.png from robot_manipulate' })).toHaveAttribute('src', imageUrl)
     fireEvent.click(trigger)
 
-    expect(screen.getByRole('dialog', { name: 'Image preview: frame-0004.png' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Close image preview' })).toHaveFocus()
-    expect(screen.getByRole('link', { name: 'Open original' })).toHaveAttribute('href', imageUrl)
+    expect(screen.getByRole('dialog', { name: '图片预览：frame-0004.png' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '关闭图片预览' })).toHaveFocus()
+    expect(screen.getByRole('link', { name: '打开原图' })).toHaveAttribute('href', imageUrl)
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -99,11 +99,11 @@ describe('ToolCallCard', () => {
     const trigger = screen.getByRole('button', { name: 'Enlarge frame-0004.png' })
 
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('dialog', { name: 'Image preview: frame-0004.png' }))
+    fireEvent.click(screen.getByRole('dialog', { name: '图片预览：frame-0004.png' }))
     expect(screen.queryByRole('dialog')).toBeNull()
 
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: 'Close image preview' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭图片预览' }))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
@@ -121,8 +121,8 @@ describe('ToolCallCard', () => {
     const images = screen.getAllByRole('img', { name: 'frame-0004.png from robot_manipulate' })
     fireEvent.error(images.at(-1)!)
 
-    expect(screen.getByText('Preview unavailable.')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Open frame-0004.png' })).toHaveAttribute('href', imageUrl)
+    expect(screen.getByText('预览不可用。')).toBeVisible()
+    expect(screen.getByRole('link', { name: '打开 frame-0004.png' })).toHaveAttribute('href', imageUrl)
   })
 
   it('keeps non-image artifacts as authorized links', () => {
@@ -246,7 +246,7 @@ describe('ApprovalDialog', () => {
     expect(submit).toHaveBeenCalledTimes(1)
 
     expect(screen.getByRole('button', { name: '提交中…' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '关闭' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '取消审批' })).toBeDisabled()
     for (const radio of screen.getAllByRole('radio', { name: '本次允许' })) {
       expect(radio).toBeDisabled()
     }
@@ -298,18 +298,19 @@ describe('ApprovalDialog', () => {
     const close = vi.fn()
     const { rerender } = render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={close} />)
 
-    expect(screen.getByRole('button', { name: '关闭' })).toHaveFocus()
+    // 初始焦点在对话框本体而非「取消审批」——开框按 Enter 不会误取消。
+    expect(document.activeElement).toBe(screen.getByText('权限申请').closest('section'))
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(close).toHaveBeenCalledTimes(1)
     expect(typeof close.mock.calls[0]![0]).toBe('string')
     expect(submit).not.toHaveBeenCalled()
 
     // The cancel click latched the dialog — a follow-up click cannot re-fire.
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消审批' }))
     expect(close).toHaveBeenCalledTimes(1)
 
     rerender(<ApprovalDialog approval={{ ...cardApproval, approvalId: 'approval-02' }} busy={false} onSubmit={submit} onClose={close} />)
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消审批' }))
     expect(close).toHaveBeenCalledTimes(2)
     expect(submit).not.toHaveBeenCalled()
   })

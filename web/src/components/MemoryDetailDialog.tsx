@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { ManagedMemory, MemoryHistory } from '../api/http'
 import styles from './MemoryDetailDialog.module.css'
@@ -25,11 +25,26 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [compileState, setCompileState] = useState<string | null>(memory.compile_status ?? null)
   const [compileError, setCompileError] = useState<string | null>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => { window.removeEventListener('keydown', closeOnEscape) }
+    const previous = document.activeElement as HTMLElement | null
+    closeRef.current?.focus()
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape, true)
+      document.body.style.overflow = overflow
+      previous?.focus()
+    }
   }, [onClose])
 
   useEffect(() => {
@@ -87,7 +102,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
       <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="memory-detail-title">
         <header>
           <div><p>只读详情</p><h2 id="memory-detail-title">记忆详情</h2></div>
-          <button type="button" aria-label="关闭记忆详情" onClick={onClose}>×</button>
+          <button ref={closeRef} type="button" aria-label="关闭记忆详情" onClick={onClose}>×</button>
         </header>
         <div className={styles.body}>
           <div className={styles.statusLine}>
@@ -98,7 +113,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
           </div>
           <p className={styles.summaryLead}><span aria-hidden="true">{summary.icon} </span>{summary.title}</p>
           {canCompile && compileMemory && <button type="button" className={styles.compileButton} onClick={() => { void startCompile() }} disabled={compileState === 'queued' || compileState === 'running'}>编译为经验</button>}
-          {compileState !== null && <p>编译状态：{compileState}{compileError !== null ? `，${compileError}` : ''}</p>}
+          {compileState !== null && <p>编译状态：{compileStateLabel(compileState)}{compileError !== null ? `，${compileError}` : ''}</p>}
           {memory.structure_status !== 'valid' && <p className={styles.memoryContent}>{memory.content}</p>}
           <dl className={styles.metadata}>
             <Meta label="记忆 ID" value={memory.memory_id} />
@@ -173,6 +188,16 @@ function reasonLabel(reason: string): string {
     direct_structured_update: '结构化更新替换',
   }
   return labels[reason] ?? reason
+}
+
+function compileStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    queued: '排队中',
+    running: '编译中',
+    succeeded: '已完成',
+    failed: '失败',
+  }
+  return labels[state] ?? state
 }
 
 function recordString(record: Record<string, unknown> | null, key: string): string | null {

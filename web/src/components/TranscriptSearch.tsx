@@ -66,7 +66,7 @@ export function TranscriptSearch({
   }
 
   return (
-    <div className={styles.overlay} role="search">
+    <div className={styles.overlay} role="search" data-transcript-search="">
       <input
         ref={inputRef}
         type="search"

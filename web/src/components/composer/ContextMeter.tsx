@@ -91,7 +91,7 @@ export function ContextMeter({
           disabled={disabled}
           onClick={onCompact}
         >
-          ⇓
+          压缩
         </button>
       )}
     </div>

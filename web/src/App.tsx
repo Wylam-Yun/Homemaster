@@ -11,7 +11,7 @@ import { QueueDock, type QueuedPrompt } from './components/composer/QueueDock'
 import { MemoryPage } from './components/MemoryPage'
 import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
-import { GlobalShortcuts } from './components/ShortcutHelpDialog'
+import { GlobalShortcuts, ShortcutHelpDialog } from './components/ShortcutHelpDialog'
 import { ToastProvider, useFaviconStatus, useToast } from './components/toast'
 import { ToolGroup } from './components/ToolGroup'
 import { TranscriptSearch, type TranscriptSearchEntry } from './components/TranscriptSearch'
@@ -25,6 +25,7 @@ import { chatHash, navigate, parseHash, useRoute } from './router'
 import type { WebEvent } from './protocol/events'
 import { initialConversationState, reduceConversation } from './state/conversation'
 import { projectSessionTurns, type Turn } from './state/projection'
+import { formatShortcut, SHORTCUTS } from './state/shortcuts'
 
 const api = new HomeMasterApi()
 
@@ -97,6 +98,13 @@ function writeJson(key: string, value: unknown): void {
 
 type SessionSignal = 'running' | 'awaiting' | 'done'
 
+const CONNECTION_LABEL: Record<ConnectionState, string> = {
+  connecting: '连接中',
+  connected: '已连接',
+  reconnecting: '重连中',
+  offline: '未连接',
+}
+
 export function App() {
   return (
     <ToastProvider>
@@ -112,6 +120,7 @@ function AppShell() {
   const routeRef = useRef(route)
   routeRef.current = route
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [archiveStates, setArchiveStates] = useState<Record<string, ArchiveStatus>>({})
   const archivePollTimers = useRef<Record<string, number>>({})
   const [sessionQuery, setSessionQuery] = useState('')
@@ -149,9 +158,14 @@ function AppShell() {
   const [queued, setQueued] = useState<QueuedPrompt[]>([])
   const [draftSignal, setDraftSignal] = useState<{ seq: number; text: string } | null>(null)
   const [contextLimit, setContextLimit] = useState<number | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  // 草稿态：「新建会话」或空会话列表落到 '#/chat' 时不立即创建 session，
+  // 等首条消息真正发出才 POST /api/sessions —— 否则每次误点都会留下一个空会话。
+  const [draftNewChat, setDraftNewChat] = useState(false)
+  const [draftUiMode, setDraftUiMode] = useState<UiMode>('act')
   const connectionRef = useRef<EventConnection | null>(null)
   const sessionIdRef = useRef<string | null>(null)
-  const newSessionRef = useRef<() => void>(() => {})
+  const sendingRef = useRef(false)
   const ensuringChatRef = useRef(false)
 
   const dismissNotice = useCallback(() => {
@@ -183,7 +197,8 @@ function AppShell() {
     setQueued([])
     setSessionStatus(null)
     setContextLimit(null)
-    setModelSelection(sessionId === null ? {} : readJson<ModelSelection>(`hm.model.${sessionId}`, {}))
+    // 草稿态（null）读 hm.model.new，物化时已由 createDraftSession 过户到真 key。
+    setModelSelection(readJson<ModelSelection>(`hm.model.${sessionId ?? 'new'}`, {}))
   }, [sessionId])
 
   // Provider list + meta + skills are session-independent; one fetch at mount.
@@ -231,6 +246,7 @@ function AppShell() {
   const refreshSessions = useCallback(async () => {
     const listed = await api.listSessions()
     setSessions(listed.sessions)
+    setSessionsLoaded(true)
     return listed.sessions
   }, [])
 
@@ -353,8 +369,22 @@ function AppShell() {
     })
   }, [])
 
+  // 进入新会话草稿：断开当前连接、清空选中，不创建任何服务端 session。
+  const startDraft = useCallback(() => {
+    connectionRef.current?.stop()
+    connectionRef.current = null
+    sessionIdRef.current = null
+    setSessionId(null)
+    setHistory([])
+    setSearchOpen(false)
+    setDraftNewChat(true)
+    setSidebarOpen(false)
+    navigate('#/chat')
+  }, [])
+
   const selectSession = useCallback(async (nextId: string) => {
     connectionRef.current?.stop()
+    setDraftNewChat(false)
     sessionIdRef.current = nextId
     setSessionId(nextId)
     setConnectionState('connecting')
@@ -373,7 +403,7 @@ function AppShell() {
       const restored = await api.history(nextId)
       setHistory(restored.messages)
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Could not load session history.')
+      showNotice(error instanceof Error ? error.message : '会话历史加载失败。')
     }
     const connection = new EventConnection(nextId, undefined, {
       onEvent: handleWebEvent,
@@ -383,21 +413,19 @@ function AppShell() {
         if (next === 'connected') void hydratePending(nextId)
       },
       onReject: () => {
-        showNotice('该会话在服务端已不存在，已为你新建会话。')
-        newSessionRef.current()
+        showNotice('该会话在服务端已不存在，已回到新会话草稿。')
+        startDraft()
       },
     })
     connectionRef.current = connection
     connection.start()
-  }, [handleWebEvent, hydratePending, showNotice])
+  }, [handleWebEvent, hydratePending, showNotice, startDraft])
 
-  // Dedupe concurrent creators: '#/chat' with an empty list triggers
-  // ensureChatSession → newSession at the same moment a sidebar '新建会话'
-  // click does — without a shared in-flight promise that posts two
-  // createSession calls and leaves an orphan empty session.
-  const newSessionInflightRef = useRef<Promise<void> | null>(null)
-  const newSession = useCallback(async () => {
-    const inflight = newSessionInflightRef.current
+  // 草稿态首次发送时才真正建会话：createSession → selectSession（启动 SSE）。
+  // 共享 in-flight promise，避免连点/并发提交创建两个空 session。
+  const createSessionInflightRef = useRef<Promise<string | null> | null>(null)
+  const createDraftSession = useCallback(async (): Promise<string | null> => {
+    const inflight = createSessionInflightRef.current
     if (inflight) return inflight
     const task = (async () => {
       connectionRef.current?.stop()
@@ -407,16 +435,28 @@ function AppShell() {
       try {
         const created = await api.createSession()
         await refreshSessions()
+        // createSession 等待期间用户若已切到别的会话，不能再把焦点抢回这个新会话。
+        if (sessionIdRef.current !== null) return null
+        // 草稿态挑的 provider/model 挂在 hm.model.new 下；过户到新 session key，
+        // selectSession 触发的 sessionId effect 才能读到草稿里的选择。
+        const modelPick = localStorage.getItem('hm.model.new')
+        if (modelPick !== null) {
+          localStorage.setItem(`hm.model.${created.session_id}`, modelPick)
+          localStorage.removeItem('hm.model.new')
+        }
+        // 给 ComposerPanel 打物化令牌：只有切向这个刚建出的 session 才领养
+        // hm.draft.new，普通切去老会话不会误覆盖老会话的草稿。
+        try { localStorage.setItem('hm.draft.adopt', created.session_id) } catch { /* ignore */ }
         await selectSession(created.session_id)
+        return created.session_id
       } catch (error) {
-        showNotice(error instanceof Error ? error.message : 'Could not create a session.')
+        showNotice(error instanceof Error ? error.message : '创建会话失败。')
+        return null
       }
-    })().finally(() => { newSessionInflightRef.current = null })
-    newSessionInflightRef.current = task
+    })().finally(() => { createSessionInflightRef.current = null })
+    createSessionInflightRef.current = task
     return task
   }, [refreshSessions, selectSession, showNotice])
-
-  useEffect(() => { newSessionRef.current = () => { void newSession() } }, [newSession])
 
   // Boot once: populate the sidebar list and honor the legacy ?session_id=
   // deep-link. Session selection itself belongs solely to the route-sync
@@ -436,13 +476,13 @@ function AppShell() {
         !existing.some(session => session.session_id === landing.sessionId)) {
         showNotice(`指定会话不存在：${landing.sessionId}`)
       }
-    }).catch(error => { showNotice(error instanceof Error ? error.message : 'Service unavailable.') })
+    }).catch(error => { showNotice(error instanceof Error ? error.message : '服务不可用。') })
     return () => { connectionRef.current?.stop() }
   }, [displayOptions.requestedSessionId, refreshSessions, selectSession, showNotice])
 
   // Route → session: '#/chat/{id}' selects it; a bare '#/chat' keeps the
-  // current one or adopts the first/new session (e.g. after landing on a
-  // non-chat route or deleting the selected session).
+  // current one, adopts the first session, or — when none exist — drops into
+  // draft mode instead of persisting an empty session.
   const ensureChatSession = useCallback(async () => {
     if (ensuringChatRef.current) return
     ensuringChatRef.current = true
@@ -450,20 +490,23 @@ function AppShell() {
       const listed = await refreshSessions()
       const first = listed[0]
       if (first !== undefined) await selectSession(first.session_id)
-      else await newSession()
+      else setDraftNewChat(true)
     } finally {
       ensuringChatRef.current = false
     }
-  }, [newSession, refreshSessions, selectSession])
+  }, [refreshSessions, selectSession])
 
   useEffect(() => {
-    if (route.kind !== 'chat') return
+    if (route.kind !== 'chat') {
+      setDraftNewChat(false)
+      return
+    }
     if (route.sessionId !== null) {
       if (route.sessionId !== sessionIdRef.current) void selectSession(route.sessionId)
       return
     }
-    if (sessionIdRef.current === null) void ensureChatSession()
-  }, [route, ensureChatSession, selectSession])
+    if (sessionIdRef.current === null && !draftNewChat) void ensureChatSession()
+  }, [route, ensureChatSession, selectSession, draftNewChat])
 
   useEffect(() => { void refreshMemories() }, [refreshMemories])
   useEffect(() => { void refreshArchiveStates() }, [refreshArchiveStates])
@@ -495,12 +538,13 @@ function AppShell() {
   const active = turns.find(turn => turn.status === 'pending' || turn.status === 'running')
   const approvalTurn = turns.find(turn => turn.approval !== null)
   const canSend = connectionState === 'connected' && sessionId !== null && active === undefined
+  const draftReady = draftNewChat && sessionId === null && active === undefined
   useFaviconStatus(active !== undefined)
 
   const pendingQuestion = sessionId === null
     ? null
     : Object.values(state.questions).find(question => question.sessionId === sessionId) ?? null
-  const uiMode: UiMode = sessionId !== null ? state.uiModes[sessionId] ?? 'act' : 'act'
+  const uiMode: UiMode = sessionId !== null ? state.uiModes[sessionId] ?? 'act' : draftUiMode
   const latestUsage = useMemo(() => {
     for (let index = turns.length - 1; index >= 0; index -= 1) {
       const usage = turns[index]!.usage
@@ -518,32 +562,68 @@ function AppShell() {
 
   const sendText = useCallback(async (text: string): Promise<boolean> => {
     const trimmed = text.trim()
-    if (!canSend || sessionId === null || trimmed.length === 0) return false
-    const requestId = crypto.randomUUID()
-    userTextsRef.current[requestId] = trimmed
-    setSubmitted(items => ({ ...items, [requestId]: trimmed }))
+    if (trimmed.length === 0 || sendingRef.current) return false
+    if (!canSend && !draftReady) return false
+    sendingRef.current = true
     try {
-      // 逐消息透传 provider/model 选择；未选择时不带字段，服务端用默认 provider。
-      await api.sendMessage(sessionId, requestId, trimmed, {
-        provider_name: modelSelection.provider_name,
-        model: modelSelection.model,
-      })
-    } catch (error) {
-      // The request never reached the server: drop the optimistic entries (no
-      // turn will ever arrive for this requestId) and report failure so the
-      // composer keeps the typed input.
-      delete userTextsRef.current[requestId]
-      setSubmitted(items => {
-        if (!(requestId in items)) return items
-        const next = { ...items }
-        delete next[requestId]
-        return next
-      })
-      showNotice(error instanceof HttpError ? error.message : 'Message could not be sent.')
-      return false
+      let sid = sessionIdRef.current
+      if (sid === null) {
+        // 草稿态首发：先建会话再等 SSE 订阅（服务端在响应头前完成
+        // subscribe，'connected' 即 has_subscriber 为真），最后才 POST。
+        sid = await createDraftSession()
+        if (sid === null) return false
+        const connected = await connectionRef.current?.waitConnected() ?? false
+        // 物化等待期间用户可能切到了别的会话——connectionRef/选中已换主，
+        // 这时不能往 sid 上发，交给 finish(false) 保住输入。
+        if (sessionIdRef.current !== sid) return false
+        if (!connected) {
+          showNotice('连接未建立，消息未发送，请重试。')
+          return false
+        }
+        if (draftUiMode !== 'act') {
+          try {
+            await api.setUiMode(sid, draftUiMode)
+            dispatch({
+              type: 'session.mode_changed',
+              session_id: sid,
+              run_id: '',
+              request_id: '',
+              seq: 0, // client-synthesized echo — not a server-stamped wire event
+              ts: Date.now() / 1000,
+              payload: { ui_mode: draftUiMode },
+            })
+            setSessionStatus(current => current?.session_id === sid ? { ...current, ui_mode: draftUiMode } : current)
+          } catch { /* mode is best-effort; the run itself still proceeds */ }
+        }
+      }
+      const requestId = crypto.randomUUID()
+      userTextsRef.current[requestId] = trimmed
+      setSubmitted(items => ({ ...items, [requestId]: trimmed }))
+      try {
+        // 逐消息透传 provider/model 选择；未选择时不带字段，服务端用默认 provider。
+        await api.sendMessage(sid, requestId, trimmed, {
+          provider_name: modelSelection.provider_name,
+          model: modelSelection.model,
+        })
+      } catch (error) {
+        // The request never reached the server: drop the optimistic entries (no
+        // turn will ever arrive for this requestId) and report failure so the
+        // composer keeps the typed input.
+        delete userTextsRef.current[requestId]
+        setSubmitted(items => {
+          if (!(requestId in items)) return items
+          const next = { ...items }
+          delete next[requestId]
+          return next
+        })
+        showNotice(error instanceof HttpError ? error.message : '消息发送失败。')
+        return false
+      }
+      return true
+    } finally {
+      sendingRef.current = false
     }
-    return true
-  }, [canSend, sessionId, modelSelection, showNotice])
+  }, [canSend, draftReady, createDraftSession, draftUiMode, modelSelection, showNotice])
 
   // QueueDock：busy 时 composer 把消息排进本地队列，回合终态按序自动发送。
   const enqueue = useCallback((text: string) => {
@@ -565,7 +645,7 @@ function AppShell() {
   }, [canSend, queued, sendText])
 
   const enqueueOrSend = useCallback((text: string) => {
-    if (canSend) {
+    if (canSend || draftReady) {
       void sendText(text)
       return
     }
@@ -574,7 +654,7 @@ function AppShell() {
       return
     }
     showNotice('当前未连接，无法发送。')
-  }, [canSend, connectionState, enqueue, sendText, sessionId, showNotice])
+  }, [canSend, connectionState, draftReady, enqueue, sendText, sessionId, showNotice])
 
   // Composer 接管：pending question 换成问答卡，answer 走 POST 后乐观移除
   // （服务端会再广播 question.answered，幂等）。
@@ -599,7 +679,11 @@ function AppShell() {
   }, [sessionId, showNotice])
 
   const setUiMode = useCallback(async (next: UiMode) => {
-    if (sessionId === null) return
+    if (sessionId === null) {
+      // 草稿态没有服务端会话：本地记住选择，首发建会话时透传过去。
+      setDraftUiMode(next)
+      return
+    }
     try {
       await api.setUiMode(sessionId, next)
     } catch (error) {
@@ -680,7 +764,7 @@ function AppShell() {
 
   const persistModelSelection = useCallback((selection: ModelSelection) => {
     setModelSelection(selection)
-    if (sessionId !== null) writeJson(`hm.model.${sessionId}`, selection)
+    writeJson(`hm.model.${sessionId ?? 'new'}`, selection)
   }, [sessionId])
 
   const editMessage = useCallback((text: string) => {
@@ -706,7 +790,7 @@ function AppShell() {
         showNotice('本次调用未执行：部分申请被拒绝，已完成的步骤不受影响。')
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Approval failed.'
+      const message = error instanceof Error ? error.message : '审批提交失败。'
       setApprovalError(message)
       showNotice(message)
     } finally {
@@ -724,7 +808,7 @@ function AppShell() {
         request_revision: approval.revision,
       })
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Approval failed.')
+      showNotice(error instanceof Error ? error.message : '审批取消失败。')
     } finally {
       setApprovalBusy(false)
     }
@@ -812,19 +896,28 @@ function AppShell() {
     releaseFollow()
   }, [releaseFollow, route.kind])
 
+  const currentSessionTitle = useMemo(() => {
+    if (sessionId === null) return null
+    const found = sessions.find(session => session.session_id === sessionId)
+    return found !== undefined ? sessionTitle(found) : sessionId
+  }, [sessions, sessionId])
+
+  const toggleHelp = useCallback(() => { setHelpOpen(open => !open) }, [])
+
   return (
     <div className="shell" data-recording={displayOptions.recording || undefined}>
+      {sidebarOpen && <div className="sidebar-backdrop" aria-hidden="true" onClick={() => { setSidebarOpen(false) }} />}
       <aside className="sidebar" data-open={sidebarOpen || undefined}>
-        <div className="brand"><span className="brand-mark">HM</span><div><strong>Console</strong><small>Local agent console</small></div></div>
-        <div className="sidebar-views" aria-label="主导航">
-          <button type="button" aria-label="对话" data-active={route.kind === 'chat' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/chat') }}><span>◉</span>对话</button>
-          <button type="button" aria-label="会话列表" data-active={route.kind === 'sessions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/sessions') }}><span>☰</span>会话</button>
-          <button type="button" aria-label="记忆管理" data-active={route.kind === 'memory' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/memory') }}><span>◇</span>记忆管理</button>
-          <button type="button" aria-label="权限" data-active={route.kind === 'permissions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/permissions') }}><span>▣</span>权限</button>
-          <button type="button" aria-label="技能" data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}><span>✦</span>技能</button>
-          <button type="button" aria-label="Provider" data-active={route.kind === 'settings' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/settings') }}><span>⚙</span>Provider</button>
+        <div className="brand"><span className="brand-mark">HM</span><div><strong>Console</strong><small>本地控制台</small></div></div>
+        <div className="sidebar-views" role="navigation" aria-label="主导航">
+          <button type="button" aria-label="对话" aria-current={route.kind === 'chat' ? 'page' : undefined} data-active={route.kind === 'chat' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/chat') }}><span>◉</span>对话</button>
+          <button type="button" aria-label="会话管理" aria-current={route.kind === 'sessions' ? 'page' : undefined} data-active={route.kind === 'sessions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/sessions') }}><span>▤</span>会话管理</button>
+          <button type="button" aria-label="记忆管理" aria-current={route.kind === 'memory' ? 'page' : undefined} data-active={route.kind === 'memory' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/memory') }}><span>◇</span>记忆管理</button>
+          <button type="button" aria-label="权限" aria-current={route.kind === 'permissions' ? 'page' : undefined} data-active={route.kind === 'permissions' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/permissions') }}><span>▣</span>权限</button>
+          <button type="button" aria-label="技能" aria-current={route.kind === 'skills' ? 'page' : undefined} data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}><span>✦</span>技能</button>
+          <button type="button" aria-label="Provider" aria-current={route.kind === 'settings' ? 'page' : undefined} data-active={route.kind === 'settings' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/settings') }}><span>⚙</span>Provider</button>
         </div>
-        <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); navigate('#/chat'); void newSession() }}>＋ 新建会话</button>
+        <button className="new-chat" type="button" onClick={startDraft}>＋ 新建会话</button>
         <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
         {!historyCollapsed && <>
           <label className="session-search">
@@ -850,7 +943,12 @@ function AppShell() {
                   key={session.session_id}
                   data-active={session.session_id === sessionId || undefined}
                 >
-                  <span className="session-dot" data-status={signal ?? 'idle'} aria-hidden="true" />
+                  <span
+                    className="session-dot"
+                    data-status={signal ?? 'idle'}
+                    title={signal === 'running' ? '运行中' : signal === 'awaiting' ? '等待你的操作' : signal === 'done' ? '已完成' : undefined}
+                    aria-hidden="true"
+                  />
                   {renamingId === session.session_id ? (
                     <input
                       className="session-rename"
@@ -874,6 +972,7 @@ function AppShell() {
                       type="button"
                       className="session-open"
                       aria-label={`打开会话 ${title}`}
+                      aria-current={session.session_id === sessionId ? 'true' : undefined}
                       onClick={() => { setSidebarOpen(false); navigate(chatHash(session.session_id)) }}
                     >
                       <span>{title}</span>
@@ -893,9 +992,10 @@ function AppShell() {
                         onClick={() => { void archiveSession(session) }}
                       >{archivingIds.has(session.session_id) ? '…' : '⤓'}</button>
                     )}
-                    <button type="button" aria-label={`重命名会话 ${title}`} onClick={() => { startRename(session) }}>✎</button>
+                    <button type="button" aria-label={`重命名会话 ${title}`} title="重命名会话" onClick={() => { startRename(session) }}>✎</button>
                     <button
                       type="button"
+                      data-danger
                       aria-label={`删除会话 ${title}`}
                       title="彻底删除该会话（不可撤销）"
                       onClick={() => { void removeSession(session) }}
@@ -904,14 +1004,25 @@ function AppShell() {
                 </div>
               )
             })}
-            {visibleSessions.length === 0 && <div className="session-empty">没有匹配的会话</div>}
+            {visibleSessions.length === 0 && (
+              <div className="session-empty">
+                {!sessionsLoaded
+                  ? '加载中…'
+                  : normalizedSessionQuery.length > 0
+                    ? '没有匹配的会话'
+                    : '还没有会话——点上方「新建会话」开始'}
+              </div>
+            )}
           </nav>
         </>}
         {historyCollapsed && <div className="history-spacer" />}
-        <div className="local-note"><span>●</span> Loopback only{meta !== null ? ` · v${meta.version}` : ''}</div>
+        <div className="local-note"><span>●</span> 仅本地回环{meta !== null ? ` · v${meta.version}` : ''}</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? 'Provider' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '会话管理' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (sessionId ?? '正在启动…') : ''}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{route.kind === 'memory' ? '记忆管理' : route.kind === 'permissions' ? '权限管理' : route.kind === 'skills' ? '技能' : route.kind === 'settings' ? 'Provider' : route.kind === 'onboarding' ? '首次配置' : route.kind === 'sessions' ? '会话管理' : '对话'}</strong><small>{route.kind === 'memory' ? '只读查看' : route.kind === 'permissions' ? '长期授权可撤销' : route.kind === 'chat' ? (draftNewChat ? '新会话（发送首条消息后创建）' : (currentSessionTitle ?? '正在启动…')) : ''}</small></div><div className="topbar-side">{route.kind === 'chat' && (<button type="button" className="topbar-action" title={`搜索对话内容（${formatShortcut(SHORTCUTS.transcriptSearch)}）`} aria-label="搜索对话内容" onClick={openTranscriptSearch}>⌕</button>)}{route.kind === 'chat' && !draftNewChat && (<div className="connection" data-state={connectionState}><span />{CONNECTION_LABEL[connectionState]}</div>)}<button type="button" className="topbar-action" title={`键盘快捷键（${formatShortcut(SHORTCUTS.shortcutHelp)}）`} aria-label="键盘快捷键" onClick={toggleHelp}>?</button></div></header>
+        {notice !== null && (
+          <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={dismissNotice}>关闭</button></div>
+        )}
         {route.kind === 'permissions' ? (
           <PermissionsPage api={api} refreshSignal={grantsSignal} />
         ) : route.kind === 'memory' ? (
@@ -994,16 +1105,15 @@ function AppShell() {
             </button>
           )}
           <TranscriptSearch open={searchOpen} entries={searchEntries} onClose={() => { setSearchOpen(false) }} />
-          {notice && <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={dismissNotice}>关闭</button></div>}
           <QueueDock
             items={queued}
             onRemove={id => { setQueued(list => list.filter(item => item.id !== id)) }}
-            onClear={() => { setQueued([]) }}
+            onClear={() => { if (window.confirm('清空全部排队消息？')) setQueued([]) }}
           />
           <ComposerPanel
             sessionId={sessionId}
             busy={active !== undefined}
-            disabled={connectionState !== 'connected' || sessionId === null}
+            disabled={!draftNewChat && (connectionState !== 'connected' || sessionId === null)}
             onSubmit={text => sendText(text)}
             onCancel={() => { if (sessionId) void api.cancel(sessionId) }}
             slashCommands={slashCommands}
@@ -1019,7 +1129,7 @@ function AppShell() {
             usage={latestUsage}
             sessionStatus={sessionStatus}
             contextLimit={contextLimit}
-            onCompact={() => { void compactNow() }}
+            onCompact={sessionId !== null ? () => { void compactNow() } : undefined}
             pendingQuestion={pendingQuestion}
             onAnswerQuestion={answerQuestion}
             pendingApproval={approvalTurn?.approval ?? null}
@@ -1027,7 +1137,11 @@ function AppShell() {
         </>}
       </main>
       {approvalTurn?.approval && <ApprovalDialog approval={approvalTurn.approval} busy={approvalBusy} error={approvalError} onSubmit={(decisions, submissionId) => { void submitApproval(decisions, submissionId) }} onClose={(submissionId) => { void cancelApproval(submissionId) }} />}
-      <GlobalShortcuts onTranscriptSearch={openTranscriptSearch} />
+      <GlobalShortcuts
+        onTranscriptSearch={route.kind === 'chat' ? openTranscriptSearch : undefined}
+        onToggleHelp={toggleHelp}
+      />
+      {helpOpen && <ShortcutHelpDialog onClose={() => { setHelpOpen(false) }} />}
     </div>
   )
 }

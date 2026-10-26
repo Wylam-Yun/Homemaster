@@ -120,7 +120,13 @@ export function SessionsPage({
         {visible.map(session => {
           const title = sessionTitle(session)
           const renaming = renamingId === session.session_id
-          const badge = archiveBadgeText?.(archiveStates?.[session.session_id])
+          const archiveState = archiveStates?.[session.session_id]
+          const badge = archiveBadgeText?.(archiveState)
+          const badgeVariant = archiveState?.state === 'failed'
+            ? 'warning'
+            : archiveState?.state === 'completed'
+              ? 'success'
+              : 'muted'
           const archiving = archivingIds.has(session.session_id)
           return (
             <article
@@ -157,7 +163,7 @@ export function SessionsPage({
                     .filter(part => part.length > 0)
                     .join(' · ')}
                   {badge !== null && badge !== undefined && (
-                    <Badge variant="warning">{badge}</Badge>
+                    <Badge variant={badgeVariant}>{badge}</Badge>
                   )}
                 </span>
               </div>

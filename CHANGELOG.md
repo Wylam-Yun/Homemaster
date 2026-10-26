@@ -1,5 +1,26 @@
 # Unreleased
 
+- Web Console UX remediation: fixed controls whose appearance lied
+  about their function — the `▶执行` pill (a mode toggle styled like
+  a send button) is now an explicit `执行｜规划` segmented control,
+  the `⇓` glyph is a labelled `压缩` action, and the approval dialog's
+  `关闭` is now `取消审批` with initial focus moved off the
+  destructive button. The fake `Offline` badge no longer renders
+  outside chat pages, and draft mode hides the indicator entirely.
+  `新建会话` is now lazy: it opens a draft and the backend session is
+  only created on the first sent message (pending composer draft,
+  provider/model pick, and `ui_mode` are migrated to the new session;
+  `waitConnected()` gates the POST on SSE subscription readiness with
+  stale-session guards). Paste/drop attachments are rejected up-front
+  with a clear notice instead of entering a dead-end rail, error
+  notices render globally (fixed overlay) instead of only inside the
+  chat pane, `⌘F` no longer swallows the browser find on non-chat
+  pages, transcript search and shortcut help gained visible topbar
+  entries, destructive actions (revoke long-lived permission, clear
+  queued messages) now confirm, the permissions page scrolls, the
+  topbar shows the session title instead of the raw id, and
+  frequent mixed English/Chinese copy was normalized to Chinese with
+  contrast and `:focus-visible` fixes.
 - Schema-episode entity prompts: replaced serial placeholder names in
   the three fixed-domain extraction prompts (`observation-1`,
   `search-1`, `task-1`) with content-derived stable identities

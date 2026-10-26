@@ -259,7 +259,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
               type="search"
               value={query}
               onChange={event => { setQuery(event.target.value) }}
-              placeholder="搜索摘要或会话"
+              placeholder="搜索摘要或会话…"
               aria-label="搜索记忆"
             />
           </label>
@@ -327,12 +327,13 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
           )}
           {filteredGraph !== null && graphError === null && <>
             <div className={styles.graphToolbar}>
-              <div className={styles.legend} aria-label="类型图例">
+              <div className={styles.legend} role="group" aria-label="类型图例">
                 {graphTypes.map(type => (
                   <button
                     type="button"
                     key={type}
                     className={styles.legendItem}
+                    aria-pressed={typeFilter === null || typeFilter.has(type)}
                     data-off={typeFilter !== null && !typeFilter.has(type) || undefined}
                     onClick={() => { toggleType(type) }}
                   >

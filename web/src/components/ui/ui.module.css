@@ -12,7 +12,7 @@
 .button:disabled { cursor: not-allowed; opacity: .5; }
 .buttonPrimary { border-color: transparent; color: #062118; background: var(--accent); }
 .buttonPrimary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
-.buttonDanger { border-color: transparent; color: #fff; background: var(--danger); }
+.buttonDanger { border-color: transparent; color: #3b0a10; background: var(--danger); }
 .buttonDanger:hover:not(:disabled) { background: var(--danger); filter: brightness(1.08); }
 .buttonGhost { border-color: var(--border); color: var(--muted); background: transparent; }
 .buttonGhost:hover:not(:disabled) { color: var(--text); }

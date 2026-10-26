@@ -44,7 +44,7 @@ export function ArtifactImagePreview({
       </button>
       <div className={styles.metadata}>
         <a href={url}>{artifact.filename}</a>
-        <small>Click to enlarge · {artifact.media_type}</small>
+        <small>点击放大 · {artifact.media_type}</small>
       </div>
       {open && (
         <ImageLightbox

@@ -23,6 +23,7 @@
 .filters { display: flex; gap: 9px; }.filters select, .search { height: 38px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); }
 .filters select { min-width: 120px; padding: 0 34px 0 12px; color: var(--text); }.search { display: flex; align-items: center; gap: 7px; min-width: 270px; padding: 0 11px; color: var(--muted-2); }
 .search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font: inherit; color: var(--text); }
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 .groups { display: grid; gap: 12px; }.group { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / .25); }
 .groupHeader { width: 100%; display: flex; align-items: center; gap: 12px; padding: 15px 17px; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; }
 .chevron { color: var(--muted-2); font-size: 23px; transform: rotate(0deg); transition: transform .16s ease; }.groupHeader[aria-expanded='true'] .chevron { transform: rotate(90deg); }

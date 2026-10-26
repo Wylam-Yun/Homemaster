@@ -68,6 +68,7 @@ export class EventConnection {
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private lastState: ConnectionState | null = null
   private lastSeq: string | null = null
+  private connectedWaiters = new Set<(ok: boolean) => void>()
   private readonly config: ResolvedConfig
 
   constructor(
@@ -104,6 +105,25 @@ export class EventConnection {
       socket.close()
     }
     this.emitState('offline')
+  }
+
+  /**
+   * One-shot wait for the 'connected' state: resolves true once the stream
+   * opens (the server registers the subscriber before headers, so POSTs gated
+   * on `has_subscriber` are safe afterwards), false on stop() or timeout.
+   */
+  waitConnected(timeoutMs = 10_000): Promise<boolean> {
+    if (this.lastState === 'connected') return Promise.resolve(true)
+    if (!this.running) return Promise.resolve(false)
+    return new Promise(resolve => {
+      const settle = (ok: boolean): void => {
+        clearTimeout(timer)
+        this.connectedWaiters.delete(settle)
+        resolve(ok)
+      }
+      const timer = setTimeout(() => { settle(false) }, timeoutMs)
+      this.connectedWaiters.add(settle)
+    })
   }
 
   private connect(): void {
@@ -182,6 +202,11 @@ export class EventConnection {
     if (state === this.lastState) return
     this.lastState = state
     this.callSink(() => { this.sinks.onStateChange?.(state) })
+    if (state === 'connected' || state === 'offline') {
+      const waiters = [...this.connectedWaiters]
+      this.connectedWaiters.clear()
+      for (const waiter of waiters) waiter(state === 'connected')
+    }
   }
 
   private callSink(fn: () => void): void {

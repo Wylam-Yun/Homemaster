@@ -134,12 +134,12 @@ export function OnboardingPage({ api, onDone }: Props) {
             </li>
           ))}
         </ol>
-        <Link className={styles.skip} to="#/chat">跳过，稍后在 Settings 里配 →</Link>
+        <Link className={styles.skip} to="#/chat">跳过，稍后在 Provider 页里配 →</Link>
       </div>
 
       {step === 0 && (
         <div className={styles.stepBody}>
-          {templatesError !== null && <div className={styles.errorText} role="alert">模板列表加载失败:{templatesError}</div>}
+          {templatesError !== null && <div className={styles.errorText} role="alert">模板列表加载失败：{templatesError}</div>}
           {templates === null && templatesError === null && <div className={styles.muted}>正在加载模板…</div>}
           <div className={styles.cards}>
             {(templates ?? []).map(item => (
@@ -207,7 +207,7 @@ export function OnboardingPage({ api, onDone }: Props) {
               />
             </label>
           </div>
-          <p className={styles.hint}>保存后可到 Settings 页「枚举可用模型」挑选线上模型列表。</p>
+          <p className={styles.hint}>保存后可到 Provider 页「枚举可用模型」挑选线上模型列表。</p>
           {fieldError !== null && <div className={styles.errorText} role="alert">{fieldError}</div>}
           <div className={styles.actions}>
             <button type="button" onClick={() => { setStep(0) }}>上一步</button>

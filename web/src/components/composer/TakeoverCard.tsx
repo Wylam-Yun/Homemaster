@@ -11,10 +11,13 @@ export function QuestionCard({
   question,
   disabled = false,
   onSubmit,
+  onCancel,
 }: {
   question: PendingQuestionState
   disabled?: boolean
   onSubmit: (questionId: string, text: string) => Promise<boolean> | boolean
+  /** 中断当前回合：agent 提问不等于用户只能回答，保留中止出口。 */
+  onCancel?: () => void
 }) {
   const [answer, setAnswer] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -75,6 +78,16 @@ export function QuestionCard({
         >
           {submitting ? '提交中…' : '回答'}
         </button>
+        {onCancel !== undefined && (
+          <button
+            type="button"
+            className={styles.answerCancel}
+            title="取消当前回合，问题随之作废"
+            onClick={onCancel}
+          >
+            中断回合
+          </button>
+        )}
       </div>
       <small className={styles.takeoverHint}>Enter 提交 · 回答后恢复原草稿</small>
     </div>

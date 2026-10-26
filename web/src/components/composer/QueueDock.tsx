@@ -25,7 +25,7 @@ export function QueueDock({
 }) {
   if (items.length === 0) return null
   return (
-    <div className={styles.dock} aria-label="排队消息">
+    <div className={styles.dock} role="group" aria-label="排队消息" data-queue-dock="">
       <span className={styles.count}>排队 {items.length} 条</span>
       <ol className={styles.list}>
         {items.map((item, index) => (

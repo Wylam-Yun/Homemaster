@@ -191,7 +191,11 @@ export function PermissionsPage({ api, refreshSignal }: Props) {
                   type="button"
                   aria-label={`撤销${grantTitle(grant)}的${grantAction(grant)}`}
                   disabled={revokingId !== null}
-                  onClick={() => { void submitRevoke(prepareRevoke(grant)) }}
+                  onClick={() => {
+                    if (window.confirm(`撤销「${grantTitle(grant)}」的${grantAction(grant)}长期授权？`)) {
+                      void submitRevoke(prepareRevoke(grant))
+                    }
+                  }}
                 >
                   {revokingId === grant.grant_id ? '撤销中…' : `撤销${grantAction(grant)}`}
                 </button>

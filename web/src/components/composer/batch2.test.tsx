@@ -24,7 +24,7 @@ describe('ModelPicker', () => {
   it('lists configured providers and disables entries without an API key', () => {
     render(<ModelPicker providers={PROVIDERS} value={{}} onChange={vi.fn()} />)
 
-    const select = screen.getByRole('combobox', { name: 'Provider' })
+    const select = screen.getByRole('combobox', { name: '服务商' })
     const options = Array.from(select.querySelectorAll('option'))
     expect(options.map(option => option.textContent)).toEqual([
       '默认',
@@ -38,7 +38,7 @@ describe('ModelPicker', () => {
     const onChange = vi.fn()
     render(<ModelPicker providers={PROVIDERS} value={{}} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: 'primary' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '服务商' }), { target: { value: 'primary' } })
     expect(onChange).toHaveBeenCalledWith({ provider_name: 'primary' })
   })
 
@@ -46,7 +46,7 @@ describe('ModelPicker', () => {
     const onChange = vi.fn()
     render(<ModelPicker providers={PROVIDERS} value={{ provider_name: 'primary' }} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: '__custom__' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '模型' }), { target: { value: '__custom__' } })
     const input = await screen.findByRole('textbox', { name: '自定义 model id' })
     fireEvent.change(input, { target: { value: 'claude-opus-4.5' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -94,7 +94,7 @@ describe('ModelPicker', () => {
     )
 
     await screen.findByRole('option', { name: 'claude-opus-4.5' })
-    const select = screen.getByRole('combobox', { name: 'Model' })
+    const select = screen.getByRole('combobox', { name: '模型' })
     // Exactly one option carries the editor sentinel value.
     const sentinels = Array.from(select.querySelectorAll('option'))
       .filter(option => option.value === '__custom__')
@@ -116,7 +116,7 @@ describe('ModelPicker', () => {
     )
 
     await waitFor(() => { expect(loadModels).toHaveBeenCalledWith('primary') })
-    const select = await screen.findByRole('combobox', { name: 'Model' })
+    const select = await screen.findByRole('combobox', { name: '模型' })
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'claude-opus-4.5' })).toBeInTheDocument()
     })
@@ -165,16 +165,21 @@ describe('ModeBadge', () => {
     const onToggle = vi.fn()
     const { rerender } = render(<ModeBadge mode="act" onToggle={onToggle} />)
 
-    const badge = screen.getByRole('button', { name: /执行/ })
-    expect(badge).toHaveAttribute('aria-pressed', 'false')
-    expect(badge).toHaveAttribute('data-mode', 'act')
-    fireEvent.click(badge)
+    const act = screen.getByRole('button', { name: '执行' })
+    const plan = screen.getByRole('button', { name: '规划' })
+    expect(act).toHaveAttribute('aria-pressed', 'true')
+    expect(plan).toHaveAttribute('aria-pressed', 'false')
+
+    // Clicking the already-active option is a no-op; the other option toggles.
+    fireEvent.click(act)
+    expect(onToggle).not.toHaveBeenCalled()
+    fireEvent.click(plan)
     expect(onToggle).toHaveBeenCalledWith('plan')
 
     rerender(<ModeBadge mode="plan" onToggle={onToggle} />)
-    expect(screen.getByRole('button', { name: /规划/ })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: /规划/ }))
-    expect(onToggle).toHaveBeenCalledWith('act')
+    expect(screen.getByRole('button', { name: '规划' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '执行' }))
+    expect(onToggle).toHaveBeenLastCalledWith('act')
   })
 })
 

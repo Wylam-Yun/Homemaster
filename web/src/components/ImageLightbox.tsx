@@ -55,15 +55,15 @@ export function ImageLightbox({
       <section className={styles.dialog}>
         <header className={styles.header}>
           <div>
-            <h2 id={titleId}>Image preview: {filename}</h2>
+            <h2 id={titleId}>图片预览：{filename}</h2>
             <small>{mediaType}</small>
           </div>
-          <button ref={closeRef} type="button" aria-label="Close image preview" onClick={onClose}>×</button>
+          <button ref={closeRef} type="button" aria-label="关闭图片预览" onClick={onClose}>×</button>
         </header>
         <div className={styles.imageArea}>
           {failed ? (
             <p className={styles.failure}>
-              Preview unavailable. <a href={url}>Open {filename}</a>
+              预览不可用。<a href={url}>打开 {filename}</a>
             </p>
           ) : (
             <img src={url} alt={`${filename} from ${toolName}`} onError={() => setFailed(true)} />
@@ -71,7 +71,7 @@ export function ImageLightbox({
         </div>
         <footer className={styles.footer}>
           <span>{filename}</span>
-          <a href={url} target="_blank" rel="noreferrer">Open original</a>
+          <a href={url} target="_blank" rel="noreferrer">打开原图</a>
         </footer>
       </section>
     </div>,
