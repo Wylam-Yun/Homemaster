@@ -38,6 +38,8 @@ type GraphNode = SimulationNodeDatum & {
   id: string
   kind: 'memory' | 'entity' | 'anchor'
   label: string
+  /** Visible-link count driving radius — invisible session anchors excluded. */
+  degree: number
   memoryType?: string
   memoryId?: string
 }
@@ -62,6 +64,7 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
       id: memoryNodeId(node.memory_id),
       kind: 'memory',
       label: node.preview,
+      degree: 0,
       memoryType: node.memory_type,
       memoryId: node.memory_id,
     })
@@ -71,6 +74,7 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
       id: entityNodeId(entity.entity_id),
       kind: 'entity',
       label: entity.name,
+      degree: 0,
     })
   }
   // Session anchors cluster orphans; EXTRACTED_FROM points at an opaque source
@@ -80,6 +84,7 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
       id: anchorNodeId(session.session_id),
       kind: 'anchor',
       label: session.title,
+      degree: 0,
     })
   }
   for (const edge of graph.edges) {
@@ -107,8 +112,20 @@ function buildGraph(graph: MemoryGraphData): { nodes: GraphNode[]; links: GraphL
     if (!nodes.has(anchor) || mentioned.has(memory)) continue
     links.push({ source: memory, target: anchor, rel: 'SESSION', anchor: true })
   }
+  // Degree counts visible links only — anchor edges are layout glue, not data.
+  for (const link of links) {
+    if (link.anchor === true) continue
+    const source = nodes.get(String(link.source))
+    const target = nodes.get(String(link.target))
+    if (source !== undefined) source.degree += 1
+    if (target !== undefined) target.degree += 1
+  }
   return { nodes: [...nodes.values()], links }
 }
+
+/** Hub-style sizing: radius grows sublinearly with visible degree. */
+const nodeRadius = (node: GraphNode): number =>
+  node.kind === 'memory' ? 7 + 2.4 * Math.sqrt(node.degree) : 3.5 + 1.8 * Math.sqrt(node.degree)
 
 /** Node labels stay glanceable — previews/names are capped for density. */
 const nodeLabel = (node: GraphNode): string => {
@@ -148,7 +165,7 @@ export function MemoryGraph({ graph, onSelect }: Props) {
           .strength(link => (link.anchor === true ? 0.3 : 0.7)),
       )
       .force('charge', forceManyBody().strength(-140))
-      .force('collide', forceCollide<GraphNode>().radius(node => (node.kind === 'memory' ? 16 : 10)))
+      .force('collide', forceCollide<GraphNode>().radius(node => nodeRadius(node) + 7))
       .force('x', forceX(0).strength(0.06))
       .force('y', forceY(0).strength(0.06))
 
@@ -254,11 +271,11 @@ export function MemoryGraph({ graph, onSelect }: Props) {
               if (node.kind === 'memory' && node.memoryId !== undefined) onSelect(node.memoryId)
             }}
           >
-            <title>{node.label}</title>
+            <title>{node.label}{node.degree > 0 ? `（${node.degree} 条连接）` : ''}</title>
             {node.kind === 'memory'
-              ? <circle r={9} fill={typeColor(node.memoryType ?? '')} />
-              : <circle r={4.5} fill="var(--muted-2)" />}
-            <text className={styles.nodeLabel} y={node.kind === 'memory' ? 18 : 12}>
+              ? <circle r={nodeRadius(node)} fill={typeColor(node.memoryType ?? '')} />
+              : <circle r={nodeRadius(node)} fill="var(--muted-2)" />}
+            <text className={styles.nodeLabel} y={nodeRadius(node) + 10}>
               {nodeLabel(node)}
             </text>
           </g>

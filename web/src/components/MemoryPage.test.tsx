@@ -218,8 +218,8 @@ describe('MemoryPage', () => {
     const canvas = await screen.findByRole('img', { name: '记忆知识图谱' })
     const memoryNode = canvas.querySelector('g[data-node="mem:memory-active"]')
     const entityNode = canvas.querySelector('g[data-node="ent:ent-1"]')
-    expect(memoryNode?.querySelector('title')?.textContent).toBe('active memory body')
-    expect(entityNode?.querySelector('title')?.textContent).toBe('厨房')
+    expect(memoryNode?.querySelector('title')?.textContent).toBe('active memory body（1 条连接）')
+    expect(entityNode?.querySelector('title')?.textContent).toBe('厨房（1 条连接）')
     // Legend exposes memory-type filters plus the entity marker.
     expect(screen.getByRole('button', { name: /事实/ })).toBeInTheDocument()
     expect(screen.getByText('实体')).toBeInTheDocument()
