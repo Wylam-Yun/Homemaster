@@ -330,6 +330,8 @@ class TestDreamingWorker:
         ]
         assert job.result["dreaming_record_id"] == "dr-1"
         assert job.result["raw_verified"] is True
+        # the archive's lifecycle state advances once its Dreaming settles
+        assert store.archive(archive.archive_id).status == "dreamed"
         store.close()
 
     @pytest.mark.asyncio
@@ -349,6 +351,7 @@ class TestDreamingWorker:
         job = store.job(archive.dreaming_job_id)
         assert job.status == "failed"
         assert "wait budget" in (job.last_error or "")
+        assert store.archive(archive.archive_id).status == "failed"
         store.close()
 
     @pytest.mark.asyncio

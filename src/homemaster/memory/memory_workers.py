@@ -245,6 +245,14 @@ class MemoryWorkerPool:
                 )
         except Exception:
             logger.exception("failed to settle job %s", job.job_id)
+        if job.archive_id and outcome.status in {"completed", "no_action", "failed"}:
+            try:
+                self._store.settle_archive(
+                    job.archive_id,
+                    "failed" if outcome.status == "failed" else "dreamed",
+                )
+            except Exception:
+                logger.warning("failed to settle archive %s", job.archive_id)
         self._log(
             "job.settled",
             job=job,

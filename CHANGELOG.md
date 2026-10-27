@@ -10,7 +10,10 @@
   reconcile waits, and resubmits answered with HTTP 202 `processing` (now
   mapped to `OperationStillProcessingError` instead of a generic retry).
   `claim_jobs` honours `not_before` for `outcome_unknown` rows so deferred
-  reconcile jobs wait out their delay instead of hot-looping.
+  reconcile jobs wait out their delay instead of hot-looping. Archives now
+  advance `pending` → `dreamed`/`failed` when their Dreaming job settles
+  (surfaced via `/api/.../archive-status`) instead of staying `pending`
+  forever.
 
 - `memory.neo4j.mode` gains `"server"` (new default): no managed process —
   the MindMemOS server owns the graph store and `uri`/credentials only feed

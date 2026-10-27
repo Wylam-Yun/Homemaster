@@ -302,6 +302,7 @@ class MemoryWorkStore(Protocol):
     def archive(self, archive_id: str) -> ArchiveSnapshot | None: ...
     def archives_for_session(self, session_id: str) -> list[ArchiveSnapshot]: ...
     def attach_dreaming_job(self, archive_id: str, job_id: str) -> None: ...
+    def settle_archive(self, archive_id: str, status: str) -> None: ...
 
     # -- skill invocations ---------------------------------------------------
     def open_skill_invocation(
@@ -1154,6 +1155,17 @@ class SQLiteMemoryWorkStore:
             self._db.execute(
                 "UPDATE archives SET dreaming_job_id = ? WHERE archive_id = ?",
                 (job_id, archive_id),
+            )
+
+    def settle_archive(self, archive_id: str, status: str) -> None:
+        """Mark the archive's lifecycle state once its Dreaming job reaches a
+        terminal outcome: ``dreamed`` on completed/no_action, ``failed`` on a
+        permanent job failure. ``pending`` means the snapshot is frozen but
+        its Dreaming intent has not settled yet."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE archives SET status = ? WHERE archive_id = ?",
+                (status, archive_id),
             )
 
     # -- skill invocations ---------------------------------------------------------
