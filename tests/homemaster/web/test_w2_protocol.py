@@ -165,7 +165,7 @@ class _W2Application:
             return SimpleNamespace(status="unreachable", run_id="run-01")
         if request.text.startswith("boom:"):
             # A bound run that dies mid-flight with a propagated exception
-            # (e.g. AutomaticRecallRunDeadlineExceeded): fail_before_start
+            # (e.g. a backend mid-run exception): fail_before_start
             # refuses once run_id is bound, so the adapter's finish marker
             # must produce the honest terminal instead of wedging busy.
             raise RuntimeError("propagated mid-run failure")
@@ -1181,20 +1181,21 @@ def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     assert application.closed
 
 
-def test_archive_status_reports_controller_view() -> None:
-    """GET /archive-status surfaces the latest finalization job for a session."""
+def test_archive_status_reports_snapshot_view() -> None:
+    """GET /archive-status surfaces the latest ArchiveSnapshot for a session."""
+    from types import SimpleNamespace
+
     application = _W2Application()
 
-    class _Finalization:
-        def status_for(self, session_id):
-            if session_id == "known":
-                return {"state": "processing", "job_id": "job-1"}
-            return None
+    class _ArchiveService:
+        def __init__(self) -> None:
+            self.snapshots: dict[str, list[object]] = {}
 
-        def statuses(self):
-            return {"known": {"state": "processing", "job_id": "job-1"}}
+        def snapshots_for_session(self, session_id):
+            return list(self.snapshots.get(session_id, []))
 
-    application.settings.application_services["session_finalization"] = _Finalization()
+    service = _ArchiveService()
+    application.settings.application_services["archive_service"] = service
     app = _app(application, config=_config())
 
     with TestClient(app) as client:
@@ -1204,11 +1205,37 @@ def test_archive_status_reports_controller_view() -> None:
             "session_id": session_id,
             "state": "none",
         }
-        # The fake session manager does not know "known" — exercise the merge
-        # path through the bulk endpoint instead.
+        service.snapshots[session_id] = [
+            SimpleNamespace(
+                status="pending",
+                archive_id=f"archive:{session_id}:3",
+                dreaming_job_id=None,
+                max_event_seq=3,
+                turn_range_start=1,
+                turn_range_end=2,
+            )
+        ]
+        assert client.get(f"/api/sessions/{session_id}/archive-status").json() == {
+            "session_id": session_id,
+            "state": "pending",
+            "archive_id": f"archive:{session_id}:3",
+            "dreaming_job_id": None,
+            "max_event_seq": 3,
+            "turn_range": [1, 2],
+        }
         bulk = client.get("/api/archive-status")
         assert bulk.status_code == 200
-        assert bulk.json() == {"sessions": {"known": {"state": "processing", "job_id": "job-1"}}}
+        assert bulk.json() == {
+            "sessions": {
+                session_id: {
+                    "state": "pending",
+                    "archive_id": f"archive:{session_id}:3",
+                    "dreaming_job_id": None,
+                    "max_event_seq": 3,
+                    "turn_range": [1, 2],
+                }
+            }
+        }
 
 
 def test_archive_status_unavailable_without_full_tier() -> None:

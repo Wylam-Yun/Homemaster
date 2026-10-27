@@ -1,5 +1,54 @@
 # Session Handoff
 
+## V3.8 MindMemOS Native Lifecycle Spec - 2026-10-26
+
+### Current state
+
+- User requested a V3.8 design spec under `plan/V3.8` for replacing HomeMaster's old MindMemOS lifecycle with the latest native MindMemOS source. This turn only updated the spec; no runtime code, data migration, production memory, or RoboCasa benchmark was changed or run.
+- Spec: `plan/V3.8/mindmemos-native-lifecycle-spec.md` (untracked review draft). It now selects native MindMemOS Vanilla Add for each terminal Turn, with a background HomeMaster Outbox worker, `memory_algorithm=vanilla`, and entity extraction enabled for Dreaming's shared-entity scope.
+- Spec also requires Web Memory UI/API parity for manual create/read/search/update/delete/history, including structured memory correction; removes the current HomeMaster `add_flat` update fallback from the target behavior.
+- RoboCasa baseline was checked read-only on `hkust4`: RPent commit `0ae9f9edc67cd5c184915e83a80b32c1ec241526`; `robots/robocasa/eval/target50_v2.json` SHA-256 `fca5eba7de3635930fced5b11d5a1dff35c81ae141988753a6db80eb729d1575`.
+- R5 is atomic/target seed 1 for `CloseBlenderLid`, `CloseFridge`, `CloseToasterOvenDoor`, `CoffeeSetupMug`, `NavigateKitchen`. R20 is the 18 atomic tasks at seed 1 followed by the first two tasks at seed 2. Spec requires per-feature black-box then five consecutive R5 cases, then a fresh-scope 20-case integration gate.
+- Existing user changes in `src/homemaster/memory/mindmemos_runtime.py`, `tests/homemaster/memory/test_mindmemos_runtime.py`, and `CHANGELOG.md` were left untouched.
+
+### Next steps
+
+1. Tell the user Vanilla Add is reasonable for Turn-level conversational extraction, with the caveat that an AddRecord can yield zero or multiple memories and entities must be enabled for Dreaming.
+2. Report that the spec now includes the requested per-feature 5-case RoboCasa consecutive gate and final 20-trajectory gate, with external readback and per-cell failures unable to be masked.
+3. Keep this as a review draft and wait for spec feedback before implementation; the user's current scope was design/spec, not source implementation or remote evaluation.
+
+### Verification
+
+- `git diff --check` passed for the HomeMaster worktree.
+- Remote read-only manifest verification confirmed 18 atomic tasks, the fixed R5 order, and 20 valid fixed R20 cells. No benchmark was started.
+- MindMemOS source was inspected at `/Users/wylam/Documents/workspace/MindMemOS`, HEAD `186db4a75122b1d8691933f280bec10191c82c28`; it maps `vanilla` to `vanilla_add`, and `enable_entities` defaults to false.
+
+## V3.8 MindMemOS Native Lifecycle Implementation Plan - 2026-10-27
+
+### Current state
+
+- Implementation plan: `plan/V3.8/mindmemos-native-lifecycle-implementation-plan.md`. This planning turn changed no runtime source, test implementation, MindMemOS source, production memory, or RoboCasa remote state.
+- Two independent read-only reviews and a second review of the prior plan revision reported no plan-level blockers. The user then clarified that trajectory compilation and its output are not yet understood, and asked why Session deletion was specified as hard delete. The plan has been corrected: compile retention remains an unresolved product decision. The user subsequently clarified Session DELETE is not a priority: preserve its existing local session/files/attachment behavior, with no new soft-delete or Memory-cascade design. Session DELETE is out of the V3.8 product decision gates; MindMemOS Memory CRUD remains in scope. Successful compile output is a candidate reusable Procedure; failure/unknown output is a non-executable diagnostic. Compile R5, file scope, final audit, and docs now depend on the selected ADR branch. No persisted benchmark evidence or MindMemOS Memory is to be deleted. The latest revision has not yet been re-reviewed. This remains planning only; the Qdrant/Neo4j late-writer protocol has not been live-tested.
+- R5 is nine feature gates plus a separate SDK/package Gate 0; R20 is a new isolated integration scope. Both R5 and R20 invalidate the full scope after any invalid attempt with possible external side effects.
+- Current worktree has `docs/session-handoff.md` modified and `plan/V3.8/` untracked. Planning documents only have changed. Actual compiler output was generated from synthetic repository success/failure fixtures, revealing loss of the `cabinet` receptacle in the put step; see `plan/V3.8/trajectory-compile-current-output-example.md`. This is not live benchmark evidence. Compile's V3.8 branch remains unselected and outside the nine RoboCasa gates unless a later ADR adds its own ALFWorld validation. Session DELETE stays unchanged and out of scope. Latest document revision has not been independently re-reviewed.
+
+### Decisions still required before dependent implementation
+
+- Select the production implicit Feedback time/timezone and MindMemOS Server owner/topology/auth/scope mapping.
+- Decide whether to retain, preview, or remove the independent trajectory compiler. Session DELETE stays unchanged and is no longer an implementation decision gate; do not expand it into soft deletion or remote Memory cleanup.
+- Validate the proposed immutable-version + visibility-pointer protocol against real Qdrant/Neo4j before implementing mutation writers. If it cannot meet the spec, update the spec and make an architecture decision first.
+
+### Next steps
+
+1. Review the implementation plan and resolve the product decisions above in its ADR before dependent tasks begin.
+2. Start Task 1 from the audited MindMemOS baseline and preserve the current local worktree edits.
+3. For each feature, start its RoboCasa R5 only after Gate 0 and that feature's isolated real black-box pass. Run R20 only after all nine R5 gates pass, in a new integration scope.
+
+### Verification
+
+- Read-only reviews checked the plan against the V3.8 spec, current HomeMaster test/config paths, and current MindMemOS test tree. The final acceptance and architecture reviewers both reported no blocking findings.
+- `git diff --check` passed. No implementation tests were run because this turn only prepared an implementation plan.
+
 ## V3.5 continuation - 2026-09-26
 
 ### Current state
@@ -1003,3 +1052,35 @@ memories created by an older direct-update implementation without a real
 `DERIVED_FROM` edge cannot be reconstructed into history and must not be guessed. Keep the structured feedback
 exact-record/content/lineage terminal gate when changing the vendored executor. Optional Playwright/MCP environment
 failures and unrelated cleanup-guard expected-set drift remain outside this follow-up.
+
+
+## V3.8 Implementation Complete - 2026-10-27
+
+### Delivered
+
+- `feature/v3.8-implementation` branch replaces embedded MindMemOS with the standalone server + SDK boundary
+  (upstream pin `third_party/MINDMEMOS_UPSTREAM.md` → MindMemOS `feature/v3.8-native-lifecycle` @ e0797b9).
+- New durable surfaces: `SQLiteMemoryWorkStore` (canonical trace/terminal/outbox/archive/skill/watermark),
+  `SessionTraceStore`, `MemoryWorkerPool` + executors, `MindMemOSClient` (lazy SDK), `QdrantNeo4jVerifier`,
+  `ArchiveService`, `ImplicitFeedbackScheduler`, `SkillInvocationTracker`, `FeedbackContextBinder`.
+- Removed: vendored MindMemOS, EmbeddedMindMemOS, Add/Enrichment queues, Session Finalizer + schema extractors,
+  automatic recall (pre-turn + compaction), `mindmemos_add` tool, add_flat update fallback, AddRecord skill
+  evolution, all `mindmemos_*` local-runtime modules and their tests.
+- Live acceptance against a real MindMemOS server + Qdrant 1.20 + Neo4j + local LLM endpoints:
+  script 1 = 10/10 (health, add, replay, 409, op ledger, raw add_record+memory readback, search, feedback, list);
+  script 2 = 7/7 (archive idempotency, ArchiveDreamingExecutor→real Dreaming, ImplicitFeedbackExecutor→real
+  feedback actions, SkillEvolutionExecutor→8 upstream-sealed traces→batch→draft version, upstream trace readback).
+- Tests: 2047 passed / 12 skipped / 6 deselected (~2min). Ruff clean on all changed files; legacy-term guard clean.
+- Four contract bugs found only by live acceptance (recorded in pitfalls.md): verifier read wrong Qdrant/Neo4j
+  schema (add_record_v1 collection + memory_id key), feedback needs mode+last_update_at, DreamingRequest has no
+  archive_id, skill trace needs tool_steps/skill_version_id/skill_content_hash. All fixed and re-verified live.
+
+### Notes / remaining
+
+- `test_provider_deadline_cancels_native_async_stream` (0.02s deadline) is load-flaky on baseline too — not a
+  V3.8 regression; it passed in the final full run.
+- Qdrant client 1.18 warns vs server 1.20 (minor-version gap) — deployment note only, all live checks passed.
+- RoboCasa R5/R20 acceptance NOT run (needs robot sim env); LoCoMo runner migrated and unit-verified.
+- Upstream MindMemOS branch committed at e0797b9; HomeMaster branch uncommitted pending this handoff.
+- Live services used for acceptance: `uvicorn` on :8765 (config /tmp/mindmemos-live/dev.yaml + api_keys.yaml),
+  colima+docker qdrant container. Credentials were temp-only, not committed.

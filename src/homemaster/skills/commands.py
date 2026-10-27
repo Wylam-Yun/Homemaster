@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 from homemaster.skills.registry import SkillRegistry
@@ -12,6 +13,12 @@ from homemaster.skills.types import SkillDefinition
 class ResolvedSkillCommand:
     prompt: str
     model_override: str | None
+    # Identity of the resolved skill version. ``None`` only for results built
+    # before this field existed (tests/fixtures); real resolutions always fill
+    # it so callers can record a Skill Trace invocation.
+    skill_name: str | None = None
+    skill_content_sha256: str | None = None
+    arguments: str = ""
 
 
 def resolve_skill_command(
@@ -35,6 +42,9 @@ def resolve_skill_command(
     return ResolvedSkillCommand(
         prompt=_render_skill_prompt(skill, arguments, session_id=session_id),
         model_override=skill.model,
+        skill_name=skill.name,
+        skill_content_sha256=hashlib.sha256(skill.content.encode("utf-8")).hexdigest(),
+        arguments=arguments.strip(),
     )
 
 

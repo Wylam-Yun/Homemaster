@@ -140,11 +140,11 @@ async def test_private_events_and_internal_fields_never_reach_the_wire(
             payload={"extension_id": "x", "hook_id": "y", "output": "z"},
         ),
         RuntimeEvent(
-            type="memory.automatic_recall",
+            type="memory.feedback.explicit.completed",
             session_id="s",
             run_id="r",
             turn_index=0,
-            payload={"memories": [{"text": "internal"}]},
+            payload={"memory_id": "m1", "internal": "detail"},
         ),
         RuntimeEvent(
             type="tool.execution_published",

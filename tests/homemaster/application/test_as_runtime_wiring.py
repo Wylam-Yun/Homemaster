@@ -295,7 +295,7 @@ class _FailOnceModel(_ScriptedModel):
 
 
 class _MindMemOSStub:
-    """Counts automatic-recall searches; returns no memories."""
+    """Counts any automatic-recall search attempts; V3.8 must never call it."""
 
     def __init__(self) -> None:
         self.queries: list[str] = []
@@ -307,23 +307,21 @@ class _MindMemOSStub:
 
 
 @pytest.mark.asyncio
-async def test_app_runtime_agentscope_post_compaction_recalls_inline(
+async def test_app_runtime_agentscope_post_compaction_recovers_without_recall(
     tmp_path: Path,
 ) -> None:
-    """C+ acceptance: compaction inside an AS-path run must fire
-    ``on_compaction`` → re-arm ``require_recall`` → run a SECOND
-    ``mindmemos.search`` inline in the same run — previously the AS path
-    never fired the callback outside reactive retries, and even on legacy
-    the flag only took effect on the *next* run."""
+    """V3.8: a context-length failure inside an AS-path run still recovers via
+    reactive compaction inside the same run — but automatic recall is gone, so
+    no ``mindmemos.search`` fires before or after the compaction."""
     store = _MindMemOSStub()
     # First model call fails on context length → reactive compaction fires
-    # inside the run → on_compaction → inline second recall.
+    # inside the run and the retry succeeds.
     model = _FailOnceModel([[TextBlock(text="ok")]])
     app = _app(
         tmp_path,
         [],
         model,
-        application_services={"mindmemos": store},
+        application_services={"mindmemos_client": store},
         # Small window + disabled auto-compact: the run must compact only via
         # the reactive retry, and the seeded history must exceed the threshold
         # so `_acompact` produces an `older` segment worth summarising.
@@ -361,11 +359,13 @@ async def test_app_runtime_agentscope_post_compaction_recalls_inline(
     )
 
     assert result.status is RunStatus.REPLIED
-    # Initial recall at run start + inline re-recall after the compaction
-    # — both inside ONE run.
-    assert len(store.queries) == 2
-    runtime_after = app.session_manager.get(session_id)
-    assert runtime_after.require_recall is False
+    # The run recovered: exactly one provider call succeeded after the
+    # context-length failure was handled by in-run reactive compaction.
+    assert model.calls == 1
+    assert model._failed is True
     event_types = [e.type for e in app.event_bus.events]
     assert "context.compaction" in event_types
-    assert event_types.count("memory.automatic_recall") == 2
+    # V3.8 removed automatic recall: the mindmemos service is never searched
+    # automatically, at run start or after compaction.
+    assert store.queries == []
+    assert "memory.automatic_recall" not in event_types

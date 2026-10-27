@@ -333,7 +333,12 @@ def test_wizard_merge_preserves_existing_config(tmp_path: Path) -> None:
                         }
                     ],
                 },
-                "memory": {"mode": "full", "data_root": "/data"},
+                # V3.8 full tier requires a standalone MindMemOS endpoint.
+                "memory": {
+                    "mode": "full",
+                    "data_root": "/data",
+                    "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+                },
                 "gateway": {"enabled": True},
             }
         ),
@@ -344,7 +349,11 @@ def test_wizard_merge_preserves_existing_config(tmp_path: Path) -> None:
 
     assert code == 0
     raw = yaml.safe_load(target.read_text(encoding="utf-8"))
-    assert raw["memory"] == {"mode": "full", "data_root": "/data"}
+    assert raw["memory"] == {
+        "mode": "full",
+        "data_root": "/data",
+        "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+    }
     assert raw["gateway"] == {"enabled": True}
     assert raw["providers"]["default"] == "Keep"
     names = [item["name"] for item in raw["providers"]["items"]]

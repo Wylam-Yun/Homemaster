@@ -13,7 +13,7 @@ def _memory(memory_id: str):
     return SimpleNamespace(id=memory_id, memory=f"memory {memory_id}")
 
 
-def test_snapshot_keeps_automatic_and_only_visible_search_records() -> None:
+def test_snapshot_keeps_only_visible_search_records() -> None:
     messages = [
         UserMessage.from_text("correct the old memory"),
         ToolResultMessage(
@@ -25,14 +25,13 @@ def test_snapshot_keeps_automatic_and_only_visible_search_records() -> None:
 
     snapshot = build_feedback_context_snapshot(
         messages,
-        automatic_recalled_memories=[_memory("automatic")],
         recalled_memories_by_tool_call_id={
             "visible-search": [_memory("visible")],
             "compacted-search": [_memory("compacted")],
         },
     )
 
-    assert [item.id for item in snapshot.recalled_memories] == ["automatic", "visible"]
+    assert [item.id for item in snapshot.recalled_memories] == ["visible"]
 
 
 def test_snapshot_deep_copies_messages_and_converts_text_only() -> None:
@@ -42,15 +41,22 @@ def test_snapshot_deep_copies_messages_and_converts_text_only() -> None:
 
     assert snapshot.messages[0].content[0].text == "original"
     dialogue = snapshot_to_dialogue_messages(snapshot)
-    assert [(item.role, item.content) for item in dialogue] == [("user", "original")]
+    assert [(item["role"], item["content"]) for item in dialogue] == [("user", "original")]
 
 
 def test_snapshot_deep_copies_non_pydantic_recalled_memory() -> None:
     recalled = _memory("raw-1")
 
     snapshot = build_feedback_context_snapshot(
-        [UserMessage.from_text("remember this")],
-        automatic_recalled_memories=[recalled],
+        [
+            UserMessage.from_text("remember this"),
+            ToolResultMessage(
+                tool_call_id="search-1",
+                name="mindmemos_search",
+                content=[ContentBlock(text='{"records":[]}')],
+            ),
+        ],
+        recalled_memories_by_tool_call_id={"search-1": [recalled]},
     )
     recalled.memory = "changed after snapshot"
 
@@ -58,7 +64,7 @@ def test_snapshot_deep_copies_non_pydantic_recalled_memory() -> None:
 
 
 def test_binder_freezes_exact_visible_records_to_feedback_call() -> None:
-    from mindmemos.typing import MemorySearchItem
+    from homemaster.memory.mindmemos_client import SearchHit as MemorySearchItem
 
     source = UserMessage.from_text("Use uv, not conda.")
     frozen_messages = [
@@ -76,26 +82,21 @@ def test_binder_freezes_exact_visible_records_to_feedback_call() -> None:
         settings=None,
         event_sink=None,
         deps={
-            "automatic_recalled_memories": [
-                MemorySearchItem(
-                    id="automatic",
-                    memory="automatic memory",
-                    last_update_at="2026-08-17 00:00:00",
-                )
-            ],
             "recalled_memories_by_tool_call_id": {
                 "visible-search": [
                     MemorySearchItem(
                         id="visible",
                         memory="visible memory",
-                        last_update_at="2026-08-17 00:00:00",
+                        memory_type="fact",
+                        score=None,
                     )
                 ],
                 "compacted-search": [
                     MemorySearchItem(
                         id="compacted",
                         memory="compacted memory",
-                        last_update_at="2026-08-17 00:00:00",
+                        memory_type="fact",
+                        score=None,
                     )
                 ],
             },
@@ -112,7 +113,4 @@ def test_binder_freezes_exact_visible_records_to_feedback_call() -> None:
 
     snapshot = run_context.deps["memory_feedback_context_by_tool_call_id"]["feedback-call"]
     assert snapshot.messages[0].content[0].text == "Use uv, not conda."
-    assert [item.id for item in snapshot.recalled_memories] == [
-        "automatic",
-        "visible",
-    ]
+    assert [item.id for item in snapshot.recalled_memories] == ["visible"]

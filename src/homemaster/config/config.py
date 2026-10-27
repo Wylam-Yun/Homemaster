@@ -492,6 +492,55 @@ class MemoryQdrantConfig(BaseModel):
         return self.url
 
 
+class MindMemOSServerConfig(BaseModel):
+    """Connection to the standalone MindMemOS HTTP server (V3.8).
+
+    The server owns the memory pipelines and stores; HomeMaster talks to it
+    exclusively through ``mindmemos_sdk``. ``base_url`` is REQUIRED when
+    ``memory.mode=full`` — the former embedded runtime is removed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = ""
+    api_key: SecretStr = SecretStr("")
+    timeout_seconds: float = Field(default=120.0, gt=0)
+    max_retries: int = Field(default=0, ge=0)
+
+    @field_validator("base_url")
+    @classmethod
+    def _valid_base_url(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        parsed = urlsplit(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("memory.mindmemos.base_url must be an absolute http(s) URI")
+        return stripped.rstrip("/")
+
+
+class MemoryWorkerConfig(BaseModel):
+    """Durable outbox worker tuning (V3.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    poll_interval_seconds: float = Field(default=1.0, gt=0)
+    lease_seconds: float = Field(default=300.0, gt=0)
+    max_concurrent: int = Field(default=4, ge=1)
+
+
+class ImplicitFeedbackSettings(BaseModel):
+    """Daily implicit-feedback schedule (V3.8 §4.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    hour: int = Field(default=3, ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    timezone_name: str = "Asia/Shanghai"
+    interval_seconds: float = Field(default=60.0, gt=0)
+
+
 class MemoryConfig(BaseModel):
     """File memory and embedded MindMemOS configuration.
 
@@ -540,6 +589,13 @@ class MemoryConfig(BaseModel):
     dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     qdrant: MemoryQdrantConfig = Field(default_factory=MemoryQdrantConfig)
+    # V3.8: standalone MindMemOS HTTP server endpoint (required for mode=full),
+    # the durable memory-work workers, and the implicit-feedback schedule.
+    mindmemos: MindMemOSServerConfig = Field(default_factory=MindMemOSServerConfig)
+    worker: MemoryWorkerConfig = Field(default_factory=MemoryWorkerConfig)
+    implicit_feedback: ImplicitFeedbackSettings = Field(
+        default_factory=ImplicitFeedbackSettings
+    )
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
     @model_validator(mode="before")
@@ -622,6 +678,15 @@ class MemoryConfig(BaseModel):
         if not stripped:
             raise ValueError("embedding_provider_name must not be blank")
         return stripped
+
+    @model_validator(mode="after")
+    def _full_tier_requires_server(self) -> MemoryConfig:
+        if self.mode == "full" and not self.mindmemos.base_url:
+            raise ValueError(
+                "memory.mode=full requires memory.mindmemos.base_url pointing at a "
+                "standalone MindMemOS server (the embedded runtime was removed in V3.8)"
+            )
+        return self
 
     @property
     def soul_path(self) -> Path:

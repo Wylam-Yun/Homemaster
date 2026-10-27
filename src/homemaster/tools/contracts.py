@@ -26,7 +26,6 @@ from homemaster.events.token_patterns import SHA256_RE
 MEMORY_TOOL_NAMES = frozenset(
     {
         "context_memory",
-        "mindmemos_add",
         "mindmemos_search",
         "mindmemos_history",
         "mindmemos_update",

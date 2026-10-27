@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import dataclasses
 import json
 import shutil
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -16,13 +13,13 @@ from homemaster.config import HomeMasterConfig, MemoryConfig
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
+from homemaster.memory.memory_workers import MemoryWorkerPool
 from homemaster.memory.migration import (
     LEGACY_MIGRATION_SCHEMA,
     MIGRATION_SCHEMA,
     MemoryMigrationCoordinator,
     MemoryMigrationError,
 )
-from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 
 
 def _legacy_files(path: Path, marker: str = "legacy") -> None:
@@ -238,7 +235,10 @@ def test_memory_migrate_cli_returns_typed_receipt_and_terminal_files(
     source = tmp_path / ".homemaster" / "memories"
     _legacy_files(source, "cli")
     config_path = tmp_path / "homemaster.yaml"
-    config_path.write_text("memory:\n  enabled: true\n", encoding="utf-8")
+    config_path.write_text(
+        "memory:\n  enabled: true\n  mindmemos:\n    base_url: http://127.0.0.1:19999\n",
+        encoding="utf-8",
+    )
 
     result = CliRunner().invoke(app, ["memory", "migrate", "--config", str(config_path)])
 
@@ -261,7 +261,10 @@ def test_memory_migrate_cli_conflict_is_nonzero_and_preserves_old_data(
     _legacy_files(source, "source")
     _legacy_files(target, "target")
     config_path = tmp_path / "homemaster.yaml"
-    config_path.write_text("memory:\n  enabled: true\n", encoding="utf-8")
+    config_path.write_text(
+        "memory:\n  enabled: true\n  mindmemos:\n    base_url: http://127.0.0.1:19999\n",
+        encoding="utf-8",
+    )
 
     result = CliRunner().invoke(app, ["memory", "migrate", "--config", str(config_path)])
 
@@ -288,34 +291,25 @@ async def test_application_start_migrates_before_opening_owned_stores(
         {
             # Migration ordering is exercised on the full tier; "files" is now
             # the built-in default and skips migration entirely.
-            "memory": {"mode": "full", "root": source},
+            "memory": {
+                "mode": "full",
+                "root": source,
+                # V3.8: every valid full-tier config names a standalone
+                # MindMemOS endpoint; the worker-pool start is stubbed below
+                # so this never dials out.
+                "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+            },
             "runtime": {"runtime_root": tmp_path / "runs"},
             "observability": {"session_dir": str(tmp_path / "sessions")},
         }
     )
 
     # The contract under test is ordering — migration completes before owned
-    # stores open — so isolate the full application-owned external resource
-    # closure (managed Neo4j process, MindMemOS backends, mindmemos imports)
-    # rather than requiring a live installation.
-    @dataclasses.dataclass
-    class _MemoryRequestContext:
-        request_id: str
-        account_id: str
-        project_id: str
-        api_key_uuid: str
-        user_id: str
-        app_id: str
-        session_id: str | None
-        agent_id: str
-
-    mindmemos_pkg = types.ModuleType("mindmemos")
-    mindmemos_typing = types.ModuleType("mindmemos.typing")
-    mindmemos_typing.MemoryRequestContext = _MemoryRequestContext  # type: ignore[attr-defined]
-    mindmemos_pkg.typing = mindmemos_typing  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "mindmemos", mindmemos_pkg)
-    monkeypatch.setitem(sys.modules, "mindmemos.typing", mindmemos_typing)
-
+    # stores open — so isolate the application-owned external resource closure
+    # (managed Neo4j process, MindMemOS HTTP service) rather than requiring a
+    # live installation. The worker pool's start() probes the SDK endpoint;
+    # stub it to report the service down so startup exercises the durable-
+    # degraded path without network.
     opened: list[str] = []
     real_ensure_ready = MemoryMigrationCoordinator.ensure_ready
     real_file_start = FileMemoryStore.start
@@ -339,9 +333,16 @@ async def test_application_start_migrates_before_opening_owned_stores(
     async def _recording_neo4j_start(self: ManagedNeo4jRuntime) -> None:
         opened.append("neo4j")
 
-    async def _recording_mindmemos_start(self: EmbeddedMindMemOS) -> None:
-        opened.append("mindmemos")
-        self._qdrant = object()
+    async def _recording_worker_start(self: MemoryWorkerPool) -> object:
+        opened.append("worker_pool")
+        from homemaster.memory.memory_work_store import StoreAudit
+        from homemaster.memory.memory_workers import WorkerReadiness
+
+        return WorkerReadiness(
+            store_open=True,
+            client_ready=False,
+            audit=StoreAudit((), 0, (), 0, (), ()),
+        )
 
     async def _noop_close(self: object) -> None:
         return None
@@ -351,8 +352,9 @@ async def test_application_start_migrates_before_opening_owned_stores(
     monkeypatch.setattr(MemoryEvidenceLedger, "start", _recording_evidence_start)
     monkeypatch.setattr(ManagedNeo4jRuntime, "start", _recording_neo4j_start)
     monkeypatch.setattr(ManagedNeo4jRuntime, "close", _noop_close)
-    monkeypatch.setattr(EmbeddedMindMemOS, "start", _recording_mindmemos_start)
-    monkeypatch.setattr(EmbeddedMindMemOS, "close", _noop_close)
+    monkeypatch.setattr(MemoryWorkerPool, "start", _recording_worker_start)
+    monkeypatch.setattr(MemoryWorkerPool, "stop", _noop_close)
+    monkeypatch.setattr(MemoryWorkerPool, "aclose", _noop_close)
 
     bundle = compose_application(config=config, run_label="migration-entry")
 
@@ -363,6 +365,6 @@ async def test_application_start_migrates_before_opening_owned_stores(
         migration = bundle.application.settings.application_services["memory_migration"]
         assert migration.inspect().status == "ready"
         assert opened[:4] == ["migration", "file_store", "evidence", "neo4j"]
-        assert opened.index("mindmemos") > opened.index("neo4j")
+        assert opened.index("worker_pool") > opened.index("neo4j")
     finally:
         await bundle.application.aclose()

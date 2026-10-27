@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import signal
 from pathlib import Path
@@ -21,34 +20,6 @@ from homemaster.application import (
 from homemaster.cli.app import app
 from homemaster.cli.confirmation import CliConfirmationHandler
 from homemaster.permissions import PermissionMode
-
-
-class RecordingMemoryQueue:
-    def __init__(self, calls) -> None:
-        self.calls = calls
-        self.tasks = []
-        self.tail = None
-
-    def enqueue_work(self, *, job_type, session_id, work):
-        self.calls.append(("queue", "queued", session_id, job_type))
-        previous = self.tail
-
-        async def run_work():
-            if previous is not None:
-                await previous
-            self.calls.append(("queue", "processing", session_id, job_type))
-            await work()
-            self.calls.append(("queue", "completed", session_id, job_type))
-
-        task = asyncio.get_event_loop().create_task(run_work())
-        self.tasks.append(task)
-        self.tail = task
-        return SimpleNamespace(job_id=f"finalize-{len(self.tasks)}", status="accepted")
-
-    async def wait_idle(self):
-        if self.tasks:
-            await asyncio.gather(*self.tasks)
-        self.calls.append(("queue", "idle"))
 
 
 class RecordingApplication:
@@ -123,8 +94,6 @@ def _install_shell(monkeypatch, tmp_path: Path):
         ),
         trace_path=tmp_path / "runtime_events.jsonl",
         skill_registry=object(),
-        mindmemos=None,
-        memory_add_queue=None,
     )
     bundle.composition_kwargs = None
 
@@ -141,41 +110,22 @@ def _install_shell(monkeypatch, tmp_path: Path):
     return application, bundle
 
 
-def _install_finalizer(monkeypatch, bundle, finalizer_type=None):
-    del monkeypatch
+def _install_session_end_handler(bundle, handler=None):
+    """Install a V3.8 session-end archive handler.
+
+    The handler is synchronous (the real ``_archive_session_end`` does durable
+    store I/O inline) and returns a receipt whose ``job_id`` the shell echoes
+    as ``Queued session finalization``, or ``None`` when no boundary existed.
+    """
     calls = []
 
-    class RecordingFinalizer:
-        def __init__(self, **kwargs):
-            calls.append(("init", kwargs))
+    if handler is None:
 
-        async def finalize(self, session_id, exit_reason, *, trace_end=None):
-            del trace_end
+        def handler(session_id, exit_reason):
             calls.append((session_id, exit_reason))
-            return SimpleNamespace(
-                status="completed",
-                operations=(),
-                collected_events=3,
-                excluded_transport_deltas=2,
-                rendered_messages=4,
-                duration_ms=4.0,
-                error=None,
-            )
+            return SimpleNamespace(job_id=f"archive-{len(calls)}", status="archived")
 
-    finalizer = (finalizer_type or RecordingFinalizer)()
-    if bundle.memory_add_queue is None:
-        bundle.memory_add_queue = RecordingMemoryQueue(calls)
-
-    def enqueue(session_id, exit_reason):
-        async def work():
-            await finalizer.finalize(session_id, exit_reason)
-
-        return bundle.memory_add_queue.enqueue_work(
-            job_type="session_finalization", session_id=session_id, work=work
-        )
-
-    bundle.application.session_end_handler = enqueue
-    bundle.application.close_callback = bundle.memory_add_queue.wait_idle
+    bundle.application.session_end_handler = handler
     return calls
 
 
@@ -283,58 +233,58 @@ def test_shell_new_resets_resume_policy_without_rebuilding_application(
     assert application.closed == 1
 
 
-def test_shell_finalizes_old_and_current_sessions(monkeypatch, tmp_path) -> None:
+def test_shell_archives_old_and_current_sessions_on_new_and_exit(
+    monkeypatch, tmp_path
+) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
-    calls = _install_finalizer(monkeypatch, bundle)
+    calls = _install_session_end_handler(bundle)
 
     result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
-    assert [item[1] for item in calls if item[0] not in {"init", "queue"}] == [
-        "new_session",
-        "user_exit",
-    ]
+    assert [item[1] for item in calls] == ["new_session", "user_exit"]
+    assert calls[0][0] != calls[1][0]
     assert result.stdout.count("Queued session finalization") == 2
     assert application.closed == 1
 
 
-def test_shell_enqueues_session_finalizer_before_exit_drain(monkeypatch, tmp_path) -> None:
-    _, bundle = _install_shell(monkeypatch, tmp_path)
-    calls = _install_finalizer(monkeypatch, bundle)
+def test_shell_session_close_runs_archive_handler_before_application_close(
+    monkeypatch, tmp_path
+) -> None:
+    application, bundle = _install_shell(monkeypatch, tmp_path)
+    events = []
+
+    def handler(session_id, exit_reason):
+        events.append(("archive", session_id, exit_reason))
+        return SimpleNamespace(job_id="archive-1", status="archived")
+
+    bundle.application.session_end_handler = handler
+
+    async def record_close():
+        events.append(("application_close",))
+
+    application.close_callback = record_close
 
     result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/exit\n")
 
     assert result.exit_code == 0
-    ordered = [item for item in calls if item[0] != "init"]
-    assert ordered[0][0:2] == ("queue", "queued")
-    assert ordered[1][0:2] == ("queue", "processing")
-    assert ordered[2][1] == "user_exit"
-    assert ordered[-1] == ("queue", "idle")
+    assert events[0] == ("archive", application.requests[0].session_id, "user_exit")
+    assert events[-1] == ("application_close",)
 
 
-def test_shell_new_runs_next_task_before_old_finalization_completes(monkeypatch, tmp_path) -> None:
+def test_shell_new_runs_archive_synchronously_before_next_run(
+    monkeypatch, tmp_path
+) -> None:
+    """V3.8 closes a session with a fast durable archive transaction, not a
+    background finalization cascade, so the next run starts after it."""
     application, bundle = _install_shell(monkeypatch, tmp_path)
     events = []
 
-    class DelayedFinalizer:
-        def __init__(self, **kwargs):
-            del kwargs
+    def handler(session_id, exit_reason):
+        events.append(("archive", session_id, exit_reason))
+        return SimpleNamespace(job_id="archive-1", status="archived")
 
-        async def finalize(self, session_id, exit_reason, *, trace_end=None):
-            del trace_end
-            events.append(("finalize_started", session_id, exit_reason))
-            await asyncio.sleep(0.02)
-            events.append(("finalize_completed", session_id, exit_reason))
-            return SimpleNamespace(
-                status="completed",
-                operations=(),
-                collected_events=0,
-                excluded_transport_deltas=0,
-                rendered_messages=0,
-                duration_ms=20.0,
-                error=None,
-            )
-
+    bundle.application.session_end_handler = handler
     original_run = application.run
 
     async def recording_run(request):
@@ -343,57 +293,70 @@ def test_shell_new_runs_next_task_before_old_finalization_completes(monkeypatch,
         return await original_run(request)
 
     application.run = recording_run
-    bundle.memory_add_queue = RecordingMemoryQueue(events)
-    _install_finalizer(monkeypatch, bundle, DelayedFinalizer)
 
     result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     names = [event[0] for event in events]
-    assert names.index("next_run") < names.index("finalize_completed")
+    assert names.index("archive") < names.index("next_run")
+    assert events[0][2] == "new_session"
     assert "Queued session finalization" in result.stdout
     assert application.closed == 1
 
 
-def test_shell_ignores_sigint_during_session_finalization(monkeypatch, tmp_path) -> None:
+def test_shell_ignores_sigint_during_session_close(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
     events = []
 
-    class InterruptingFinalizer:
-        def __init__(self, **kwargs):
-            del kwargs
+    def handler(session_id, exit_reason):
+        events.append((session_id, exit_reason, "started"))
+        signal.raise_signal(signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
+        events.append((session_id, exit_reason, "completed"))
+        return SimpleNamespace(job_id="archive-1", status="archived")
 
-        async def finalize(self, session_id, exit_reason, *, trace_end=None):
-            del trace_end
-            events.append((session_id, exit_reason, "started"))
-            signal.raise_signal(signal.SIGINT)
-            signal.raise_signal(signal.SIGINT)
-            events.append((session_id, exit_reason, "completed"))
-            return SimpleNamespace(
-                status="completed",
-                operations=(),
-                collected_events=0,
-                excluded_transport_deltas=0,
-                rendered_messages=0,
-                duration_ms=1.0,
-                error=None,
-            )
-
-    bundle.memory_add_queue = RecordingMemoryQueue(events)
-    _install_finalizer(monkeypatch, bundle, InterruptingFinalizer)
+    bundle.application.session_end_handler = handler
 
     result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/exit\n")
 
     assert result.exit_code == 0
-    finalizer_events = [event for event in events if len(event) == 3]
-    assert [event[2] for event in finalizer_events] == ["started", "completed"]
+    close_events = [event for event in events if len(event) == 3]
+    assert [event[2] for event in close_events] == ["started", "completed"]
     assert application.closed == 1
-    assert result.stdout.count("Shutdown in progress; Ctrl+C ignored") == 1
+    assert result.stdout.count("Finalization in progress; Ctrl+C ignored") == 1
 
 
-def test_shell_handles_run_cancellation_after_async_finalization(monkeypatch, tmp_path) -> None:
+def test_shell_archive_command_calls_session_end_handler(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
-    _install_finalizer(monkeypatch, bundle)
+    calls = _install_session_end_handler(bundle)
+
+    result = CliRunner().invoke(
+        app, ["shell", "--local"], input="first\n/archive\n/exit\n"
+    )
+
+    assert result.exit_code == 0
+    archive_calls = [call for call in calls if call[1] == "archived"]
+    assert archive_calls == [(application.requests[0].session_id, "archived")]
+    assert f"Archival queued for session {application.requests[0].session_id}" in result.stdout
+    assert application.closed == 1
+
+
+def test_shell_archive_reports_unavailable_without_memory_surface(
+    monkeypatch, tmp_path
+) -> None:
+    application, _ = _install_shell(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(
+        app, ["shell", "--local"], input="first\n/archive\n/exit\n"
+    )
+
+    assert result.exit_code == 0
+    assert "Archive unavailable: memory.mode is not 'full'." in result.stdout
+
+
+def test_shell_handles_run_cancellation_after_session_close(monkeypatch, tmp_path) -> None:
+    application, bundle = _install_shell(monkeypatch, tmp_path)
+    _install_session_end_handler(bundle)
 
     async def interrupt_second_run(request):
         if not application.requests:

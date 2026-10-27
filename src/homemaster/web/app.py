@@ -49,7 +49,6 @@ def create_web_app(
     application: Any,
     confirmation_handler: WebConfirmationHandler,
     memory_management_service: MemoryManagementService | None = None,
-    alfworld_compile_jobs: Any | None = None,
     permission_store: Any | None = None,
     config: Any | None = None,
     environment: str | None = None,
@@ -156,7 +155,6 @@ def create_web_app(
     app.state.event_hub = hub
     app.state.pending_questions = pending_questions
     app.state.memory_management_service = memory_management_service
-    app.state.alfworld_compile_jobs = alfworld_compile_jobs
     app.state.config = config
     app.state.environment = environment_label
     app.state.provider_config_service = provider_config_service or ProviderConfigService(

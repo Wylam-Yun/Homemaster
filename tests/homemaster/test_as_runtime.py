@@ -1130,8 +1130,8 @@ async def test_as_runtime_manual_compaction_emits_event_and_callback(
 ) -> None:
     """Review-H1: a compaction inside ``_assemble`` (manual/force_compact,
     threshold) must emit ``context.compaction`` and invoke ``on_compaction``
-    — previously only the reactive-retry path did, so ``require_recall``
-    re-arms were silently dropped on the AS path."""
+    — previously only the reactive-retry path did, so post-compaction
+    callbacks were silently dropped on the AS path."""
     registry = ToolRegistry()
     executor = ToolExecutor(registry)
     scope = _scope(tmp_path)

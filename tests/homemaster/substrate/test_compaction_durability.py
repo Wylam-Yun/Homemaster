@@ -51,6 +51,7 @@ def _assembler(
     window: int = 100_000,
     threshold_ratio: float = 0.02,
     provider_max_output: int | None = None,
+    frozen_memory_context=None,
     **policy_kw,
 ) -> ContextAssembler:
     policy = ContextPolicyConfig(
@@ -72,6 +73,7 @@ def _assembler(
         policy=policy,
         system_prompt="system prompt",
         summary_client=summary_client,
+        frozen_memory_context=frozen_memory_context,
     )
 
 
@@ -732,12 +734,28 @@ def test_tools_change_invalidates_anchor() -> None:
     assert fallback < anchored  # full heuristic, not anchored 5000+
 
 
+class _MutableFrozenMemoryContext:
+    """Duck-typed stand-in for FrozenMemoryContextService: the V3.8 frozen
+    file-memory snapshot feeds the system-prompt share of the fixed
+    estimate, so a changed snapshot exercises the same anchor-delta path
+    the removed automatic-recall prelude used to."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def snapshot(self, session_id: str) -> str:  # noqa: ARG002
+        return self.text
+
+
 def test_prelude_change_delta_adjusts_anchor() -> None:
-    """Automatic memory recall rewrites the prelude most rounds — the
-    anchored estimate tracks the delta instead of pinning the stale
-    prelude share or dropping the anchor."""
+    """A changing frozen-memory context rewrites the system-prompt share of
+    the fixed estimate — the anchored estimate tracks the delta instead of
+    pinning the stale share or dropping the anchor."""
     summary_client = RecordingSummaryClient()
-    assembler = _unfolded_assembler(summary_client=summary_client)
+    frozen = _MutableFrozenMemoryContext()
+    assembler = _unfolded_assembler(
+        summary_client=summary_client, frozen_memory_context=frozen
+    )
     session = AgentSession(session_id="s1")
     _seed_pairs(session, pairs=10)
     state = AgentState(run_id="r1", session_id="s1")
@@ -746,14 +764,14 @@ def test_prelude_change_delta_adjusts_anchor() -> None:
     state.note_view_usage(500)
     baseline = _prepare(assembler, session, state).metrics.estimated_tokens
 
-    # A recalled-memory prelude arrives: +~1000 tokens of fixed share.
-    assembler.bind_automatic_memory_context("memory " + "m" * 4000)
+    # A grown memory snapshot arrives: +~1000 tokens of fixed share.
+    frozen.text = "memory " + "m" * 4000
     grown = _prepare(assembler, session, state).metrics.estimated_tokens
     assert grown > baseline + 1000
     assert grown < baseline + 2000  # delta applied, anchor retained
 
     # … and removing it shrinks the estimate back symmetrically.
-    assembler.bind_automatic_memory_context(None)
+    frozen.text = ""
     shrunk = _prepare(assembler, session, state).metrics.estimated_tokens
     assert shrunk < grown - 1000
 

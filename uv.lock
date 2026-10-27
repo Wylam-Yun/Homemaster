@@ -1019,6 +1019,7 @@ memory = [
 [package.dev-dependencies]
 dev = [
     { name = "mindmemos" },
+    { name = "mindmemos-sdk" },
     { name = "mypy" },
     { name = "types-croniter" },
     { name = "types-pyyaml" },
@@ -1088,6 +1089,7 @@ provides-extras = ["memory", "dev", "browser", "gateway"]
 [package.metadata.requires-dev]
 dev = [
     { name = "mindmemos", directory = "third_party/MindMemOS/src/mindmemos" },
+    { name = "mindmemos-sdk", directory = "../MindMemOS/src/mindmemos_sdk" },
     { name = "mypy", specifier = ">=1.20,<2" },
     { name = "types-croniter", specifier = ">=4.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
@@ -1586,6 +1588,23 @@ requires-dist = [
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "traced", specifier = ">=0.1.5" },
     { name = "uvicorn", specifier = ">=0.47.0" },
+]
+
+[[package]]
+name = "mindmemos-sdk"
+version = "0.1.4"
+source = { directory = "../MindMemOS/src/mindmemos_sdk" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [[package]]

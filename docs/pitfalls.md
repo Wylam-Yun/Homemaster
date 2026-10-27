@@ -1,3 +1,43 @@
+## 2026-10-27 - V3.8 live 验收连抓三个"SDK 能调通但契约已错"的真 bug
+
+- 症状：单测全绿（fake client）、SDK transport 无异常，但真打 MindMemOS
+  server 时三连错：① 原始回读校验器查不到刚写入的记录（Neo4j 警告
+  它在查不存在的 `AddRecord` label 和 `id` 属性）；② explicit feedback
+  被 400 拒——server 只要 `mode: sync|async` 且 `recalled_memories[].
+  last_update_at` 必填；③ Dreaming 被 400 拒——`DreamingRequest` 根本
+  没有 `archive_id` 字段；④ skill trace 被 400 拒——上游要
+  `skill_version_id`/`skill_content_hash`/`tool_steps`，不是 `steps`。
+- 根因：HomeMaster 侧的客户端签名和校验器 schema 是按"想象中的上游
+  形状"写的，fake 测试互相印证同一个错误假设（同源回声）。真实的上游
+  schema：AddRecord 在 Qdrant `add_record_v1` collection（不是 Neo4j
+  节点）、Memory 节点用 `project_id`+`memory_id`（不是 `id`）、feedback
+  `window` 用 `window_start`/`window_end`/`since_activity_id`、archive_id
+  只是 HomeMaster 本地 store 的边界标识、skill trace 字段名与旧
+  AddRecord 形态完全不同。
+- 修法/教训：每个外部 API 字段在写代码前以真 server 的 pydantic schema
+  为准（`mindmemos/api/*_schemas.py`），写完跑一遍真环境 facade 验收——
+  10/10 + 7/7 live checks 抓到的是单测永远抓不到的。**"内部自洽的
+  fake 全绿"对外部契约是零证据**。
+- Ref: `src/homemaster/memory/mindmemos_client.py`,
+  `src/homemaster/memory/memory_verifier.py`,
+  `src/homemaster/memory/memory_jobs.py`,
+  `/tmp/mindmemos-live/acceptance{,2}.py`
+
+## 2026-10-27 - uv editable .pth 被 macOS UF_HIDDEN 标志静默跳过
+
+- 症状：`uv pip install -e ../MindMemOS/src/mindmemos_sdk` 显示成功，
+  `import mindmemos_sdk` 却 ModuleNotFound；`site.py` 的 verbose 日志显示
+  `.pth` 文件被跳过，从未执行 `open_code`。
+- 根因：此 uv-Python 3.11.15 的 `site.py` 会跳过带 `UF_HIDDEN` chflag 的
+  `.pth`；uv 生成的 `mindmemos_sdk.pth` 恰好被标了 hidden（flags=32832）。
+  `uv run` 每次 re-sync 还会重建 hidden .pth，修了也白修。
+- 修法/教训：`chflags nohidden` 可临时救；长期改用非 editable 快照安装
+  （`uv pip install ../MindMemOS/src/mindmemos_sdk`），上游改动后重装。
+  教训：**Python 环境层的"安装成功"不等于"import 可用"**——跨 venv 复用
+  editable 依赖时必须从 consumer Python 实际 import 验证。
+- Ref: `.venv/lib/python3.11/site-packages/site.py:306+`（hidden flag
+  skip）、`docs/session-handoff.md`
+
 ## 2026-10-25 - "复制 store 目录"隔离不了 Neo4j：managed_local 的图是全局共享的
 
 - 症状：A/B 三份 `cp -r` 的 memory store 启动时先后报

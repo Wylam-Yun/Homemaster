@@ -330,7 +330,6 @@ class ComposedContext:
     system_prompt: str
     tools: list[dict] | None
     metrics: ContextMetrics
-    automatic_recalled_memories: tuple[Any, ...] = ()
 
 
 class ContextAssembler:
@@ -351,8 +350,6 @@ class ContextAssembler:
         self._summary_client = summary_client
         self._skill_registry = skill_registry
         self._frozen_memory_context = frozen_memory_context
-        self._automatic_memory_context: str | None = None
-        self._automatic_recalled_memories: tuple[Any, ...] = ()
         self._working_directory: Path | None = None
 
     def bind_working_directory(self, working_directory: Path) -> None:
@@ -360,13 +357,6 @@ class ContextAssembler:
         if not resolved.is_dir():
             raise ValueError("working directory must be a directory")
         self._working_directory = resolved
-
-    def bind_automatic_memory_context(self, text: str | None) -> None:
-        normalized = text.strip() if isinstance(text, str) else ""
-        self._automatic_memory_context = normalized or None
-
-    def bind_automatic_recalled_memories(self, memories: tuple[Any, ...]) -> None:
-        self._automatic_recalled_memories = tuple(memories)
 
     def _session_system_prompt(self, session_id: str) -> str:
         parts = [self._system_prompt]
@@ -420,8 +410,6 @@ class ContextAssembler:
             if item.placement is not ContextPlacement.TRACE_ONLY
         ]
         prelude_texts: list[str] = []
-        if self._automatic_memory_context is not None:
-            prelude_texts.append(self._automatic_memory_context)
         conversation_messages: list[Message] = session.messages
         for item in items:
             rendered = item.render(item.mode)
@@ -568,7 +556,6 @@ class ContextAssembler:
                 compaction_triggered=compaction_triggered,
                 compaction_kind=compaction_kind,
             ),
-            automatic_recalled_memories=self._automatic_recalled_memories,
         )
 
     def _build_providers(

@@ -108,10 +108,31 @@ def test_memory_config_rejects_non_positive_dreaming_threshold() -> None:
 def test_enabled_memory_requires_named_embedding_provider_with_embedding_kind() -> None:
     # The embedding-provider binding is only required on the full tier, so the
     # config must select it explicitly now that "files" is the default mode.
+    # ``mindmemos.base_url`` is required for any valid full-tier config in V3.8.
     with pytest.raises(ValidationError, match="MemoryEmbedding.*embedding"):
         HomeMasterConfig(
-            memory={"mode": "full"},
+            memory={
+                "mode": "full",
+                "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+            },
             providers={"items": [_embedding_provider(kind="chat")]},
+        )
+
+
+def test_full_mode_requires_standalone_mindmemos_base_url() -> None:
+    """V3.8: the embedded runtime is gone — ``mode=full`` without a
+    ``mindmemos.base_url`` is a config error."""
+    with pytest.raises(ValidationError, match="mindmemos.base_url"):
+        HomeMasterConfig(memory={"mode": "full"})
+
+
+def test_full_mode_rejects_non_http_mindmemos_base_url() -> None:
+    with pytest.raises(ValidationError, match="absolute http"):
+        HomeMasterConfig(
+            memory={
+                "mode": "full",
+                "mindmemos": {"base_url": "mindmemos.internal:8080"},
+            }
         )
 
 
@@ -133,7 +154,13 @@ def test_legacy_enabled_maps_to_mode_with_deprecation_warning(
     enabled: bool, expected_mode: str
 ) -> None:
     with pytest.warns(DeprecationWarning, match="memory.enabled is deprecated"):
-        config = HomeMasterConfig(memory={"enabled": enabled})
+        config = HomeMasterConfig(
+            memory={
+                "enabled": enabled,
+                # Harmless on the files tier; required for a valid full tier.
+                "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+            }
+        )
 
     assert config.memory.mode == expected_mode
     # The stored enabled flag is a projected view of the selected tier.
@@ -153,7 +180,13 @@ def test_memory_mode_and_legacy_enabled_combination_matrix(
         consistent = HomeMasterConfig(memory={"mode": "files", "enabled": False})
     assert consistent.memory.mode == "files"
     with pytest.warns(DeprecationWarning):
-        full = HomeMasterConfig(memory={"mode": "full", "enabled": True})
+        full = HomeMasterConfig(
+            memory={
+                "mode": "full",
+                "enabled": True,
+                "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+            }
+        )
     assert full.memory.mode == "full"
 
 
@@ -291,8 +324,11 @@ def test_memory_config_rejects_mixed_new_and_legacy_path_fields(tmp_path: Path) 
 
 
 def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
-    """W1 tiering: the MindMemOS dependency stack lives in the ``memory`` extra
-    so a wheel install without it can still run the files tier."""
+    """W1/V3.8 tiering: the full-tier client surface (SDK + store drivers for
+    the raw-readback verifier) lives in the ``memory`` extra so a wheel
+    install without it can still run the files tier. The extraction workload
+    (spacy/jieba/litellm/kafka) moved server-side and must not appear in
+    either requirement set."""
 
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
@@ -301,6 +337,7 @@ def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
     assert all(not item.startswith("mem0ai") for item in dependencies)
     # The lightweight core must not require the full-tier external stack.
     for prefix in (
+        "mindmemos-sdk",
         "qdrant-client",
         "neo4j",
         "spacy",
@@ -314,12 +351,15 @@ def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
         assert all(not item.startswith(prefix) for item in dependencies), (
             f"{prefix} must not be a core dependency"
         )
+    # V3.8: only the SDK client plus the Qdrant/Neo4j drivers are needed —
+    # the heavyweight extraction work is owned by the MindMemOS server.
+    assert any(item.startswith("mindmemos-sdk") for item in memory_extra)
+    assert any(item.startswith("neo4j") for item in memory_extra)
     assert "qdrant-client==1.18.0" in memory_extra
-    assert "spacy==3.8.14" in memory_extra
-    assert (
-        "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/"
-        "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" in memory_extra
-    )
+    for prefix in ("spacy", "en-core-web-sm", "fastembed", "aiokafka", "jieba"):
+        assert all(not item.startswith(prefix) for item in memory_extra), (
+            f"{prefix} belongs to the MindMemOS server, not the client extra"
+        )
 
 
 def test_homemaster_home_anchors_default_memory_skill_and_attachment_roots(

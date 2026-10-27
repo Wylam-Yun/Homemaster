@@ -172,9 +172,8 @@ class ApplicationToolExecutor:
         # dict built above — ``run_context.deps`` is the sanctioned mutable
         # service/introspection bag for tools. Deliberate writes through it
         # are part of the contract: substrate/runtime.py writes back
-        # ``task_state_store``, run_driver.py re-arms
-        # ``automatic_recalled_memories`` after compaction, the feedback
-        # binder fills ``memory_feedback_context_by_tool_call_id``, and
+        # ``task_state_store``, the feedback binder fills
+        # ``memory_feedback_context_by_tool_call_id``, and
         # memory_tools records ``recalled_memories_by_tool_call_id`` per
         # call. Nested mappings (the two *_by_tool_call_id dicts) are shared
         # with the run-level RunContext by shallow ``deps.update`` so those
@@ -301,7 +300,6 @@ class ApplicationToolExecutor:
     ) -> ToolExecutionResult:
         if result.is_error or call.name in {
             "context_memory",
-            "mindmemos_add",
             "mindmemos_search",
             "mindmemos_history",
             "mindmemos_update",

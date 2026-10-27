@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import functools
 import ipaddress
 import socket
 from pathlib import Path
@@ -20,9 +21,46 @@ from homemaster.gateway.alfworld import (
     create_alfworld_gateway_binding,
 )
 from homemaster.permissions import PermissionMode
+from homemaster.web._shared import _application_services
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.memory_views import MemoryManagementService
+
+
+def _memory_graph_reader(bundle: Any) -> Any | None:
+    """Wire the Neo4j edge reader for the web graph view when one is exposed.
+
+    ``application_services`` may carry a ``memory_verifier`` —
+    ``QdrantNeo4jVerifier.graph_edges`` performs the read. The verifier needs
+    the tenant project id, which is bound to the scope-fixed
+    ``MindMemOSClient``; bind it here so the service stays decoupled from
+    verifier internals. Returns ``None`` when no verifier is exposed, in
+    which case the graph endpoint fails closed as ``memory_unavailable``.
+    """
+
+    services = _application_services(getattr(bundle, "application", None))
+    verifier = services.get("memory_verifier")
+    graph_edges = getattr(verifier, "graph_edges", None)
+    if not callable(graph_edges):
+        return None
+    scope = getattr(getattr(bundle, "mindmemos_client", None), "scope", None)
+    tenant_id = getattr(scope, "tenant_id", None)
+    if tenant_id:
+        return functools.partial(graph_edges, project_id=str(tenant_id))
+    return graph_edges
+
+
+def _memory_management_service(bundle: Any) -> MemoryManagementService | None:
+    """Build the MindMemOS-native web memory service for one composed bundle."""
+
+    client = getattr(bundle, "mindmemos_client", None)
+    if client is None:
+        return None
+    return MemoryManagementService(
+        client,
+        bundle.application.session_manager,
+        graph_reader=_memory_graph_reader(bundle),
+    )
 
 
 def validate_bind_host(host: str) -> str:
@@ -115,16 +153,10 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
     _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
-    memory_management_service = (
-        MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
-        if bundle.mindmemos is not None
-        else None
-    )
     app = create_web_app(
         application=bundle.application,
         confirmation_handler=confirmation_handler,
-        memory_management_service=memory_management_service,
-        alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
+        memory_management_service=_memory_management_service(bundle),
         config=getattr(bundle, "config", None) or config,
         environment="home",
     )
@@ -151,16 +183,10 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
     _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
-    memory_management_service = (
-        MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
-        if bundle.mindmemos is not None
-        else None
-    )
     app = create_web_app(
         application=bundle.application,
         confirmation_handler=confirmation_handler,
-        memory_management_service=memory_management_service,
-        alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
+        memory_management_service=_memory_management_service(bundle),
         config=getattr(bundle, "config", None) or config,
         environment="browser",
     )
@@ -187,11 +213,7 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
     _store = getattr(_executor, "permission_store", None)
     if _store is not None:
         confirmation_handler.bind_store(_store)
-    memory_management_service = (
-        MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
-        if bundle.mindmemos is not None
-        else None
-    )
+    memory_management_service = _memory_management_service(bundle)
     application = bundle.application
     try:
         binding, owner = await create_alfworld_gateway_binding(
@@ -219,7 +241,6 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
             application=application,
             confirmation_handler=confirmation_handler,
             memory_management_service=memory_management_service,
-            alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
             config=getattr(bundle, "config", None),
             environment="alfworld",
         )

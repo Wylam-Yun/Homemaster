@@ -67,9 +67,9 @@ def run_doctor(
     checks.append(_memory_mode_check(memory_mode))
     checks.extend(_import_checks(memory_mode=memory_mode))
     if memory_mode == "full":
-        # MindMemOS runtime/backend checks only exist on the full memory tier;
+        # MindMemOS service checks only exist on the full memory tier;
         # the files tier is dependency-free and skips them entirely.
-        checks.append(_mindmemos_blackbox_check())
+        checks.append(_mindmemos_blackbox_check(resolved_path))
     if alfworld:
         checks.append(_alfworld_binding_check())
         checks.append(_worker_protocol_check())
@@ -121,9 +121,9 @@ def _python_environment_check() -> DoctorCheck:
 
 # Modules that only the full MindMemOS tier needs.  They ship in the
 # ``memory`` optional extra, so the files tier must never require them.
-# ``fastembed`` is no longer a dependency at all: MindMemOS sparse vectors
-# are self-encoded, so it appears on neither tier's import surface.
-_FULL_TIER_IMPORT_MODULES = frozenset({"jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"})
+# V3.8: HomeMaster talks to the standalone MindMemOS server through the SDK;
+# the extraction pipeline deps (jieba/spacy/fastembed) live server-side.
+_FULL_TIER_IMPORT_MODULES = frozenset({"mindmemos_sdk", "qdrant_client", "neo4j"})
 
 
 def _configured_memory_mode(path: Path) -> str:
@@ -154,8 +154,7 @@ def _import_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
         "pydantic",
         "httpx",
         "typer",
-        "jieba",
-        "mindmemos",
+        "mindmemos_sdk",
         "qdrant_client",
     ]
     if memory_mode == "files":
@@ -178,42 +177,57 @@ def _import_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
     return checks
 
 
-def _mindmemos_blackbox_check() -> DoctorCheck:
-    """Prove the installed MindMemOS package and a real writable runtime root."""
+def _mindmemos_blackbox_check(resolved_path: Path) -> DoctorCheck:
+    """Probe the standalone MindMemOS HTTP service endpoint (V3.8)."""
 
     try:
-        module = importlib.import_module("mindmemos")
-        origin = Path(getattr(module, "__file__", "")).resolve()
-        third_party = (REPO_ROOT / "third_party" / "MindMemOS").resolve()
-        if third_party in origin.parents:
-            return DoctorCheck(
-                name="mindmemos_runtime",
-                status="FAIL",
-                message="mindmemos resolves to the repository source tree",
-                suggestion="Install the locked local workspace dependency into .runtime/venv.",
-                details={"origin": str(origin)},
-            )
-        root = REPO_ROOT / ".runtime" / "doctor" / "mindmemos"
-        root.mkdir(parents=True, exist_ok=True)
-        marker = root / "blackbox.json"
-        payload = {"schema": "homemaster-mindmemos-doctor-v1", "pid": os.getpid()}
-        marker.write_text(json.dumps(payload), encoding="utf-8")
-        observed = json.loads(marker.read_text(encoding="utf-8"))
-        if observed != payload:
-            raise RuntimeError("MindMemOS runtime readback did not match the written state")
-    except Exception as exc:  # pragma: no cover - environment-specific
+        config = load_config(resolved_path)
+        base_url = config.memory.mindmemos.base_url
+    except Exception as exc:
         return DoctorCheck(
             name="mindmemos_runtime",
             status="FAIL",
-            message=f"MindMemOS import/read-write blackbox failed: {type(exc).__name__}",
-            suggestion="Run scripts/setup.sh in the project-managed runtime.",
+            message=f"MindMemOS configuration could not be loaded: {type(exc).__name__}",
+            suggestion="Fix memory.mindmemos.base_url in the HomeMaster config.",
             details={"error": str(exc)},
+        )
+    if not base_url:
+        return DoctorCheck(
+            name="mindmemos_runtime",
+            status="FAIL",
+            message="memory.mindmemos.base_url is empty",
+            suggestion="Point memory.mindmemos.base_url at a running MindMemOS server.",
+        )
+    try:
+        import httpx
+
+        response = httpx.get(
+            f"{base_url.rstrip('/')}/healthz",
+            timeout=config.memory.mindmemos.timeout_seconds
+            if config.memory.mindmemos.timeout_seconds <= 30
+            else 30.0,
+        )
+        reachable = response.status_code < 500
+    except Exception as exc:  # pragma: no cover - environment-specific
+        return DoctorCheck(
+            name="mindmemos_runtime",
+            status="WARN",
+            message=f"MindMemOS server at {base_url} is not reachable: {type(exc).__name__}",
+            suggestion=(
+                "Start the MindMemOS HTTP server; memory work is queued durably "
+                "and will be retried once the service is up."
+            ),
+            details={"error": str(exc), "base_url": base_url},
         )
     return DoctorCheck(
         name="mindmemos_runtime",
-        status="PASS",
-        message="MindMemOS import and runtime-root read/write blackbox passed",
-        details={"origin": str(origin), "marker": str(marker)},
+        status="PASS" if reachable else "WARN",
+        message=(
+            f"MindMemOS server healthy at {base_url}"
+            if reachable
+            else f"MindMemOS server at {base_url} returned HTTP {response.status_code}"
+        ),
+        details={"base_url": base_url, "status_code": response.status_code},
     )
 
 
@@ -456,7 +470,7 @@ def _memory_backend_check(path: Path) -> DoctorCheck:
             status="WARN",
             message=(f"memory.mode={config.memory.mode!r} does not compose the MindMemOS backend"),
             impact=(
-                "the six mindmemos_* memory tools are unavailable; file memory remains independent"
+                "the mindmemos_* memory tools are unavailable; file memory remains independent"
             ),
             suggestion="Set memory.mode to full to use the MindMemOS backend.",
             details={"memory_mode": config.memory.mode, "enabled": config.memory.enabled},

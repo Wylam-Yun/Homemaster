@@ -1,5 +1,18 @@
 # Unreleased
 
+- V3.8 MindMemOS-native lifecycle: replaced the embedded MindMemOS runtime
+  with the standalone MindMemOS server reached through `mindmemos_sdk`
+  (`memory` extra). Every terminal turn now durably enqueues exactly one
+  Vanilla Add (`SQLiteMemoryWorkStore` + `SessionTraceStore` +
+  `MemoryWorkerPool`), reconciles `outcome_unknown` calls through the server
+  operation ledger, and settles only on raw Qdrant/Neo4j readback.
+  Automatic recall, the Session Finalizer FIFO, `mindmemos_add`, the
+  add_flat update fallback, AddRecord skill evolution, and the vendored
+  `third_party/MindMemOS` package are removed. Added Session Archive
+  snapshots feeding Dreaming via `seed_add_record_ids`, daily watermarked
+  implicit feedback, Skill Trace + 8-trace Evolution batches, and native
+  web memory CRUD. Upstream pin: `third_party/MINDMEMOS_UPSTREAM.md`.
+
 - Memory embed router no longer force-sends the `dimensions` request
   parameter: `build_mindmemos_config` now leaves
   `embed_model_router.dimensions_supported_models` empty, so litellm

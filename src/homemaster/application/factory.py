@@ -70,6 +70,8 @@ def create_application(
     artifact_publisher: ArtifactPublisher | None = None,
     application_services: Mapping[str, object] | None = None,
     session_end_handler: Any | None = None,
+    session_trace: Any | None = None,
+    skill_tracker: Any | None = None,
 ) -> ApplicationRuntime:
     """Build all application-owned services without opening environment resources."""
 
@@ -166,6 +168,8 @@ def create_application(
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
         session_end_handler=session_end_handler,
+        session_trace=session_trace,
+        skill_tracker=skill_tracker,
     )
 
 

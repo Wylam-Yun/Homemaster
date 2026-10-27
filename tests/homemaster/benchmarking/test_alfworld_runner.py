@@ -313,7 +313,7 @@ def _provider_config(tmp_path: Path) -> Path:
         """
         {
           "memory": {
-            "enabled": true,
+            "mode": "files",
             "data_root": "./memory"
           },
           "providers": {
@@ -344,86 +344,6 @@ def _provider_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
-
-
-def _patch_empty_mindmemos(monkeypatch: Any) -> None:
-    from homemaster.application.composition import base as composition
-
-    class EmptyMindMemOS:
-        available = True
-        unavailable_cause = None
-
-        def __init__(self, _config: object) -> None:
-            self._third_party_logs = None
-
-        async def start(self) -> None:
-            return None
-
-        async def close(self) -> None:
-            return None
-
-        async def search(self, **_kwargs: object) -> list[object]:
-            return []
-
-        async def add_schema_episode(self, *_args: object, **_kwargs: object) -> object:
-            def type_result(**values: object) -> SimpleNamespace:
-                return SimpleNamespace(
-                    model_dump=lambda **_dump_kwargs: values,
-                    **values,
-                )
-
-            return SimpleNamespace(
-                add_record_id="alfworld-test-add",
-                result=SimpleNamespace(
-                    status="ok",
-                    memories=[],
-                    schema_episode=SimpleNamespace(
-                        episode_id="alfworld-test-episode",
-                        write_status="not_detected",
-                        types={
-                            domain: type_result(
-                                status="not_detected",
-                                candidate_count=0,
-                                memory_ids=[],
-                                memory_count=0,
-                                error=None,
-                                outcome_counts={},
-                                executable_count=0,
-                            )
-                            for domain in (
-                                "object_location",
-                                "search_observation",
-                                "task_procedure",
-                            )
-                        },
-                    ),
-                ),
-            )
-
-        async def feedback_implicit(self, _context: object) -> object:
-            return SimpleNamespace(status="ok", message=None, actions=[])
-
-        async def add_trajectory_memory(self, record: object, *, context: object) -> object:
-            del context
-            return {
-                "memory_id": "trajectory-" + str(record.trajectory_id),
-                "readback_verified": True,
-            }
-
-    class NoopManagedNeo4jRuntime:
-        started = False
-
-        def __init__(self, _config: object) -> None:
-            pass
-
-        async def start(self) -> None:
-            self.started = True
-
-        async def close(self) -> None:
-            self.started = False
-
-    monkeypatch.setattr(composition, "EmbeddedMindMemOS", EmptyMindMemOS)
-    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", NoopManagedNeo4jRuntime)
 
 
 def _attach_fake_screenshot(
@@ -559,7 +479,6 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    _patch_empty_mindmemos(monkeypatch)
     transport = FakeTransport()
     adapter = AlfworldEnvAdapter(
         env=FakeBatchEnv(),
@@ -648,7 +567,6 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    _patch_empty_mindmemos(monkeypatch)
 
     class ConsecutiveObserveTransport(FakeTransport):
         def __init__(self) -> None:
@@ -700,7 +618,6 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    _patch_empty_mindmemos(monkeypatch)
     initial_state = AlfworldEnvState(
         episode_id="taskset-entry",
         task="put pencil on shelf",
@@ -908,7 +825,6 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path, monkeypatch: Any) -> None:
-    _patch_empty_mindmemos(monkeypatch)
     transport = RepeatingNavigateTransport()
     fake_env = NeverDoneLookEnv()
     adapter = AlfworldEnvAdapter(

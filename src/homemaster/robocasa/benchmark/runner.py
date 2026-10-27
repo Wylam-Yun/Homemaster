@@ -28,7 +28,7 @@ from homemaster.robocasa.tracing import (
     RoboCasaToolDispatchObserver,
     RoboCasaTraceWriter,
 )
-from homemaster.robocasa.trajectory_memory import (
+from homemaster.robocasa.trajectory_records import (
     RoboCasaFinalEnvironmentState,
     RoboCasaTrajectoryRecord,
     RoboCasaTrajectoryStep,
@@ -310,27 +310,6 @@ class RoboCasaBenchmarkRunner:
             trace.write_summary(episode_summary)
             trace.write_trajectory_memory(trajectory_record.model_dump(mode="json"))
             trajectory_memory_error: str | None = None
-            writer = _started_robocasa_trajectory_writer(entry)
-            if writer is not None:
-                try:
-                    writer.enqueue(trajectory_record)
-                except Exception as exc:
-                    # Memory persistence is a side channel: a failed admission
-                    # must not clobber the env-authoritative cell result, but
-                    # the failure is recorded so full-mode cells can be
-                    # excluded from the ablation arm downstream.
-                    trajectory_memory_error = f"{type(exc).__name__}: {exc}"
-                    logger.warning(
-                        "cell %s trajectory memory enqueue failed: %s",
-                        cell_run_id,
-                        trajectory_memory_error,
-                    )
-            elif entry.bundle.robocasa_trajectory_writer is not None:
-                trajectory_memory_error = "memory_add_queue_not_started"
-                logger.warning(
-                    "cell %s trajectory writer present but queue not started",
-                    cell_run_id,
-                )
             episode_result = dataclasses.replace(
                 episode_result, trajectory_memory_error=trajectory_memory_error
             )
@@ -588,17 +567,6 @@ class RoboCasaBenchmarkRunner:
 
 def _failure_reason(error_code: str | None) -> str:
     return str(error_code or "not_success")
-
-
-def _started_robocasa_trajectory_writer(entry: Any) -> Any | None:
-    """Return the trajectory writer only when its memory queue is running."""
-    writer = getattr(getattr(entry, "bundle", None), "robocasa_trajectory_writer", None)
-    if writer is None:
-        return None
-    queue = getattr(writer, "_queue", None)
-    if queue is not None and getattr(queue, "started", True) is not True:
-        return None
-    return writer
 
 
 def _classification(*, success: bool, outcome: EpisodeOutcome, error_code: str | None) -> str:

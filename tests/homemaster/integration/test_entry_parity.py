@@ -6,9 +6,6 @@ import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-import pytest
-
-import homemaster.application.composition.base as composition
 from homemaster.agent.messages import Message
 from homemaster.application import RunRequest, RunStatus
 from homemaster.application.composition import HomeCliBackend, compose_application
@@ -70,49 +67,6 @@ def _config(tmp_path: Path):
     )
     runtime = config.runtime.model_copy(update={"runtime_root": tmp_path / "runs"})
     return config.model_copy(update={"observability": observability, "runtime": runtime})
-
-
-@pytest.fixture(autouse=True)
-def isolated_memory_runtime(monkeypatch: pytest.MonkeyPatch):
-    """Keep entry-parity tests focused on composition/runtime wiring.
-
-    The production composition still owns and starts the real Neo4j/MindMemOS
-    resources. These tests intentionally provide an explicit in-process memory
-    implementation because their config has no external database or embedding
-    provider and must not accidentally open one.
-    """
-
-    class FakeManagedNeo4jRuntime:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        async def start(self) -> None:
-            return None
-
-        async def close(self) -> None:
-            return None
-
-    class FakeEmbeddedMindMemOS:
-        available = True
-        unavailable_cause = None
-
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        async def start(self) -> None:
-            return None
-
-        async def close(self) -> None:
-            return None
-
-        async def add_flat(self, *_args, **_kwargs):
-            return {"memory_id": "isolated-memory"}
-
-        async def add_schema_episode(self, *_args, **_kwargs):
-            return {"memory_id": "isolated-episode"}
-
-    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
-    monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
 
 
 def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider(
@@ -206,35 +160,47 @@ def test_configured_browser_capability_is_composed_independent_of_input_channel(
 def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
     tmp_path,
 ) -> None:
+    """Manual compaction folds durable turns, persists a new revision, and a
+    rebuilt process still resumes the canonical session log unchanged.
+
+    The session needs at least two turns: the compaction policy protects the
+    first message and the newest user turn, so a single-turn session has no
+    foldable region and ``compact`` would legitimately be a no-op.
+    """
     config = _config(tmp_path)
     first = compose_application(config=config, run_label="first-process")
     first.application.provider_factory = lambda request, run_id: as_provider(
-        FakeTransport(["first"])
+        FakeTransport(["reply"])
     )
 
     async def first_process():
-        initial = await first.application.run(
-            RunRequest(
-                text="first",
-                session_id="resumable",
-                profile="home",
-                environment=HomeCliBackend(memory_path=None),
+        statuses = []
+        for text, resume in (("first", False), ("second", True)):
+            statuses.append(
+                await first.application.run(
+                    RunRequest(
+                        text=text,
+                        session_id="resumable",
+                        profile="home",
+                        resume=resume,
+                        environment=HomeCliBackend(memory_path=None),
+                    )
+                )
             )
-        )
         compact = await first.application.compact("resumable")
         await first.application.aclose()
-        return initial, compact
+        return statuses, compact
 
-    initial, compact = asyncio.run(first_process())
+    statuses, compact = asyncio.run(first_process())
     second = compose_application(config=config, run_label="second-process")
     second.application.provider_factory = lambda request, run_id: as_provider(
-        FakeTransport(["second"])
+        FakeTransport(["third"])
     )
 
     async def second_process():
         resumed = await second.application.run(
             RunRequest(
-                text="second",
+                text="third",
                 session_id="resumable",
                 profile="home",
                 resume=True,
@@ -248,11 +214,16 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
 
     resumed, revision, messages = asyncio.run(second_process())
 
-    assert initial.status is RunStatus.REPLIED
-    assert compact.revision == 3
+    assert all(result.status is RunStatus.REPLIED for result in statuses)
+    assert compact.triggered is True
+    assert compact.kind == "manual_summary"
     assert resumed.status is RunStatus.REPLIED
-    assert revision == 4
+    assert revision == compact.revision + 1
+    # Compaction only rewrites the provider-facing view; the canonical session
+    # log keeps every turn verbatim across the process rebuild.
     assert [message.role for message in messages] == [
+        "user",
+        "assistant",
         "user",
         "assistant",
         "user",

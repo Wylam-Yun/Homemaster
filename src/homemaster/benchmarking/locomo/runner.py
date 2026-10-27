@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -14,7 +15,12 @@ from typing import Any
 from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.application.composition import compose_application
 from homemaster.events.event_payloads import trace_event_payload
-from homemaster.experience import FinalizeResult
+from homemaster.memory.memory_work_store import (
+    JOB_TERMINAL_STATUSES,
+    JOB_TURN_ADD,
+    ArchiveSnapshot,
+    OutboxJob,
+)
 from homemaster.tools.contracts import PermissionSubject
 
 _SESSION_KEY = re.compile(r"session_(\d+)$")
@@ -280,16 +286,21 @@ class LocomoBenchmarkRunner:
             event_sink=trace,
             tool_environment=None,
             memory_tenant_id=_memory_scope_key(selection.focal_speaker),
-            session_finalizer_trace_path=trace.finalizer_path,
         )
-        if bundle.mindmemos is None or bundle.memory_add_queue is None:
+        if (
+            bundle.mindmemos_client is None
+            or bundle.memory_work_store is None
+            or bundle.archive_service is None
+        ):
             trace.close()
             raise RuntimeError("LoCoMo benchmark requires HomeMaster memory to be enabled")
         application = bundle.application
         memory_tenant_id = _memory_scope_key(selection.focal_speaker)
-        if bundle.session_finalization is None:
+        if bundle.archive_service is None or bundle.memory_worker_pool is None:
             trace.close()
-            raise RuntimeError("LoCoMo benchmark requires session finalization")
+            raise RuntimeError(
+                "LoCoMo benchmark requires session archival and the memory worker pool"
+            )
         subject = _benchmark_subject(memory_tenant_id)
         try:
             for session in selection.sessions:
@@ -346,13 +357,19 @@ class LocomoBenchmarkRunner:
                     )
                 if session_scope.receipt is None:
                     raise RuntimeError("source session finalization was not admitted")
-                finalized = await bundle.session_finalization.wait(session_scope.receipt)
-                record["finalization"] = _finalize_result_dict(finalized)
+                archive_id = getattr(session_scope.receipt, "job_id", None)
+                if not archive_id:
+                    raise RuntimeError("source session finalization was not admitted")
+                finalization = await _finalize_archived_session(
+                    bundle,
+                    session_id=session_id,
+                    archive_id=str(archive_id),
+                    deadline_s=_drain_deadline_seconds(self.config),
+                )
+                record["finalization"] = finalization
                 record["terminal_memory_readback"] = await _readback_operations(
-                    bundle.mindmemos,
-                    memory_tenant_id,
+                    bundle.memory_work_store,
                     session_id,
-                    finalized,
                 )
                 session_records.append(record)
                 finalization_records.append(
@@ -360,14 +377,14 @@ class LocomoBenchmarkRunner:
                         "record_type": "session_finalization",
                         "source_session": session.source_index,
                         "source_timestamp": session.source_timestamp,
-                        **_finalize_result_dict(finalized),
+                        **finalization,
                     }
                 )
                 _append_jsonl(sessions_path, record)
-                if finalized.status not in {"completed", "already_completed"}:
+                if finalization["finalization_status"] != "completed":
                     raise RuntimeError(
                         f"Session finalization failed for source session {session.source_index}: "
-                        f"{finalized.error or finalized.status}"
+                        f"{finalization.get('error') or finalization['finalization_status']}"
                     )
 
             for index, question in enumerate(selection.questions, start=1):
@@ -467,36 +484,253 @@ class LocomoBenchmarkRunner:
         return summary
 
 
-async def _readback_operations(
-    mindmemos: Any,
-    tenant_id: str,
+_DRAIN_POLL_SECONDS = 0.05
+_DRAIN_DEADLINE_FACTOR = 5.0
+
+
+def _drain_deadline_seconds(config: LocomoBenchmarkConfig) -> float:
+    """Bounded drain budget: the source run's own deadline scaled up so
+    retry/backoff cycles (5-15s ``not_before``) fit comfortably inside it."""
+    return _DRAIN_DEADLINE_FACTOR * config.run_deadline_seconds
+
+
+def _session_outbox_jobs(
+    store: Any,
+    *,
     session_id: str,
-    result: FinalizeResult,
-) -> list[dict[str, Any]]:
-    from homemaster.memory.automatic_recall import (
-        build_mindmemos_request_context,
+    archive_snapshot: ArchiveSnapshot | None,
+) -> list[OutboxJob]:
+    """All durable outbox jobs bound to this session: one ``turn_add`` intent
+    per terminal turn plus the archive's dreaming intent. The work store has
+    no ``jobs_for_session`` query; turns and archives carry the job ids."""
+    jobs: list[OutboxJob] = []
+    seen: set[str] = set()
+    for turn in store.turns_for_session(session_id):
+        if not turn.add_job_id or turn.add_job_id in seen:
+            continue
+        job = store.job(turn.add_job_id)
+        if job is not None:
+            seen.add(job.job_id)
+            jobs.append(job)
+    if archive_snapshot is not None:
+        dreaming_id = archive_snapshot.dreaming_job_id
+        job = (
+            store.job(dreaming_id)
+            if dreaming_id
+            else store.job_by_operation_key(f"dreaming:{archive_snapshot.archive_id}")
+        )
+        if job is not None and job.job_id not in seen:
+            jobs.append(job)
+    return jobs
+
+
+def _outbox_job_dict(job: OutboxJob) -> dict[str, Any]:
+    result = dict(job.result or {})
+    return {
+        "job_id": job.job_id,
+        "kind": job.kind,
+        "operation_key": job.operation_key,
+        "turn_id": job.turn_id,
+        "archive_id": job.archive_id,
+        "status": job.status,
+        "attempts": job.attempts,
+        "last_error": job.last_error,
+        "add_record_id": result.get("add_record_id"),
+        "memory_ids": [
+            str(value)
+            for value in (result.get("memory_ids") or result.get("produced_memory_ids") or ())
+        ],
+        "raw_verified": result.get("raw_verified"),
+        "missing_ids": [str(value) for value in (result.get("missing_ids") or ())],
+        "result": result,
+    }
+
+
+async def _finalize_archived_session(
+    bundle: Any,
+    *,
+    session_id: str,
+    archive_id: str,
+    deadline_s: float,
+) -> dict[str, Any]:
+    """V3.8 finalization: drain the durable outbox until every job bound to
+    this session (turn_add intents + the archive's dreaming intent) reaches a
+    terminal status.
+
+    The worker pool's background loop may already be running; ``run_once()``
+    is still called each iteration so the benchmark drives claims
+    deterministically (claims are atomic in the store). Terminal turns
+    without a persisted add intent cannot self-heal in-process (only startup
+    recovery rebuilds them), so they fail fast instead of waiting out the
+    deadline.
+    """
+    store = bundle.memory_work_store
+    pool = bundle.memory_worker_pool
+    started = time.monotonic()
+    deadline = started + max(deadline_s, _DRAIN_POLL_SECONDS)
+    timed_out = False
+    while True:
+        if pool is not None:
+            await pool.run_once()
+        snapshot = store.archive(archive_id)
+        jobs = _session_outbox_jobs(
+            store, session_id=session_id, archive_snapshot=snapshot
+        )
+        missing_intent_turns = [
+            turn.turn_id
+            for turn in store.turns_for_session(session_id)
+            if turn.add_job_id is None
+        ]
+        pending = [job for job in jobs if job.status not in JOB_TERMINAL_STATUSES]
+        if missing_intent_turns or not pending:
+            break
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        await asyncio.sleep(_DRAIN_POLL_SECONDS)
+    return _finalization_record(
+        archive_id=archive_id,
+        snapshot=snapshot,
+        jobs=jobs,
+        missing_intent_turns=missing_intent_turns,
+        timed_out=timed_out,
+        duration_ms=(time.monotonic() - started) * 1000.0,
     )
 
-    context = build_mindmemos_request_context(
-        request_id=f"locomo-readback:{session_id}",
-        tenant_id=tenant_id,
-        session_id=session_id,
-    )
+
+def _finalization_record(
+    *,
+    archive_id: str,
+    snapshot: ArchiveSnapshot | None,
+    jobs: list[OutboxJob],
+    missing_intent_turns: list[str],
+    timed_out: bool,
+    duration_ms: float,
+) -> dict[str, Any]:
+    failed = [job for job in jobs if job.status in {"failed", "stale"}]
+    pending = [job for job in jobs if job.status not in JOB_TERMINAL_STATUSES]
+    if snapshot is None:
+        # The session-close receipt promised this archive id; its absence means
+        # the durable boundary was lost — never report that as success.
+        status = "failed"
+        error = f"archive snapshot not found in work store: {archive_id}"
+    elif missing_intent_turns:
+        status = "failed"
+        error = f"terminal turns missing add intents: {', '.join(missing_intent_turns)}"
+    elif timed_out:
+        status = "drain_timeout"
+        error = (
+            "memory work drain exceeded deadline; pending="
+            + str([f"{job.job_id}:{job.status}" for job in pending])
+        )
+    elif failed:
+        status = "failed"
+        error = "; ".join(
+            f"{job.job_id} {job.status}: {job.last_error or ''}".rstrip() for job in failed
+        )
+    else:
+        status = "completed"
+        error = None
+    return {
+        "finalization_status": status,
+        "archive_id": archive_id,
+        "archive_status": "archived" if snapshot is not None else "missing",
+        "max_event_seq": snapshot.max_event_seq if snapshot is not None else -1,
+        "turn_range_start": snapshot.turn_range_start if snapshot is not None else None,
+        "turn_range_end": snapshot.turn_range_end if snapshot is not None else None,
+        "collected_events": (
+            snapshot.max_event_seq + 1
+            if snapshot is not None and snapshot.max_event_seq >= 0
+            else 0
+        ),
+        "add_operation_ids": list(snapshot.add_operation_ids) if snapshot else [],
+        "operations": [
+            _outbox_job_dict(job) for job in jobs if job.kind == JOB_TURN_ADD
+        ],
+        "archive_jobs": [
+            _outbox_job_dict(job) for job in jobs if job.kind != JOB_TURN_ADD
+        ],
+        "missing_intent_turns": list(missing_intent_turns),
+        "pending_jobs": [
+            {"job_id": job.job_id, "kind": job.kind, "status": job.status}
+            for job in pending
+        ],
+        "duration_ms": duration_ms,
+        "error": error,
+    }
+
+
+async def _readback_operations(
+    store: Any,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    """Terminal memory readback from the durable work store.
+
+    Per terminal turn, surfaces the settled ``turn_add`` job outcome — the
+    worker's own raw-store verification (``raw_verified``/``missing_ids``) is
+    the authoritative readback evidence under V3.8, replacing the embedded
+    ``get_raw`` probes. A terminal turn whose add intent or job row is absent
+    is a durable-contract breach and raises; non-terminal leftovers are
+    recorded so the finalization gate can report the full pending set.
+    """
     readback: list[dict[str, Any]] = []
-    for operation in result.operations:
-        if not operation.memory_id:
-            continue
-        raw = await mindmemos.get_raw(operation.memory_id, context)
-        status = getattr(raw, "status", None) if raw is not None else None
-        if status not in {"active", "archived"}:
+    for turn in store.turns_for_session(session_id):
+        job = store.job(turn.add_job_id) if turn.add_job_id else None
+        if job is None:
             raise RuntimeError(
-                f"terminal memory readback failed for {operation.memory_id}: status={status!r}"
+                "terminal memory readback failed for "
+                f"{session_id}/{turn.turn_id}: add job missing from work store"
             )
+        result = dict(job.result or {})
         readback.append(
             {
-                "memory_id": operation.memory_id,
-                "operation": operation.operation,
-                "status": status,
+                "turn_id": turn.turn_id,
+                "job_id": job.job_id,
+                "operation": job.kind,
+                "status": job.status,
+                "add_record_id": result.get("add_record_id"),
+                "memory_ids": [
+                    str(value) for value in (result.get("memory_ids") or ())
+                ],
+                "raw_verified": result.get("raw_verified"),
+                "missing_ids": [
+                    str(value) for value in (result.get("missing_ids") or ())
+                ],
+                "replayed": result.get("replayed"),
+                "reconciled": result.get("reconciled"),
+                "attempts": job.attempts,
+                "last_error": job.last_error,
+            }
+        )
+    for snapshot in store.archives_for_session(session_id):
+        dreaming_id = snapshot.dreaming_job_id
+        job = (
+            store.job(dreaming_id)
+            if dreaming_id
+            else store.job_by_operation_key(f"dreaming:{snapshot.archive_id}")
+        )
+        if job is None:
+            continue
+        result = dict(job.result or {})
+        readback.append(
+            {
+                "turn_id": None,
+                "job_id": job.job_id,
+                "operation": job.kind,
+                "archive_id": snapshot.archive_id,
+                "status": job.status,
+                "dreaming_record_id": result.get("dreaming_record_id"),
+                "memory_ids": [
+                    str(value)
+                    for value in (result.get("produced_memory_ids") or ())
+                ],
+                "raw_verified": result.get("raw_verified"),
+                "missing_ids": [
+                    str(value) for value in (result.get("missing_ids") or ())
+                ],
+                "actions": list(result.get("actions") or ()),
+                "attempts": job.attempts,
+                "last_error": job.last_error,
             }
         )
     return readback
@@ -521,18 +755,6 @@ def _benchmark_subject(memory_tenant_id: str) -> PermissionSubject:
         tenant_id=memory_tenant_id,
         capabilities=default.capabilities,
     )
-
-
-def _finalize_result_dict(result: FinalizeResult) -> dict[str, Any]:
-    return {
-        "finalization_status": result.status,
-        "collected_events": result.collected_events,
-        "excluded_transport_deltas": result.excluded_transport_deltas,
-        "rendered_messages": result.rendered_messages,
-        "duration_ms": result.duration_ms,
-        "operations": [asdict(operation) for operation in result.operations],
-        "error": result.error,
-    }
 
 
 def _is_memory_event(event: dict[str, Any]) -> bool:

@@ -77,6 +77,8 @@ def test_memory_runtime_paths_are_relative_to_config_file(
         memory:
           enabled: true
           data_root: ../.runtime/memory
+          mindmemos:
+            base_url: http://127.0.0.1:19999
           neo4j:
             mode: managed_local
             home: ../.runtime/neo4j
