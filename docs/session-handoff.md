@@ -1081,6 +1081,9 @@ failures and unrelated cleanup-guard expected-set drift remain outside this foll
   V3.8 regression; it passed in the final full run.
 - Qdrant client 1.18 warns vs server 1.20 (minor-version gap) — deployment note only, all live checks passed.
 - RoboCasa R5/R20 acceptance NOT run (needs robot sim env); LoCoMo runner migrated and unit-verified.
-- Upstream MindMemOS branch committed at e0797b9; HomeMaster branch uncommitted pending this handoff.
+- Upstream MindMemOS branch committed at e0797b9 (server pin only). The `mindmemos-sdk` Python dep now
+  resolves from PyPI 0.1.4 — verified in a clean venv that only the generic envelope transport is used,
+  so no source override/git pin exists anymore. e0797b9 still needs an upstream merge+release for the
+  *server* image, not for the client dependency.
 - Live services used for acceptance: `uvicorn` on :8765 (config /tmp/mindmemos-live/dev.yaml + api_keys.yaml),
   colima+docker qdrant container. Credentials were temp-only, not committed.

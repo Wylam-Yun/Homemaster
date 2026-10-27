@@ -75,23 +75,12 @@ gateway = [
 [project.scripts]
 homemaster = "homemaster.cli.app:app"
 
-# Dev-only dependency group: the SDK is also a wheel dep of the ``memory``
-# extra; it repeats here so the dev source override below resolves it from
-# the live upstream checkout instead of the published release.
 [dependency-groups]
 dev = [
-    "mindmemos-sdk",
     "mypy>=1.20,<2",
     "types-croniter>=4.0",
     "types-pyyaml>=6.0",
 ]
-
-[tool.uv.sources]
-# V3.8 development override: track the live upstream SDK checkout at the
-# pinned revision (see third_party/MINDMEMOS_UPSTREAM.md). Before release,
-# repoint at { git = "...", rev = "<pinned commit>" } or the published
-# mindmemos-sdk package that contains the V3.8 endpoints.
-mindmemos-sdk = { path = "../MindMemOS/src/mindmemos_sdk" }
 
 [build-system]
 requires = ["setuptools>=68"]
