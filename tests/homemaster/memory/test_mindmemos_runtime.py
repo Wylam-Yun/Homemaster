@@ -77,7 +77,7 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert embedding.api_base == "https://embedding.example/v1"
     assert embedding.api_key == "test-key"
     assert embedding.dimensions == 4096
-    assert mapped.embed_model_router.dimensions_supported_models == ["Qwen/Qwen3-Embedding-8B"]
+    assert mapped.embed_model_router.dimensions_supported_models == []
     assert mapped.database.qdrant.vector_size == 4096
     assert mapped.database.neo4j.uri == "bolt://127.0.0.1:7687"
     assert mapped.database.neo4j.username == "homemaster"

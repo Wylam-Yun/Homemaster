@@ -1,5 +1,16 @@
 # Unreleased
 
+- Memory embed router no longer force-sends the `dimensions` request
+  parameter: `build_mindmemos_config` now leaves
+  `embed_model_router.dimensions_supported_models` empty, so litellm
+  drops the param for openai-compatible models instead of passing it
+  through `allowed_openai_params`. vLLM-served non-matryoshka models
+  (e.g. `qwen3-embedding-8b`) previously rejected every enrichment
+  embed with HTTP 400 "does not support matryoshka representation",
+  leaving stored memories with zero semantic vectors; the endpoint's
+  declared `dimensions` is retained purely as config metadata (it must
+  match `memory.embedding_dimensions`, and qdrant readback verifies
+  the real vector size).
 - Web Console review remediation + feature completion: structured
   memory records (`structure_status` `valid`/`invalid`) now fail
   closed on PATCH — `memory_views.update()` rejects non-plain records

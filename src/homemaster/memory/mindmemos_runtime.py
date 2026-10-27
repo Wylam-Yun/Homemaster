@@ -169,7 +169,12 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                         "dimensions": dimensions,
                     }
                 ],
-                "dimensions_supported_models": [embedding.model],
+                # Keep the whitelist empty so litellm drops the ``dimensions``
+                # request param for openai-compatible models: vLLM 400s on it
+                # for non-matryoshka models, and ``embedding_dimensions`` must
+                # equal the model's native output anyway (qdrant readback
+                # verifies the real vector size).
+                "dimensions_supported_models": [],
             },
             "database": {
                 "qdrant": qdrant_mapping,
