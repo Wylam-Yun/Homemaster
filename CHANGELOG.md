@@ -4,8 +4,11 @@
   the MindMemOS server owns the graph store and `uri`/credentials only feed
   the raw-readback verifier. The former `managed_local` default crashed any
   `memory.mode=full` start that omitted `neo4j.home`/`java_home`
-  (`ManagedNeo4jRuntime` was constructed unconditionally). Composition now
-  also opens `memory_work_store` before optional managed stores so a failed
+  (`ManagedNeo4jRuntime` was constructed unconditionally). The
+  `mode="after"` credential validator and the loopback `uri` restriction
+  now gate on `mode == "managed_local"` only, so `server` accepts any
+  reachable bolt endpoint and partial credentials. Composition now also
+  opens `memory_work_store` before optional managed stores so a failed
   managed start cannot leave session-close archive hitting a closed store.
 
 - V3.8 MindMemOS-native lifecycle: replaced the embedded MindMemOS runtime

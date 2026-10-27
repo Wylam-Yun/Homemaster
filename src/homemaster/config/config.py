@@ -19,6 +19,7 @@ from pydantic import (
     PrivateAttr,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -404,16 +405,26 @@ class MemoryNeo4jConfig(BaseModel):
 
     @field_validator("uri")
     @classmethod
-    def _valid_bolt_uri(cls, value: str) -> str:
+    def _valid_bolt_uri(cls, value: str, info: ValidationInfo) -> str:
         parsed = urlsplit(value)
         if parsed.scheme not in {"bolt", "neo4j"} or not parsed.hostname:
             raise ValueError("Neo4j uri must be an absolute bolt/neo4j URI")
-        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        # Loopback is a managed_local constraint (HomeMaster spawns the
+        # process); "server" mode may point at any reachable bolt endpoint.
+        if info.data.get("mode") == "managed_local" and parsed.hostname not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
             raise ValueError("managed_local Neo4j uri must use a loopback host")
         return value
 
     @model_validator(mode="after")
     def _managed_local_has_runtime_inputs(self) -> MemoryNeo4jConfig:
+        # Only managed_local owns a process; "server" mode only needs the
+        # readback uri/credentials, whatever subset is configured.
+        if self.mode != "managed_local":
+            return self
         # The in-memory default remains constructible; setup/load of an explicit
         # managed_local deployment must provide the concrete runtime credentials.
         if self.home is None and self.java_home is None and not self.password.get_secret_value():
