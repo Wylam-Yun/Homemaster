@@ -129,19 +129,22 @@ memory:
   memory_char_limit: 2200
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
+  # "server" (default) manages no process — the MindMemOS server owns the
+  # graph store; uri/credentials here only feed the raw-readback verifier.
   # Use managed_local when HomeMaster should share one private Neo4j process
   # across all HomeMaster instances on the same node. Keep the real password
   # only in the gitignored config/homemaster.yaml (chmod 600).
   neo4j:
-    mode: managed_local
-    home: ../.runtime/neo4j
-    java_home: ../.runtime/java
+    mode: server
     uri: bolt://127.0.0.1:7687
     username: neo4j
     password: "<set-during-setup>"
     database: neo4j
-    start_timeout_seconds: 60
-    stop_timeout_seconds: 30
+    # managed_local fields (only with mode: managed_local):
+    # home: ../.runtime/neo4j
+    # java_home: ../.runtime/java
+    # start_timeout_seconds: 60
+    # stop_timeout_seconds: 30
   # "embedded" means the MindMemOS server owns a process-local Qdrant
   # directory under data_root/mindmemos/qdrant — HomeMaster cannot read
   # vectors back in that mode, so worker readback verification covers

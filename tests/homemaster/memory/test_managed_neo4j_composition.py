@@ -170,6 +170,36 @@ async def test_managed_neo4j_starts_before_worker_pool_and_closes_after(
 
 
 @pytest.mark.asyncio
+async def test_full_mode_without_neo4j_section_runs_no_managed_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3.8 default: the MindMemOS server owns the stores, so a full-tier
+    config that only sets ``mindmemos.base_url`` must not spawn a managed
+    Neo4j. Regression: the former ``managed_local`` default crashed every
+    full-tier startup that omitted ``memory.neo4j.home``/``java_home``."""
+    calls: list[str] = []
+    clients: list = []
+    monkeypatch.setattr(
+        composition, "ManagedNeo4jRuntime", _fake_managed_neo4j(calls)
+    )
+    monkeypatch.setattr(
+        composition, "MindMemOSClient", _fake_mindmemos_client(calls, clients)
+    )
+
+    payload = _config_payload(tmp_path)
+    del payload["memory"]["neo4j"]
+    bundle = composition.compose_application(
+        config=HomeMasterConfig.model_validate(payload), run_label="server-mode"
+    )
+
+    assert bundle.application.settings.application_services["managed_neo4j"] is None
+    await bundle.application.start()
+    await bundle.application.aclose()
+    assert calls == ["client.health", "client.close"]
+
+
+@pytest.mark.asyncio
 async def test_managed_qdrant_slots_between_neo4j_and_worker_pool(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

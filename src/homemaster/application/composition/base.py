@@ -563,6 +563,11 @@ def _finish_home_application(
             memory_evidence_ledger.start()
             if memory_full_tier:
                 assert memory_worker_pool is not None
+                assert memory_work_store is not None
+                # Open the durable store before the optional managed stores so
+                # a managed-runtime failure still leaves an open store for
+                # session close (archive) and later worker recovery.
+                await asyncio.to_thread(memory_work_store.open)
                 if managed_neo4j is not None:
                     await managed_neo4j.start()
                 if managed_qdrant is not None:

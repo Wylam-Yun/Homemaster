@@ -352,11 +352,18 @@ class MemoryMigrationSpec(BaseModel):
 
 
 class MemoryNeo4jConfig(BaseModel):
-    """Neo4j connection and optional HomeMaster-owned local process settings."""
+    """Neo4j connection and optional HomeMaster-owned local process settings.
+
+    In V3.8 the MindMemOS server owns the graph store, so the default
+    ``server`` mode manages no process at all — ``uri``/credentials are only
+    used by the raw-readback verifier. ``managed_local`` remains as an
+    explicit opt-in for single-node installs that want HomeMaster to spawn
+    and babysit a private Neo4j.
+    """
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    mode: Literal["managed_local"] = "managed_local"
+    mode: Literal["server", "managed_local"] = "server"
     home: Path | None = None
     java_home: Path | None = None
     uri: str = "bolt://127.0.0.1:7687"

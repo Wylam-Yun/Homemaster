@@ -1,5 +1,13 @@
 # Unreleased
 
+- `memory.neo4j.mode` gains `"server"` (new default): no managed process —
+  the MindMemOS server owns the graph store and `uri`/credentials only feed
+  the raw-readback verifier. The former `managed_local` default crashed any
+  `memory.mode=full` start that omitted `neo4j.home`/`java_home`
+  (`ManagedNeo4jRuntime` was constructed unconditionally). Composition now
+  also opens `memory_work_store` before optional managed stores so a failed
+  managed start cannot leave session-close archive hitting a closed store.
+
 - V3.8 MindMemOS-native lifecycle: replaced the embedded MindMemOS runtime
   with the standalone MindMemOS server reached through `mindmemos_sdk`
   (`memory` extra). Every terminal turn now durably enqueues exactly one

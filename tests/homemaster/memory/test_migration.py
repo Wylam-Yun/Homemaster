@@ -298,6 +298,14 @@ async def test_application_start_migrates_before_opening_owned_stores(
                 # MindMemOS endpoint; the worker-pool start is stubbed below
                 # so this never dials out.
                 "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+                # Ordering under test covers the managed store: opt in
+                # explicitly (the V3.8 default "server" mode manages none).
+                "neo4j": {
+                    "mode": "managed_local",
+                    "home": tmp_path / "neo4j-home",
+                    "java_home": tmp_path / "java-home",
+                    "password": "private-test-password",
+                },
             },
             "runtime": {"runtime_root": tmp_path / "runs"},
             "observability": {"session_dir": str(tmp_path / "sessions")},
