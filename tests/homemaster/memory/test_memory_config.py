@@ -355,7 +355,8 @@ def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
     # the heavyweight extraction work is owned by the MindMemOS server.
     assert any(item.startswith("mindmemos-sdk") for item in memory_extra)
     assert any(item.startswith("neo4j") for item in memory_extra)
-    assert "qdrant-client==1.18.0" in memory_extra
+    # pinned to the deployed server line — majors must match.
+    assert "qdrant-client==1.20.0" in memory_extra
     for prefix in ("spacy", "en-core-web-sm", "fastembed", "aiokafka", "jieba"):
         assert all(not item.startswith(prefix) for item in memory_extra), (
             f"{prefix} belongs to the MindMemOS server, not the client extra"
