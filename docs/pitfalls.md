@@ -1,3 +1,11 @@
+## 2026-10-27 - V3.8 远端 live 验收再抓两个"单测绿、真环境炸"的根因
+
+- 症状：RoboCasa full 模式下 archive_dreaming job 必死——`seed operation ... still processing` 重试 20 次耗尽 attempts 报 failed；同时服务端 Dreaming 完成却从未产生 LLM 合并动作。
+- 根因 ①：依赖等待被当成普通重试——种子 Add 服务端抽取 ~5min（27B），而 dreaming 每 10s 烧 1 attempt ×20 上限 = 只等 200s。等待在飞依赖 ≠ 失败。
+- 根因 ②：MindMemOS dreaming 的 relation_detection/action_planning 发 system-only messages，HPC3 OpenResty shim 要求至少一条 user 消息 → 400 `No user query found`；管线静默降级（except → None → 跳过合并阶段），表面 completed 实则语义合并从未发生。
+- 修法/教训：依赖等待走专用 `deferred` outcome + `not_before` 重排、不烧 attempts、2h 预算兜底（job.created_at 起算）；HTTP 202 `code=processing` 映射 `OperationStillProcessingError`；服务端 ledger 300s lease 让重启后 abandoned op 可被幂等重驱。真环境验收必须检查"每阶段 LLM 调用真的 200"——聚合的 completed 状态会掩盖逐阶段静默降级（§3 聚合判据掩盖 per-instance 失败）。
+- ref: `src/homemaster/memory/memory_jobs.py`, `src/homemaster/memory/memory_work_store.py` (`defer_job`), MindMemOS `src/mindmemos/mindmemos/pipelines/dreaming/default.py` (`494ec7d`)
+
 ## 2026-10-27 - V3.8 live 验收连抓三个"SDK 能调通但契约已错"的真 bug
 
 - 症状：单测全绿（fake client）、SDK transport 无异常，但真打 MindMemOS
