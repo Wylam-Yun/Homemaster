@@ -278,6 +278,9 @@ class MemoryWorkStore(Protocol):
     def fail_job(
         self, job_id: str, *, owner: str, error: str, retry_delay_seconds: float = 5.0
     ) -> OutboxJob: ...
+    def defer_job(
+        self, job_id: str, *, owner: str, reason: str, delay_seconds: float = 10.0
+    ) -> OutboxJob: ...
     def mark_job_unknown(self, job_id: str, *, owner: str, error: str) -> OutboxJob: ...
     def terminate_job(self, job_id: str, *, owner: str, error: str) -> OutboxJob: ...
     def mark_job_stale(self, job_id: str) -> None: ...
@@ -896,14 +899,15 @@ class SQLiteMemoryWorkStore:
             if kinds:
                 marks = ",".join("?" for _ in kinds)
                 kind_filter = f"AND kind IN ({marks})"
-                params: tuple[Any, ...] = (now, now, *kinds)
+                params: tuple[Any, ...] = (now, now, now, *kinds)
             else:
                 kind_filter = ""
-                params = (now, now)
+                params = (now, now, now)
             rows = self._db.execute(
                 f"""SELECT job_id FROM outbox_jobs
                     WHERE (status = 'accepted' AND (not_before IS NULL OR not_before <= ?))
-                       OR status = 'outcome_unknown'
+                       OR (status = 'outcome_unknown'
+                           AND (not_before IS NULL OR not_before <= ?))
                        OR (status = 'processing'
                            AND lease_expires_at IS NOT NULL AND lease_expires_at < ?)
                     {kind_filter}
@@ -991,6 +995,42 @@ class SQLiteMemoryWorkStore:
         return self._finish_job(
             job_id, owner=owner, error=error, retry_delay_seconds=retry_delay_seconds
         )
+
+    def defer_job(
+        self, job_id: str, *, owner: str, reason: str, delay_seconds: float = 10.0
+    ) -> OutboxJob:
+        """Reschedule a job that is waiting on an external dependency (e.g. a
+        seed operation still processing server-side). A dependency that is
+        merely in flight is not a failure, so ``attempts`` is NOT consumed —
+        the executor bounds the wait with its own budget."""
+        now = _now()
+        with self._lock, self._db:
+            row = self._db.execute(
+                "SELECT * FROM outbox_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                raise JobNotFoundError(job_id)
+            job = self._job_row(row)
+            if job.lease_owner != owner:
+                raise MemoryWorkStoreError(
+                    f"job {job_id} owned by {job.lease_owner}, not {owner}"
+                )
+            if job.status in JOB_TERMINAL_STATUSES:
+                return job
+            # outcome_unknown keeps its status so the next claim re-enters the
+            # reconcile branch instead of resubmitting the operation.
+            new_status = (
+                "outcome_unknown" if job.status == "outcome_unknown" else "accepted"
+            )
+            self._db.execute(
+                "UPDATE outbox_jobs SET status = ?, lease_owner = NULL, "
+                "lease_expires_at = NULL, not_before = ?, last_error = ?, "
+                "updated_at = ? WHERE job_id = ?",
+                (new_status, now + delay_seconds, reason, now, job_id),
+            )
+            updated = self.job(job_id)
+            assert updated is not None
+            return updated
 
     def mark_job_unknown(self, job_id: str, *, owner: str, error: str) -> OutboxJob:
         return self._finish_job(job_id, owner=owner, status="outcome_unknown", error=error)

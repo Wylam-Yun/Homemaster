@@ -146,6 +146,23 @@ class TestOutbox:
         store.fail_job(claimed[0].job_id, owner="w1", error="e2")
         assert store.job(job.job_id).status == "failed"
 
+    def test_defer_does_not_consume_attempts(self, store):
+        job = store.enqueue_job("turn_add", "op-1", {}, max_attempts=1)
+        store.claim_jobs("w1")
+        deferred = store.defer_job(
+            job.job_id, owner="w1", reason="seed still processing", delay_seconds=3600
+        )
+        assert deferred.status == "accepted"
+        assert deferred.attempts == 0  # waiting on a dependency is not a failure
+        assert deferred.last_error == "seed still processing"
+        assert store.claim_jobs("w2") == []  # not_before honoured
+        store._db.execute("UPDATE outbox_jobs SET not_before = 0")
+        claimed = store.claim_jobs("w2")
+        assert [j.job_id for j in claimed] == [job.job_id]
+        # the attempt budget is still intact for a real error
+        store.fail_job(claimed[0].job_id, owner="w2", error="real failure")
+        assert store.job(job.job_id).status == "failed"
+
     def test_wrong_owner_cannot_finish(self, store):
         job = store.enqueue_job("turn_add", "op-1", {})
         store.claim_jobs("w1")

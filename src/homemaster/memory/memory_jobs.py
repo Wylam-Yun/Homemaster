@@ -20,6 +20,7 @@ Rules every executor obeys (spec §4.2/§6):
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -36,6 +37,7 @@ from homemaster.memory.mindmemos_client import (
     MindMemOSClient,
     OperationConflictError,
     OperationNotFoundError,
+    OperationStillProcessingError,
     OutcomeUnknownError,
 )
 from homemaster.memory.session_trace_store import SessionTraceStore
@@ -47,10 +49,28 @@ logger = logging.getLogger(__name__)
 class JobOutcome:
     """How the worker should settle the job after execute()."""
 
-    status: str  # completed | no_action | retry | outcome_unknown | failed
+    status: str  # completed | no_action | retry | deferred | outcome_unknown | failed
     result: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     retry_delay_seconds: float = 5.0
+
+
+# A job that is merely waiting on an external dependency (a seed Add still
+# extracting server-side, an operation mid-flight) must not consume retry
+# attempts — upstream latency is not a failure. The wait is still bounded so
+# a permanently stuck dependency surfaces as ``failed`` instead of hanging
+# the queue forever.
+_DEPENDENCY_WAIT_BUDGET_SECONDS = 7200.0
+
+
+def _dependency_wait(job: OutboxJob, reason: str, *, delay_seconds: float = 30.0) -> JobOutcome:
+    """Dependency not ready → ``deferred`` (no attempt consumed); past the
+    wait budget (measured from job creation) → ``failed``."""
+    if time.time() - job.created_at > _DEPENDENCY_WAIT_BUDGET_SECONDS:
+        return JobOutcome(
+            status="failed", error=f"dependency wait budget exceeded: {reason}"
+        )
+    return JobOutcome(status="deferred", error=reason, retry_delay_seconds=delay_seconds)
 
 
 class JobExecutor(Protocol):
@@ -82,7 +102,7 @@ class MemoryAddExecutor:
 
         # Reconcile a previously unknown outcome before touching the server.
         if job.status == "outcome_unknown":
-            reconciled = await self._reconcile(operation_id)
+            reconciled = await self._reconcile(operation_id, job)
             if reconciled is not None:
                 return reconciled
 
@@ -109,6 +129,8 @@ class MemoryAddExecutor:
                 dialogue=dialogue,
                 metadata={"terminal_status": turn.status if turn else "unknown"},
             )
+        except OperationStillProcessingError:
+            return _dependency_wait(job, f"operation {operation_id} still processing")
         except OutcomeUnknownError as exc:
             return JobOutcome(status="outcome_unknown", error=str(exc))
         except OperationConflictError as exc:
@@ -135,7 +157,7 @@ class MemoryAddExecutor:
         status = "no_action" if receipt.status == "no_action" else "completed"
         return JobOutcome(status=status, result=result)
 
-    async def _reconcile(self, operation_id: str) -> JobOutcome | None:
+    async def _reconcile(self, operation_id: str, job: OutboxJob) -> JobOutcome | None:
         try:
             status = await self._client.operation_status(operation_id)
         except OperationNotFoundError:
@@ -154,8 +176,8 @@ class MemoryAddExecutor:
             )
         if status.status == "failed":
             return JobOutcome(status="failed", error=status.error or "server op failed")
-        # accepted/processing server-side: retry later (server holds the work)
-        return JobOutcome(status="retry", error="server still processing", retry_delay_seconds=10.0)
+        # accepted/processing server-side: wait for it — server holds the work
+        return _dependency_wait(job, "server still processing", delay_seconds=10.0)
 
     async def _verify(self, add_record_id: str, memory_ids: list[str]) -> dict[str, Any]:
         missing: list[str] = []
@@ -202,7 +224,9 @@ class ArchiveDreamingExecutor:
                     return JobOutcome(status=status.status, result=status.result or {})
                 if status.status == "failed":
                     return JobOutcome(status="failed", error=status.error or "server op failed")
-                return JobOutcome(status="retry", retry_delay_seconds=10.0)
+                return _dependency_wait(
+                    job, f"dreaming operation still {status.status}", delay_seconds=10.0
+                )
         if not seeds:
             # Spec: archive with zero produced memories still records the
             # decision — Dreaming short-circuits to a no-op rather than error.
@@ -217,18 +241,12 @@ class ArchiveDreamingExecutor:
             try:
                 status = await self._client.operation_status(op_id)
             except OperationNotFoundError:
-                return JobOutcome(
-                    status="retry",
-                    error=f"seed operation {op_id} not visible yet",
-                    retry_delay_seconds=10.0,
-                )
+                return _dependency_wait(job, f"seed operation {op_id} not visible yet")
             except OutcomeUnknownError as exc:
                 return JobOutcome(status="outcome_unknown", error=str(exc))
             if status.status not in {"completed", "no_action"}:
-                return JobOutcome(
-                    status="retry",
-                    error=f"seed operation {op_id} still {status.status}",
-                    retry_delay_seconds=10.0,
+                return _dependency_wait(
+                    job, f"seed operation {op_id} still {status.status}"
                 )
             add_record_id = (status.result or {}).get("add_record_id")
             if add_record_id:
@@ -244,6 +262,8 @@ class ArchiveDreamingExecutor:
                 seed_add_record_ids=resolved,
                 session_id=snapshot.session_id,
             )
+        except OperationStillProcessingError:
+            return _dependency_wait(job, "dreaming operation still processing")
         except OutcomeUnknownError as exc:
             return JobOutcome(status="outcome_unknown", error=str(exc))
         except OperationConflictError as exc:
@@ -325,6 +345,8 @@ class SkillEvolutionExecutor:
                         "score": inv.score if inv.score is not None else 1.0,
                     },
                 )
+            except OperationStillProcessingError:
+                return _dependency_wait(job, f"trace {invocation_id} still processing")
             except OperationConflictError as exc:
                 return JobOutcome(
                     status="failed",
@@ -336,6 +358,8 @@ class SkillEvolutionExecutor:
             receipt = await self._client.submit_evolution_batch(
                 cloud_skill_id=cloud_skill_id, batch_id=batch_id, trace_ids=trace_ids
             )
+        except OperationStillProcessingError:
+            return _dependency_wait(job, "evolution batch still processing")
         except OutcomeUnknownError as exc:
             return JobOutcome(status="outcome_unknown", error=str(exc))
         except OperationConflictError as exc:
@@ -386,6 +410,8 @@ class ImplicitFeedbackExecutor:
             receipt = await self._client.feedback_implicit(
                 operation_id=job.operation_key, window=window
             )
+        except OperationStillProcessingError:
+            return _dependency_wait(job, "implicit-feedback op still processing")
         except OutcomeUnknownError as exc:
             return JobOutcome(status="outcome_unknown", error=str(exc))
         except OperationConflictError as exc:

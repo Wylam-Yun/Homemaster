@@ -227,6 +227,13 @@ class MemoryWorkerPool:
                 self._store.mark_job_unknown(
                     job.job_id, owner=self._owner, error=error or "outcome unknown"
                 )
+            elif outcome.status == "deferred":
+                self._store.defer_job(
+                    job.job_id,
+                    owner=self._owner,
+                    reason=error or "waiting on dependency",
+                    delay_seconds=outcome.retry_delay_seconds,
+                )
             elif outcome.status == "failed":
                 self._store.terminate_job(
                     job.job_id, owner=self._owner, error=error or "failed"

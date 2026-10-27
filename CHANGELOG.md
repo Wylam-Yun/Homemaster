@@ -1,5 +1,17 @@
 # Unreleased
 
+- Outbox jobs now distinguish dependency waits from failures: a new
+  `deferred` job outcome (`MemoryWorkStore.defer_job`) reschedules via
+  `not_before` without consuming `attempts`, bounded by a 2h budget from
+  job creation. Previously every wait outcome burned a retry attempt, so a
+  Dreaming job whose seed Add was still extracting server-side (~5 min for
+  a large turn) exhausted its 20×10s budget and died permanently, leaving
+  the archive `pending` forever. Applies to seed resolution, `outcome_unknown`
+  reconcile waits, and resubmits answered with HTTP 202 `processing` (now
+  mapped to `OperationStillProcessingError` instead of a generic retry).
+  `claim_jobs` honours `not_before` for `outcome_unknown` rows so deferred
+  reconcile jobs wait out their delay instead of hot-looping.
+
 - `memory.neo4j.mode` gains `"server"` (new default): no managed process —
   the MindMemOS server owns the graph store and `uri`/credentials only feed
   the raw-readback verifier. The former `managed_local` default crashed any

@@ -10,6 +10,7 @@ from homemaster.memory.memory_work_store import SQLiteMemoryWorkStore
 from homemaster.memory.memory_workers import MemoryWorkerPool
 from homemaster.memory.mindmemos_client import (
     AddReceipt,
+    DreamingReceipt,
     OperationNotFoundError,
     OutcomeUnknownError,
 )
@@ -234,6 +235,29 @@ class TestAddWorker:
         assert settled["payload"]["add_record_id"] == "ar-turnadd:s1:turn-1"
 
 
+class _DreamClient(FakeClient):
+    def __init__(self):
+        super().__init__()
+        self.dreaming_calls: list[dict] = []
+
+    async def dreaming(self, *, operation_id, seed_add_record_ids, session_id=None):
+        self.dreaming_calls.append(
+            {
+                "operation_id": operation_id,
+                "seed_add_record_ids": list(seed_add_record_ids),
+                "session_id": session_id,
+            }
+        )
+        return DreamingReceipt(
+            operation_id=operation_id,
+            dreaming_record_id="dr-1",
+            produced_memory_ids=("dm-1",),
+            actions=(),
+            status="completed",
+            request_id=None,
+        )
+
+
 class TestDreamingWorker:
     @pytest.mark.asyncio
     async def test_no_seeds_is_no_action_not_error(self, tmp_path):
@@ -256,6 +280,105 @@ class TestDreamingWorker:
         assert job.status == "no_action"
         assert job.result["reason"] == "no_seeds"
         store.close()
+
+    def _stack(self, tmp_path):
+        store = SQLiteMemoryWorkStore(tmp_path / "w.db")
+        store.open()
+        client = _DreamClient()
+        verifier = FakeVerifier()
+        trace = SessionTraceStore(store)
+        pool = MemoryWorkerPool(
+            store=store, client=client,
+            executors=default_executors(store=store, trace=trace, client=client, verifier=verifier),
+            owner_id="w",
+        )
+        return store, client, verifier, pool
+
+    @pytest.mark.asyncio
+    async def test_seed_still_processing_defers_then_completes(self, tmp_path):
+        """A seed Add still extracting server-side is a wait, not a failure:
+        the dreaming job must not burn its attempt budget while it waits."""
+        store, client, verifier, pool = self._stack(tmp_path)
+        archive = store.create_archive(
+            "s1", turn_range_start=1, turn_range_end=1, max_event_seq=41,
+            add_operation_ids=["turnadd:s1:turn-1"], intent_payload={},
+        )
+        job_id = archive.dreaming_job_id
+        client.statuses["turnadd:s1:turn-1"] = {"status": "processing"}
+        await pool.run_once()
+        job = store.job(job_id)
+        assert job.status == "accepted"
+        assert job.attempts == 0
+        assert "still processing" in (job.last_error or "")
+        assert client.dreaming_calls == []
+        # The seed finishes upstream; the deferred job then converges.
+        client.statuses["turnadd:s1:turn-1"] = {
+            "status": "completed",
+            "result": {"add_record_id": "ar-1"},
+        }
+        verifier.existing.add("dm-1")
+        store._db.execute("UPDATE outbox_jobs SET not_before = 0")
+        await pool.run_once()
+        job = store.job(job_id)
+        assert job.status == "completed"
+        assert client.dreaming_calls == [
+            {
+                "operation_id": "dreaming:archive:s1:41",
+                "seed_add_record_ids": ["ar-1"],
+                "session_id": "s1",
+            }
+        ]
+        assert job.result["dreaming_record_id"] == "dr-1"
+        assert job.result["raw_verified"] is True
+        store.close()
+
+    @pytest.mark.asyncio
+    async def test_dependency_wait_budget_exceeded_fails(self, tmp_path):
+        """A dependency stuck past the wait budget must surface as failed,
+        not hang the queue forever."""
+        store, client, verifier, pool = self._stack(tmp_path)
+        archive = store.create_archive(
+            "s1", turn_range_start=1, turn_range_end=1, max_event_seq=41,
+            add_operation_ids=["turnadd:s1:turn-1"], intent_payload={},
+        )
+        store._db.execute(
+            "UPDATE outbox_jobs SET created_at = created_at - 8000"
+        )
+        client.statuses["turnadd:s1:turn-1"] = {"status": "processing"}
+        await pool.run_once()
+        job = store.job(archive.dreaming_job_id)
+        assert job.status == "failed"
+        assert "wait budget" in (job.last_error or "")
+        store.close()
+
+    @pytest.mark.asyncio
+    async def test_turn_add_reconcile_still_processing_defers(self, stack):
+        """Reconciling an outcome_unknown add whose server op is still
+        running defers the job instead of burning retry attempts."""
+        store, trace, client, verifier, pool = stack
+        client.fail_next = "unknown"
+        commit = _commit_turn(trace)
+        await pool.run_once()
+        job = store.job(commit.add_job_id)
+        assert job.status == "outcome_unknown"
+        client.statuses["turnadd:s1:turn-1"] = {"status": "processing"}
+        await pool.run_once()
+        job = store.job(commit.add_job_id)
+        # deferred keeps outcome_unknown so the retry reconciles again
+        # instead of blindly resubmitting the operation.
+        assert job.status == "outcome_unknown"
+        assert job.attempts == 0
+        assert "still processing" in (job.last_error or "")
+        client.statuses["turnadd:s1:turn-1"] = {
+            "status": "completed",
+            "result": {"add_record_id": "ar-1", "memory_ids": ["m1"]},
+        }
+        store._db.execute("UPDATE outbox_jobs SET not_before = 0")
+        await pool.run_once()
+        job = store.job(commit.add_job_id)
+        assert job.status == "completed"
+        assert job.result["reconciled"] is True
+        assert len(client.add_calls) == 1  # never resubmitted
 
 
 class _SkillEvoClient(FakeClient):

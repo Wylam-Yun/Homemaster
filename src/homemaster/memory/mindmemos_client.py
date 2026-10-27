@@ -2,7 +2,7 @@
 
 This is the ONLY boundary through which HomeMaster talks to MindMemOS: every
 memory mutation goes through this async client to the standalone MindMemOS
-server. Nothing here imports ``mindmemos`` server/pipeline packages.
+server. Nothing here imports ``mindmemos`` server-side packages.
 
 All mutating calls carry a stable ``operation_id`` so a crashed worker can
 reconcile via :meth:`MindMemOSClient.operation_status` and retry the same
@@ -51,6 +51,12 @@ class OperationConflictError(MindMemOSClientError):
 
 class OperationNotFoundError(MindMemOSClientError):
     """The server ledger has no such operation (404)."""
+
+
+class OperationStillProcessingError(MindMemOSClientError):
+    """The server is still executing this operation_id (HTTP 202, code
+    ``processing``). Not a failure: reconcile via the operations ledger and
+    resubmit only after it reaches a terminal status."""
 
 
 class OutcomeUnknownError(MindMemOSClientError):
@@ -225,6 +231,8 @@ class MindMemOSClient:
             code = getattr(exc, "code", None)
             if get and code == "not_found":
                 return OperationNotFoundError(str(exc))
+            if code == "processing":
+                return OperationStillProcessingError(str(exc))
             if not get and code == "conflict":
                 return OperationConflictError(str(exc))
             return MindMemOSClientError(f"{path}: {exc}")
@@ -372,7 +380,7 @@ class MindMemOSClient:
         window: dict[str, Any],
         session_id: str | None = None,
     ) -> FeedbackReceipt:
-        """Implicit feedback: no ``feedback`` text — the pipeline analyzes
+        """Implicit feedback: no ``feedback`` text — the server analyzes
         recent add/search records inside ``window`` itself."""
         body: dict[str, Any] = {
             "mode": "sync",
@@ -558,6 +566,7 @@ __all__ = [
     "MutationReceipt",
     "OperationConflictError",
     "OperationNotFoundError",
+    "OperationStillProcessingError",
     "OperationStatus",
     "OutcomeUnknownError",
     "SearchHit",

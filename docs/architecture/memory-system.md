@@ -56,6 +56,9 @@ never opens the SDK, the work store, or any worker.
 - Workers claim jobs with `owner_id` fencing; a crashed claim is reclaimed by `audit` on next pool start.
 - Any external call whose result may have been sent but is unknown settles `outcome_unknown` and reconciles through
   `GET /v1/memory/operations/{id}` before retrying — never blind-retry, never drop.
+- Waiting on an in-flight dependency (a seed Add still extracting, a resubmit answered HTTP 202 `processing`, a
+  mid-flight reconcile target) settles `deferred`: `not_before` reschedule without consuming `attempts`, bounded
+  by a 2h wait budget from job creation. Upstream latency is not a failure — attempts are reserved for errors.
 - Server-side idempotency keys: `turnadd:{session}:{turn}`, `dreaming:` job key, `implicitcheck:{scope}:{window}`,
   `skillevolve:{batch_id}`, `invocation_id` for traces, `batch_id` for evolution — replays return the same receipt;
   a changed payload under the same key returns 409 and fails the job loudly.
