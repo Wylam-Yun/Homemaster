@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from homemaster.memory.archive_service import archive_rejection_status
 from homemaster.web._shared import (
+    _ARCHIVE_STATE_MAP,
     _application_services,
     _ensure_session_loaded,
     _error,
@@ -21,16 +22,6 @@ from homemaster.web.context import WebAppContext
 from homemaster.web.schemas import SetSessionModeRequest
 
 logger = logging.getLogger(__name__)
-
-
-# Internal archive lifecycle → public badge vocabulary. The frontend only
-# knows queued/processing/completed/failed; raw internal states like
-# ``pending``/``dreamed`` would silently drop the badge mid-flight.
-_ARCHIVE_STATE_MAP = {
-    "pending": "processing",
-    "dreamed": "completed",
-    "failed": "failed",
-}
 
 
 def _snapshot_view(snapshot: object, job: object | None = None) -> dict[str, object]:
