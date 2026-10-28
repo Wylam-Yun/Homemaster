@@ -1,0 +1,13 @@
+.actionCard { display: grid; gap: 10px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.actionTop { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.memoryId { color: var(--muted-2); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--text-xs); }
+.sessionLabel { color: var(--muted-2); font-size: var(--text-xs); }
+.diff { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.diffSide { display: grid; gap: 6px; align-content: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.diffSide p { margin: 0; color: var(--text); font-size: var(--text-sm); line-height: 1.55; white-space: pre-wrap; }
+.diffLabel { color: var(--muted-2); font-size: var(--text-xs); font-weight: 600; }
+.diffStatus { justify-self: start; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); }
+.diffArrow { align-self: center; text-align: center; color: var(--muted-2); font-size: 16px; }
+.missingText { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+
+@media (max-width: 900px) { .diff { grid-template-columns: 1fr; } .diffArrow { transform: rotate(90deg); } }

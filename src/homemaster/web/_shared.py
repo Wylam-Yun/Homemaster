@@ -43,6 +43,15 @@ _SKILL_SOURCE_LABELS = {
     "plugin": "plugin",
 }
 
+# Internal archive lifecycle → public badge vocabulary. The frontend only
+# knows queued/processing/completed/failed; raw internal states like
+# ``pending``/``dreamed`` would silently drop the badge mid-flight.
+_ARCHIVE_STATE_MAP = {
+    "pending": "processing",
+    "dreamed": "completed",
+    "failed": "failed",
+}
+
 
 def _error(status_code: int, code: str, message: str, *, retryable: bool) -> JSONResponse:
     return JSONResponse(

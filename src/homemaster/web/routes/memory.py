@@ -13,8 +13,15 @@ import logging
 
 from fastapi import FastAPI
 
+from homemaster.memory.feedback_runs import NullFeedbackRunInspector
 from homemaster.memory.memory_work_store import JOB_IMPLICIT_FEEDBACK
-from homemaster.web._shared import _WEB_PERMISSION_SUBJECT, _application_services, _error
+from homemaster.web._shared import (
+    _ARCHIVE_STATE_MAP,
+    _WEB_PERMISSION_SUBJECT,
+    _application_services,
+    _error,
+    _session_ids,
+)
 from homemaster.web.context import WebAppContext
 from homemaster.web.memory_views import MemoryNotFoundError, MemoryUnavailableError
 from homemaster.web.schemas import (
@@ -37,6 +44,65 @@ def _non_noop_actions_count(result: object) -> int:
         for action in actions or []
         if isinstance(action, dict) and action.get("action") not in (None, "noop")
     )
+
+
+def _action_diff_view(diff: object) -> dict[str, object]:
+    """Public projection of one ActionDiff — shared by feedback and dreaming
+    run details so both pages render the identical before/after wire shape."""
+    before = getattr(diff, "before", None)
+    after = getattr(diff, "after", None)
+    return {
+        "action_id": getattr(diff, "action_id", None),
+        "action": getattr(diff, "action", None),
+        "memory_id": getattr(diff, "memory_id", None),
+        "memory_session_id": getattr(diff, "memory_session_id", None),
+        "before": (
+            {"content": before.content, "status": before.status}
+            if before is not None
+            else None
+        ),
+        "after": (
+            {"content": after.content, "status": after.status}
+            if after is not None
+            else None
+        ),
+        "missing": getattr(diff, "missing", False),
+    }
+
+
+def _aggregate_archive_state(archives: list[object]) -> str:
+    """Session-level archive badge: the most active state wins — any in-flight
+    archive means ``processing``, else any ``failed``, else all ``dreamed``
+    (public ``completed``). No archives means ``unarchived``."""
+    if not archives:
+        return "unarchived"
+    states = [
+        _ARCHIVE_STATE_MAP.get(getattr(archive, "status", ""), "unknown")
+        for archive in archives
+    ]
+    if "processing" in states:
+        return "processing"
+    if "failed" in states:
+        return "failed"
+    if "unknown" in states:
+        return "unknown"
+    return "completed"
+
+
+def _turn_user_preview(store: object, session_id: str, turn_id: str) -> str | None:
+    """Last ``role == 'user'`` message in one turn, truncated to 200 chars."""
+    events_for_turn = getattr(store, "events_for_turn", None)
+    if not callable(events_for_turn):
+        return None
+    try:
+        events = events_for_turn(session_id, turn_id)
+    except Exception:
+        return None
+    for event in reversed(events):
+        payload = getattr(event, "payload", None) or {}
+        if payload.get("role") == "user" and payload.get("content"):
+            return str(payload["content"])[:200]
+    return None
 
 
 def register(app: FastAPI, ctx: WebAppContext) -> None:
@@ -337,26 +403,188 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 }
                 for session in sessions
             ],
-            "actions": [
+            "actions": [_action_diff_view(diff) for diff in diffs],
+        }
+
+    # ``/api/memories/dreaming-sessions`` — literal segments like
+    # ``feedback-runs``: registered before ``/{memory_id}``.
+
+    @app.get("/api/memories/dreaming-sessions")
+    async def dreaming_sessions(limit: int = 500) -> object:
+        """List every session with its aggregate archive/dreaming state."""
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        store = _application_services(application).get("memory_work_store")
+        list_archives = getattr(store, "list_archives", None)
+        if not callable(list_archives):
+            return _error(
+                503,
+                "dreaming_unavailable",
+                "Dreaming observability is unavailable.",
+                retryable=True,
+            )
+        archives = await asyncio.to_thread(list_archives, limit=limit)
+        by_session: dict[str, list[object]] = {}
+        for archive in archives:
+            by_session.setdefault(archive.session_id, []).append(archive)
+        return {
+            "sessions": [
                 {
-                    "action_id": diff.action_id,
-                    "action": diff.action,
-                    "memory_id": diff.memory_id,
-                    "memory_session_id": diff.memory_session_id,
-                    "before": (
-                        {"content": diff.before.content, "status": diff.before.status}
-                        if diff.before is not None
-                        else None
+                    "session_id": summary.session_id,
+                    "title": summary.title,
+                    "updated_at": summary.updated_at,
+                    "archive_state": _aggregate_archive_state(
+                        by_session.get(summary.session_id) or []
                     ),
-                    "after": (
-                        {"content": diff.after.content, "status": diff.after.status}
-                        if diff.after is not None
-                        else None
+                    "archive_count": len(by_session.get(summary.session_id) or []),
+                    "last_archive_at": max(
+                        (a.created_at for a in by_session.get(summary.session_id) or []),
+                        default=None,
                     ),
-                    "missing": diff.missing,
                 }
-                for diff in diffs
-            ],
+                for summary in application.session_manager.session_summaries()
+            ]
+        }
+
+    @app.get("/api/memories/dreaming-sessions/{session_id}")
+    async def dreaming_session_detail(session_id: str) -> object:
+        """Per-archive dreaming detail: seeds, jobs, and before/after diffs."""
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        services = _application_services(application)
+        store = services.get("memory_work_store")
+        archives_fn = getattr(store, "archives_for_session", None)
+        job_fn = getattr(store, "job", None)
+        op_fn = getattr(store, "job_by_operation_key", None)
+        turns_fn = getattr(store, "turns_for_session", None)
+        if not callable(archives_fn) or not callable(job_fn):
+            return _error(
+                503,
+                "dreaming_unavailable",
+                "Dreaming observability is unavailable.",
+                retryable=True,
+            )
+        inspector = services.get("feedback_run_inspector")
+
+        archives = await asyncio.to_thread(archives_fn, session_id)
+        session_excerpts: list[dict[str, object]] = []
+        if callable(turns_fn):
+            turns = await asyncio.to_thread(turns_fn, session_id)
+            for turn in turns[-5:]:
+                preview = await asyncio.to_thread(
+                    _turn_user_preview, store, session_id, turn.turn_id
+                )
+                session_excerpts.append(
+                    {"turn_id": turn.turn_id, "preview": preview}
+                )
+
+        archive_views: list[dict[str, object]] = []
+        for archive in archives:
+            job = (
+                await asyncio.to_thread(job_fn, archive.dreaming_job_id)
+                if archive.dreaming_job_id
+                else None
+            )
+            result = job.result if job is not None and isinstance(job.result, dict) else {}
+            seeds: list[dict[str, object]] = []
+            if callable(op_fn):
+                for op_id in archive.add_operation_ids:
+                    seed_job = await asyncio.to_thread(op_fn, op_id)
+                    turn_id = getattr(seed_job, "turn_id", None) if seed_job else None
+                    if turn_id is None:
+                        seeds.append(
+                            {
+                                "operation_id": op_id,
+                                "turn_id": None,
+                                "preview": None,
+                                "missing": True,
+                            }
+                        )
+                    else:
+                        preview = await asyncio.to_thread(
+                            _turn_user_preview, store, session_id, turn_id
+                        )
+                        seeds.append(
+                            {
+                                "operation_id": op_id,
+                                "turn_id": turn_id,
+                                "preview": preview,
+                                "missing": False,
+                            }
+                        )
+            if inspector is None or isinstance(inspector, NullFeedbackRunInspector):
+                actions: object = None
+                diffs_unavailable = True
+            elif job is None:
+                actions = []
+                diffs_unavailable = False
+            else:
+                diffs = await inspector.action_diffs(result.get("actions") or [])
+                actions = [_action_diff_view(diff) for diff in diffs]
+                diffs_unavailable = False
+            archive_views.append(
+                {
+                    "archive_id": archive.archive_id,
+                    "state": _ARCHIVE_STATE_MAP.get(archive.status, archive.status),
+                    "turn_range": [archive.turn_range_start, archive.turn_range_end],
+                    "max_event_seq": archive.max_event_seq,
+                    "created_at": archive.created_at,
+                    "job": (
+                        {
+                            "job_id": job.job_id,
+                            "status": job.status,
+                            "attempts": job.attempts,
+                            "error": job.last_error,
+                            "dreaming_record_id": result.get("dreaming_record_id"),
+                            "raw_verified": result.get("raw_verified"),
+                            "missing_ids": result.get("missing_ids") or [],
+                            "extracted_count": (
+                                len(result["produced_memory_ids"])
+                                if isinstance(result.get("produced_memory_ids"), list)
+                                else None
+                            ),
+                        }
+                        if job is not None
+                        else None
+                    ),
+                    "seeds": seeds,
+                    "actions": actions,
+                    "diffs_unavailable": diffs_unavailable,
+                }
+            )
+        title = next(
+            (
+                summary.title
+                for summary in application.session_manager.session_summaries()
+                if summary.session_id == session_id
+            ),
+            None,
+        )
+        return {
+            "session_id": session_id,
+            "title": title,
+            "archive_state": _aggregate_archive_state(archives),
+            "session_excerpts": session_excerpts,
+            "archives": archive_views,
         }
 
     @app.get("/api/memories/{memory_id}")

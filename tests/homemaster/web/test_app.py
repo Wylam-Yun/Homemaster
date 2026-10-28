@@ -815,6 +815,241 @@ def test_feedback_runs_list_and_detail_routes() -> None:
             assert response.json()["code"] == "memory_unavailable"
 
 
+def _dreaming_stubs():
+    """Shared fakes for the dreaming observability routes."""
+    archive_pending = SimpleNamespace(
+        archive_id="archive:s1:10",
+        session_id=None,  # bound per test below
+        turn_range_start=0,
+        turn_range_end=9,
+        max_event_seq=10,
+        add_operation_ids=("op-add-1", "op-add-missing"),
+        status="pending",
+        dreaming_job_id="dj-1",
+        created_at=2.0,
+    )
+    dream_job = SimpleNamespace(
+        job_id="dj-1",
+        status="completed",
+        attempts=1,
+        last_error=None,
+        result={
+            "dreaming_record_id": "dr-1",
+            "produced_memory_ids": ["m1"],
+            "actions": [{"action_id": "a:0", "action": "add", "memory_id": "m1"}],
+            "raw_verified": True,
+            "missing_ids": [],
+        },
+    )
+    seed_job = SimpleNamespace(job_id="tj-1", turn_id="turn-3")
+    return archive_pending, dream_job, seed_job
+
+
+def test_dreaming_sessions_list_aggregate_states() -> None:
+    """Every session appears; aggregate badge follows most-active archive."""
+    archive_pending, dream_job, _ = _dreaming_stubs()
+    archive_dreamed = SimpleNamespace(
+        **{**vars(archive_pending), "archive_id": "archive:s2:5", "status": "dreamed",
+           "dreaming_job_id": "dj-2", "max_event_seq": 5, "created_at": 1.0}
+    )
+    archive_failed = SimpleNamespace(
+        **{**vars(archive_pending), "archive_id": "archive:s3:3", "status": "failed",
+           "dreaming_job_id": "dj-3", "max_event_seq": 3, "created_at": 0.5}
+    )
+    store = SimpleNamespace(
+        list_archives=lambda limit=500: [archive_pending, archive_dreamed, archive_failed],
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={"memory_work_store": store}
+    )
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        s_pending = client.post("/api/sessions").json()["session_id"]
+        s_done = client.post("/api/sessions").json()["session_id"]
+        s_failed = client.post("/api/sessions").json()["session_id"]
+        s_unarchived = client.post("/api/sessions").json()["session_id"]
+        archive_pending.session_id = s_pending
+        archive_dreamed.session_id = s_done
+        archive_failed.session_id = s_failed
+
+        listed = client.get("/api/memories/dreaming-sessions")
+        assert listed.status_code == 200
+        rows = {row["session_id"]: row for row in listed.json()["sessions"]}
+        assert set(rows) == {s_pending, s_done, s_failed, s_unarchived}
+        assert rows[s_pending]["archive_state"] == "processing"
+        assert rows[s_pending]["archive_count"] == 1
+        assert rows[s_pending]["last_archive_at"] == 2.0
+        assert rows[s_done]["archive_state"] == "completed"
+        assert rows[s_failed]["archive_state"] == "failed"
+        assert rows[s_unarchived]["archive_state"] == "unarchived"
+        assert rows[s_unarchived]["archive_count"] == 0
+        assert rows[s_unarchived]["last_archive_at"] is None
+
+    files_app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+    with TestClient(files_app) as client:
+        response = client.get("/api/memories/dreaming-sessions")
+        assert response.status_code == 503
+        assert response.json()["code"] == "memory_unavailable"
+
+
+def test_dreaming_session_detail_seeds_and_diffs() -> None:
+    """Detail resolves seeds exactly via operation ids and reuses action diffs."""
+    archive, dream_job, seed_job = _dreaming_stubs()
+    events = [
+        SimpleNamespace(payload={"role": "user", "content": "我下周去爬山"}),
+        SimpleNamespace(payload={"role": "assistant", "content": "好的"}),
+    ]
+    store = SimpleNamespace(
+        archives_for_session=lambda session_id: [archive],
+        job=lambda job_id: {"dj-1": dream_job}.get(job_id),
+        job_by_operation_key=lambda key: {"op-add-1": seed_job}.get(key),
+        turns_for_session=lambda session_id: [SimpleNamespace(turn_id="turn-3")],
+        events_for_turn=lambda session_id, turn_id: events,
+    )
+    inspector = SimpleNamespace(
+        action_diffs=lambda actions: _coro(
+            [
+                SimpleNamespace(
+                    action_id="a:0",
+                    action="add",
+                    memory_id="m1",
+                    memory_session_id="s1",
+                    before=None,
+                    after=SimpleNamespace(content="喜欢爬山", status="active"),
+                    missing=False,
+                )
+            ]
+        ),
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={
+            "memory_work_store": store,
+            "feedback_run_inspector": inspector,
+        }
+    )
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        archive.session_id = session_id
+
+        detail = client.get(f"/api/memories/dreaming-sessions/{session_id}")
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["archive_state"] == "processing"
+        assert body["session_excerpts"] == [
+            {"turn_id": "turn-3", "preview": "我下周去爬山"}
+        ]
+        assert len(body["archives"]) == 1
+        view = body["archives"][0]
+        assert view["archive_id"] == "archive:s1:10"
+        assert view["state"] == "processing"
+        assert view["turn_range"] == [0, 9]
+        assert view["job"]["dreaming_record_id"] == "dr-1"
+        assert view["job"]["raw_verified"] is True
+        assert view["job"]["extracted_count"] == 1
+        assert view["seeds"] == [
+            {
+                "operation_id": "op-add-1",
+                "turn_id": "turn-3",
+                "preview": "我下周去爬山",
+                "missing": False,
+            },
+            {
+                "operation_id": "op-add-missing",
+                "turn_id": None,
+                "preview": None,
+                "missing": True,
+            },
+        ]
+        assert view["diffs_unavailable"] is False
+        assert view["actions"] == [
+            {
+                "action_id": "a:0",
+                "action": "add",
+                "memory_id": "m1",
+                "memory_session_id": "s1",
+                "before": None,
+                "after": {"content": "喜欢爬山", "status": "active"},
+                "missing": False,
+            }
+        ]
+
+        assert client.get("/api/memories/dreaming-sessions/nope").status_code == 404
+
+
+def test_dreaming_session_detail_unarchived_and_inspector_missing() -> None:
+    """Unarchived session still renders (empty archives); absent inspector
+    degrades to diffs_unavailable rather than an empty list."""
+    store = SimpleNamespace(
+        archives_for_session=lambda session_id: [],
+        job=lambda job_id: None,
+        turns_for_session=lambda session_id: [SimpleNamespace(turn_id="turn-1")],
+        events_for_turn=lambda session_id, turn_id: [
+            SimpleNamespace(payload={"role": "user", "content": "你好"})
+        ],
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={"memory_work_store": store}
+    )
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        detail = client.get(f"/api/memories/dreaming-sessions/{session_id}")
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["archive_state"] == "unarchived"
+        assert body["archives"] == []
+        assert body["session_excerpts"] == [{"turn_id": "turn-1", "preview": "你好"}]
+
+    # Inspector absent with a real archive -> diffs_unavailable flag.
+    archive, dream_job, _ = _dreaming_stubs()
+    store2 = SimpleNamespace(
+        archives_for_session=lambda session_id: [archive],
+        job=lambda job_id: dream_job,
+        job_by_operation_key=lambda key: None,
+        turns_for_session=lambda session_id: [],
+    )
+    application2 = _FakeApplication()
+    application2.settings = SimpleNamespace(
+        application_services={"memory_work_store": store2}
+    )
+    app2 = create_web_app(
+        application=application2,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+    with TestClient(app2) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        archive.session_id = session_id
+        detail = client.get(f"/api/memories/dreaming-sessions/{session_id}")
+        assert detail.status_code == 200
+        view = detail.json()["archives"][0]
+        assert view["actions"] is None
+        assert view["diffs_unavailable"] is True
+        assert view["seeds"][0]["missing"] is True
+
+
 def test_session_attachment_upload_and_message_delivery(tmp_path: Path) -> None:
     import base64
 
@@ -874,6 +1109,8 @@ def test_web_route_table_is_stable() -> None:
         ("/api/health", ("GET",)),
         ("/api/memories", ("GET",)),
         ("/api/memories", ("POST",)),
+        ("/api/memories/dreaming-sessions", ("GET",)),
+        ("/api/memories/dreaming-sessions/{session_id}", ("GET",)),
         ("/api/memories/feedback-runs", ("GET",)),
         ("/api/memories/feedback-runs/{job_id}", ("GET",)),
         ("/api/memories/graph", ("GET",)),
@@ -911,9 +1148,13 @@ def test_web_route_table_is_stable() -> None:
         ("/api/sessions/{session_id}/questions/{question_id}/answer", ("POST",)),
         ("/api/sessions/{session_id}/status", ("GET",)),
         ("/api/sessions/{session_id}/stream", ("GET",)),
+        ("/api/skill-evolution", ("GET",)),
+        ("/api/skill-evolution/{cloud_skill_id}", ("GET",)),
+        ("/api/skill-evolution/{cloud_skill_id}/versions/{version_id}/content", ("GET",)),
         ("/api/skills", ("GET",)),
         ("/api/skills/import", ("POST",)),
         ("/api/skills/resolve", ("POST",)),
         ("/api/skills/{name}", ("DELETE",)),
+        ("/api/skills/{name}/evolution", ("POST",)),
     ]
     assert actual == expected

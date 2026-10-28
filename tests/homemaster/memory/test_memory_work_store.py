@@ -239,6 +239,33 @@ class TestArchives:
         )
         assert a.archive_id != b.archive_id
 
+    def test_list_archives_all_sessions_desc(self, store):
+        first = store.create_archive(
+            "s1", turn_range_start=0, turn_range_end=9, max_event_seq=10,
+            add_operation_ids=["op1"], intent_payload={},
+        )
+        second = store.create_archive(
+            "s2", turn_range_start=0, turn_range_end=4, max_event_seq=7,
+            add_operation_ids=["op2"], intent_payload={},
+        )
+        third = store.create_archive(
+            "s1", turn_range_start=10, turn_range_end=11, max_event_seq=20,
+            add_operation_ids=["op3"], intent_payload={},
+        )
+        listed = store.list_archives()
+        assert [a.archive_id for a in listed] == [
+            third.archive_id, second.archive_id, first.archive_id
+        ]
+        # Per-instance field fidelity, not just ids.
+        by_id = {a.archive_id: a for a in listed}
+        assert by_id[first.archive_id].session_id == "s1"
+        assert by_id[first.archive_id].add_operation_ids == ("op1",)
+        assert by_id[second.archive_id].session_id == "s2"
+        assert by_id[second.archive_id].turn_range_end == 4
+        assert by_id[third.archive_id].max_event_seq == 20
+        limited = store.list_archives(limit=2)
+        assert [a.archive_id for a in limited] == [third.archive_id, second.archive_id]
+
 
 class TestSkillInvocations:
     def test_open_seal_steps(self, store):
@@ -322,6 +349,170 @@ class TestSkillInvocations:
             "inv-cold", task_input="i", agent_completion="c", outcome="success", score=0.9,
         )
         assert store.pending_evolution_skills(8) == ["hot"]
+
+    def _seal(self, store, invocation_id, cloud_skill_id, *, skill_id="sk"):
+        store.open_skill_invocation(
+            invocation_id, session_id="s", turn_id="t", skill_id=skill_id,
+            cloud_skill_id=cloud_skill_id, skill_version_id="v",
+            skill_content_hash="h",
+        )
+        store.seal_skill_invocation(
+            invocation_id, task_input="i", agent_completion="c",
+            outcome="success", score=0.9,
+        )
+
+    def test_skills_with_invocations(self, store):
+        for i in range(3):
+            self._seal(store, f"a-{i}", "cloud-a", skill_id="skill-a")
+        store.open_skill_invocation(
+            "a-open", session_id="s", turn_id="t", skill_id="skill-a",
+            cloud_skill_id="cloud-a", skill_version_id="v", skill_content_hash="h",
+        )
+        self._seal(store, "b-0", "cloud-b", skill_id="skill-b")
+        rows = {r["cloud_skill_id"]: r for r in store.skills_with_invocations()}
+        assert set(rows) == {"cloud-a", "cloud-b"}
+        assert rows["cloud-a"]["skill_id"] == "skill-a"
+        assert rows["cloud-a"]["invocation_count"] == 4  # open 也计入总数
+        assert rows["cloud-b"]["invocation_count"] == 1
+        assert rows["cloud-a"]["last_sealed_at"] is not None
+
+    def test_skill_invocations_for_skill_ordering(self, store):
+        self._seal(store, "sealed-1", "cloud-a")
+        self._seal(store, "sealed-2", "cloud-a")
+        store.open_skill_invocation(
+            "open-1", session_id="s", turn_id="t", skill_id="sk",
+            cloud_skill_id="cloud-a", skill_version_id="v", skill_content_hash="h",
+        )
+        self._seal(store, "other", "cloud-b")
+        invs = store.skill_invocations_for_skill("cloud-a")
+        assert [i.invocation_id for i in invs] == ["open-1", "sealed-2", "sealed-1"]
+        # Per-instance fidelity.
+        assert invs[0].status == "open" and invs[0].sealed_at is None
+        assert invs[1].status == "sealed" and invs[1].score == 0.9
+        assert all(i.cloud_skill_id == "cloud-a" for i in invs)
+
+    def test_skill_evolution_batches_for_skill(self, store):
+        for i in range(8):
+            self._seal(store, f"inv-{i}", "cloud-a")
+        ids = store.claim_skill_traces("cloud-a", batch_id="b1", count=8)
+        store.create_evolution_batch(
+            "b1", cloud_skill_id="cloud-a", trace_ids=ids, job_id="job-1"
+        )
+        store.create_evolution_batch(
+            "bx", cloud_skill_id="cloud-b", trace_ids=["z"], job_id=None
+        )
+        batches = store.skill_evolution_batches_for_skill("cloud-a")
+        assert len(batches) == 1
+        batch = batches[0]
+        assert batch.batch_id == "b1"
+        assert batch.cloud_skill_id == "cloud-a"
+        assert set(batch.trace_ids) == set(ids)
+        assert batch.job_id == "job-1"
+        assert batch.status == "created"
+        assert store.skill_evolution_batches_for_skill("nope") == []
+
+    def test_evolution_batch_job_id_backfilled_on_second_insert(self, store):
+        """``maybe_evolve`` inserts the row before the job exists, then calls
+        again with the real ``job_id`` — the second call must backfill it."""
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id=None
+        )
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id="job-9"
+        )
+        [batch] = store.skill_evolution_batches_for_skill("cloud-a")
+        assert batch.job_id == "job-9"
+        # A later call with job_id=None must not clobber the backfilled value.
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id=None
+        )
+        assert store.skill_evolution_batches_for_skill("cloud-a")[0].job_id == "job-9"
+
+    def test_release_skill_traces_restores_sealed(self, store):
+        """A partial claim that never forms a batch must hand its traces back
+        so a later seal can still reach the threshold."""
+        for i in range(8):
+            self._seal(store, f"inv-{i}", "cloud-a")
+        claimed = store.claim_skill_traces("cloud-a", batch_id="ghost", count=8)
+        assert len(claimed) == 8
+        assert store.unconsumed_trace_count("cloud-a") == 0
+        store.release_skill_traces(claimed)
+        assert store.unconsumed_trace_count("cloud-a") == 8
+        # And they are claimable again under a new batch id.
+        assert len(store.claim_skill_traces("cloud-a", batch_id="real", count=8)) == 8
+
+
+class TestSkillEvolutionFlags:
+    """The per-skill toggle: missing/disabled rows gate ``maybe_evolve``; the
+    stored ``cloud_skill_id`` is the server-minted uuid the executor submits
+    under."""
+
+    def _seal_n(self, store, cloud_skill_id, n, prefix="inv"):
+        for i in range(n):
+            store.open_skill_invocation(
+                f"{prefix}-{i}", session_id="s", turn_id=f"t{i}", skill_id="sk",
+                cloud_skill_id=cloud_skill_id, skill_version_id="v",
+                skill_content_hash="h",
+            )
+            store.seal_skill_invocation(
+                f"{prefix}-{i}", task_input="i", agent_completion="c",
+                outcome="success", score=0.9,
+            )
+
+    def test_flag_roundtrip_and_disable_preserves_uuid(self, store):
+        assert store.skill_evolution_flag("sk-1") is None
+        assert store.skill_evolution_enabled("sk-1") is False
+        store.set_skill_evolution_flag("sk-1", enabled=True, cloud_skill_id="uuid-1")
+        flag = store.skill_evolution_flag("sk-1")
+        assert flag["enabled"] is True and flag["cloud_skill_id"] == "uuid-1"
+        # Disable: enabled flips off but the server id survives re-enable.
+        store.set_skill_evolution_flag("sk-1", enabled=False)
+        flag = store.skill_evolution_flag("sk-1")
+        assert flag["enabled"] is False and flag["cloud_skill_id"] == "uuid-1"
+        store.set_skill_evolution_flag("sk-1", enabled=True, cloud_skill_id="uuid-1")
+        assert store.skill_evolution_enabled("sk-1") is True
+        # List view keys rows by skill_id.
+        flags = store.skill_evolution_flags()
+        assert flags["sk-1"]["enabled"] is True
+
+    def test_maybe_evolve_gated_by_flag(self, store):
+        from homemaster.memory.skill_invocations import (
+            EVOLUTION_MIN_TRACES,
+            SkillInvocationTracker,
+        )
+
+        tracker = SkillInvocationTracker(store)
+        self._seal_n(store, "cloud-off", EVOLUTION_MIN_TRACES)
+        # No flag row → no claim, no batch, no job; traces stay sealed.
+        assert tracker.maybe_evolve("cloud-off") is None
+        assert store.unconsumed_trace_count("cloud-off") == EVOLUTION_MIN_TRACES
+        assert store.skill_evolution_batches_for_skill("cloud-off") == []
+        # Explicitly disabled is the same.
+        store.set_skill_evolution_flag("cloud-off", enabled=False)
+        assert tracker.maybe_evolve("cloud-off") is None
+        assert store.unconsumed_trace_count("cloud-off") == EVOLUTION_MIN_TRACES
+        # Toggling on unlocks the already-accumulated backlog.
+        store.set_skill_evolution_flag("cloud-off", enabled=True, cloud_skill_id="uuid-9")
+        batch_id = tracker.maybe_evolve("cloud-off")
+        assert batch_id is not None
+        [batch] = store.skill_evolution_batches_for_skill("cloud-off")
+        assert len(batch.trace_ids) == EVOLUTION_MIN_TRACES
+        assert store.unconsumed_trace_count("cloud-off") == 0
+        assert store.job(batch.job_id) is not None
+
+    def test_recover_pending_respects_flag(self, store):
+        from homemaster.memory.skill_invocations import (
+            EVOLUTION_MIN_TRACES,
+            SkillInvocationTracker,
+        )
+
+        tracker = SkillInvocationTracker(store)
+        self._seal_n(store, "cloud-on", EVOLUTION_MIN_TRACES)
+        self._seal_n(store, "cloud-off", EVOLUTION_MIN_TRACES)
+        store.set_skill_evolution_flag("cloud-on", enabled=True, cloud_skill_id="uuid-2")
+        created = tracker.recover_pending_evolutions()
+        assert len(created) == 1
+        assert store.skill_evolution_batches_for_skill("cloud-off") == []
 
 
 class TestAudit:

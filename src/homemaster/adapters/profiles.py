@@ -163,6 +163,14 @@ def build_tool_registry(
             else tool
             for tool in selected
         )
+    if environment == "robocasa":
+        # ``image_to_text`` hardcodes the OpenAI chat-completions SDK, but the
+        # benchmark provider serves an Anthropic-format endpoint — every call
+        # 404s with an HTML error page and pollutes stderr. The model can see
+        # observation images inline anyway, so the bridge adds nothing here.
+        selected = tuple(
+            tool for tool in selected if tool.definition.model_alias != "image_to_text"
+        )
     if environment == "robocasa" and memory_mode == "readonly":
         # ``readonly`` must be a real boundary for the memory ablation arm:
         # the mindmemos write tools arrive via the always-on home source, so

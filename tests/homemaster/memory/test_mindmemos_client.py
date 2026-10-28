@@ -18,6 +18,7 @@ from homemaster.memory.mindmemos_client import MemoryScope, MindMemOSClient
 class _CaptureTransport:
     def __init__(self, data: dict[str, Any] | None = None) -> None:
         self.posts: list[tuple[str, dict[str, Any]]] = []
+        self.gets: list[str] = []
         self._data = data or {}
 
     async def post_envelope(self, path: str, *, json: dict[str, Any]) -> Any:
@@ -25,6 +26,7 @@ class _CaptureTransport:
         return SimpleNamespace(data=self._data)
 
     async def get_envelope(self, path: str, *, params: Any = None) -> Any:
+        self.gets.append(path)
         return SimpleNamespace(data=self._data)
 
 
@@ -76,6 +78,62 @@ async def test_identity_endpoints_keep_actor_fields() -> None:
     await client.update_memory(memory_id="m-1", operation_id="op-2", content="x")
     _, body = transport.posts[-1]
     assert body["user_id"] == "tenant-a"
+
+
+@pytest.mark.asyncio
+async def test_list_skill_versions_maps_lineage() -> None:
+    """Versions list maps each entry's version/parent/status fields."""
+    transport = _CaptureTransport(
+        data={
+            "versions": [
+                {
+                    "version_id": "v2",
+                    "parent_version_id": "v1",
+                    "status": "draft",
+                    "version_label": "evo-1",
+                    "content_hash": "h2",
+                },
+                {
+                    "version_id": "v1",
+                    "parent_version_id": None,
+                    "status": "observed",
+                    "version_label": None,
+                    "content_hash": "h1",
+                },
+            ]
+        }
+    )
+    versions = await _client(transport).list_skill_versions(cloud_skill_id="cs-1")
+    assert transport.gets == ["/v1/skills/cs-1/versions"]
+    assert [v.version_id for v in versions] == ["v2", "v1"]
+    assert versions[0].parent_version_id == "v1"
+    assert versions[0].status == "draft"
+    assert versions[0].content_hash == "h2"
+    assert versions[1].parent_version_id is None
+
+
+@pytest.mark.asyncio
+async def test_get_skill_version_content_requests_exact_path() -> None:
+    """Content fetch hits the version-content route and returns full text."""
+    transport = _CaptureTransport(
+        data={
+            "version": {
+                "version_id": "v2",
+                "parent_version_id": "v1",
+                "status": "draft",
+                "version_label": "evo-1",
+                "content_hash": "h2",
+            },
+            "content": "---\nname: sk\n---\nbody",
+        }
+    )
+    result = await _client(transport).get_skill_version_content(
+        cloud_skill_id="cs-1", version_id="v2"
+    )
+    assert transport.gets == ["/v1/skills/cs-1/versions/v2/content"]
+    assert result.version.version_id == "v2"
+    assert result.version.parent_version_id == "v1"
+    assert result.content == "---\nname: sk\n---\nbody"
 
 
 __all__ = []

@@ -26,6 +26,7 @@ import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from homemaster.memory.memory_work_store import (
     JOB_SKILL_EVOLUTION,
@@ -237,17 +238,31 @@ class SkillInvocationTracker:
     def maybe_evolve(self, cloud_skill_id: str) -> str | None:
         """Claim exactly 8 sealed traces and enqueue one evolution job.
 
+        The threshold check must precede the claim: claiming below the
+        threshold would mark the traces ``consumed`` into a batch that never
+        gets a job, permanently starving the evolution trigger.
+
         Atomic across concurrent workers: ``claim_skill_traces`` marks the
         rows consumed inside the same transaction that returns them, so two
-        callers can never claim the same trace.
+        callers can never claim the same trace. A caller that loses the race
+        and ends up below the threshold releases its partial claim.
+
+        Evolution is gated by the per-skill toggle: a skill whose flag row
+        is missing or ``enabled=0`` never has its traces claimed. Sealed
+        traces still accumulate, so toggling on later can still reach the
+        threshold.
         """
-        batch_id = f"evolve:{cloud_skill_id}:{self._store.unconsumed_trace_count(cloud_skill_id)}"
+        if not self._store.skill_evolution_enabled(cloud_skill_id):
+            return None
+        if self._store.unconsumed_trace_count(cloud_skill_id) < EVOLUTION_MIN_TRACES:
+            return None
+        batch_id = f"evolve:{cloud_skill_id}:{uuid4().hex[:12]}"
         claimed = self._store.claim_skill_traces(
             cloud_skill_id, batch_id=batch_id, count=EVOLUTION_MAX_TRACES
         )
         if len(claimed) < EVOLUTION_MIN_TRACES:
+            self._store.release_skill_traces(claimed)
             return None
-        batch_id = f"evolve:{cloud_skill_id}:{claimed[0]}:{claimed[-1]}"
         self._store.create_evolution_batch(
             batch_id, cloud_skill_id=cloud_skill_id, trace_ids=claimed, job_id=None
         )

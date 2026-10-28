@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
+from homemaster.memory.mindmemos_client import MindMemOSClientError
 
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillProvenance, SkillRegistry
@@ -294,3 +298,376 @@ def test_delete_reports_resurrection_when_shadowed_copy_remains(tmp_path) -> Non
         remaining = [root for root in (root_a, root_b) if (root / "housekeeping").exists()]
         assert len(remaining) == 1
         assert registry.get("housekeeping") is not None
+
+
+# ---------------------------------------------------------------------------
+# Skill evolution observability routes
+# ---------------------------------------------------------------------------
+
+
+def _evolution_store() -> MagicMock:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    store.skills_with_invocations.return_value = [
+        {"cloud_skill_id": "cs-1", "skill_id": "housekeeping", "invocation_count": 9}
+    ]
+    store.unconsumed_trace_count.return_value = 1
+    store.skill_evolution_batches_for_skill.return_value = [
+        SimpleNamespace(
+            batch_id="b-1",
+            # Rows written before the job_id upsert have NULL — the route must
+            # fall back to the deterministic ``skillevolve:{batch_id}`` key.
+            job_id=None,
+            status="created",
+            created_at=1793170086.0,
+            trace_ids=["t-1"],
+        )
+    ]
+    job = SimpleNamespace(
+        job_id="job-skillevolve:b-1",
+        status="completed",
+        attempts=1,
+        last_error=None,
+        result={"draft_version_id": "v2"},
+    )
+    store.job.return_value = None
+    store.job_by_operation_key.return_value = job
+    store.skill_invocations_for_skill.return_value = [
+        SimpleNamespace(
+            invocation_id="inv-1",
+            skill_id="housekeeping",
+            status="consumed",
+            score=0.9,
+            outcome="success",
+            task_input="tidy",
+            sealed_at=1793169486.0,
+            evolution_batch_id="b-1",
+            skill_version_id="v1",
+        )
+    ]
+    store.invocation_steps.return_value = [
+        SimpleNamespace(
+            tool_call_id="call-1",
+            tool_name="load_skill",
+            arguments={"name": "housekeeping"},
+            tool_result_tail="loaded housekeeping",
+            tool_result_truncated=False,
+            status="success",
+        )
+    ]
+    return store
+
+
+def _evolution_client() -> MagicMock:
+    client = MagicMock()
+    client.list_skill_versions = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                version_id="v2",
+                parent_version_id="v1",
+                status="draft",
+                version_label="evo-1",
+                content_hash="h2",
+            ),
+            SimpleNamespace(
+                version_id="v1",
+                parent_version_id=None,
+                status="observed",
+                version_label=None,
+                content_hash="h1",
+            ),
+        ]
+    )
+    client.get_skill_version_content = AsyncMock(
+        side_effect=lambda *, cloud_skill_id, version_id: SimpleNamespace(
+            version=SimpleNamespace(
+                version_id=version_id,
+                parent_version_id="v1" if version_id == "v2" else None,
+                status="draft" if version_id == "v2" else "observed",
+            ),
+            content=json.dumps(
+                [{"path": "SKILL.md", "content": f"---\nname: sk-{version_id}\n---\nbody-{version_id}"}]
+            ),
+        )
+    )
+    return client
+
+
+def _evolution_app(store, client):
+    application = _P03Application(
+        services={"memory_work_store": store, "mindmemos_client": client}
+    )
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    return create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+
+
+def test_skill_evolution_overview_lists_skills() -> None:
+    store = _evolution_store()
+    with TestClient(_evolution_app(store, _evolution_client())) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 200
+        [skill] = response.json()["skills"]
+        assert skill["cloud_skill_id"] == "cs-1"
+        assert skill["skill_id"] == "housekeeping"
+        assert skill["evolution_enabled"] is False
+        assert skill["invocation_count"] == 9
+        assert skill["unconsumed_count"] == 1
+        assert skill["batches_count"] == 1
+        assert skill["last_draft_version_id"] == "v2"
+
+
+def test_skill_evolution_overview_lists_flagged_skill_without_traces() -> None:
+    """An enabled flag with zero invocations must still appear — toggling the
+    switch on is supposed to be visible on the evolution page immediately."""
+    store = _evolution_store()
+    store.skills_with_invocations.return_value = []
+    store.skill_evolution_flags.return_value = {
+        "fresh-skill": {
+            "skill_id": "fresh-skill",
+            "cloud_skill_id": "uuid-fresh",
+            "enabled": True,
+        }
+    }
+    store.skill_evolution_batches_for_skill.return_value = []
+    store.unconsumed_trace_count.return_value = 0
+    with TestClient(_evolution_app(store, _evolution_client())) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 200
+        [skill] = response.json()["skills"]
+        assert skill["skill_id"] == "fresh-skill"
+        assert skill["cloud_skill_id"] == "uuid-fresh"
+        assert skill["evolution_enabled"] is True
+        assert skill["batches_count"] == 0
+
+
+def test_skill_evolution_detail_resolves_flag_ids() -> None:
+    """Detail called with the uuid must query local rows by LOCAL name and
+    remote versions by the server-minted uuid."""
+    store = _evolution_store()
+    store.skill_evolution_flags.return_value = {
+        "housekeeping": {
+            "skill_id": "housekeeping",
+            "cloud_skill_id": "uuid-hk",
+            "enabled": True,
+        }
+    }
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/uuid-hk")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["skill_id"] == "housekeeping"
+        assert body["cloud_skill_id"] == "uuid-hk"
+        assert body["evolution_enabled"] is True
+        # local queries used the local name, remote queries the uuid
+        store.skill_invocations_for_skill.assert_called_with("housekeeping")
+        store.skill_evolution_batches_for_skill.assert_called_with("housekeeping")
+        remote.list_skill_versions.assert_awaited_with(cloud_skill_id="uuid-hk")
+
+
+def test_skill_evolution_content_resolves_flag_uuid() -> None:
+    store = _evolution_store()
+    store.skill_evolution_flags.return_value = {
+        "housekeeping": {
+            "skill_id": "housekeeping",
+            "cloud_skill_id": "uuid-hk",
+            "enabled": True,
+        }
+    }
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/housekeeping/versions/v2/content")
+        assert response.status_code == 200
+        remote.list_skill_versions.assert_awaited_with(cloud_skill_id="uuid-hk")
+        from unittest.mock import call
+
+        remote.get_skill_version_content.assert_has_awaits(
+            [
+                call(cloud_skill_id="uuid-hk", version_id="v2"),
+                call(cloud_skill_id="uuid-hk", version_id="v1"),
+            ]
+        )
+
+
+def test_skill_evolution_detail_shapes_invocations_batches_versions() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1")
+        assert response.status_code == 200
+        body = response.json()
+        [invocation] = body["invocations"]
+        assert invocation["invocation_id"] == "inv-1"
+        assert invocation["evolution_batch_id"] == "b-1"
+        [step] = invocation["steps"]
+        assert step["tool_name"] == "load_skill"
+        assert step["result_tail"] == "loaded housekeeping"
+        [batch] = body["batches"]
+        assert batch["batch_id"] == "b-1"
+        # job resolved via the skillevolve: fallback makes status authoritative.
+        assert batch["status"] == "completed"
+        assert batch["draft_version_id"] == "v2"
+        assert batch["job"]["status"] == "completed"
+        store.job_by_operation_key.assert_called_with("skillevolve:b-1")
+        assert body["batch_size"] == 8
+        assert body["versions"][0]["version_id"] == "v2"
+        assert body["versions_unavailable"] is False
+
+
+def test_skill_evolution_detail_marks_versions_unavailable() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    remote.list_skill_versions.side_effect = MindMemOSClientError("down")
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["versions"] is None
+        assert body["versions_unavailable"] is True
+
+
+def test_skill_evolution_version_content_returns_draft_and_parent() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1/versions/v2/content")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["version_id"] == "v2"
+        assert body["content"].endswith("body-v2")
+        assert body["parent"]["version_id"] == "v1"
+        assert body["parent"]["content"].endswith("body-v1")
+
+
+def test_skill_evolution_version_content_404_for_foreign_version() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1/versions/v999/content")
+        assert response.status_code == 404
+        assert response.json()["code"] == "skill_version_not_found"
+        remote.get_skill_version_content.assert_not_called()
+
+
+def test_skill_evolution_unavailable_without_store() -> None:
+    application = _P03Application(services={})
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 503
+        assert response.json()["code"] == "skill_evolution_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Per-skill evolution toggle (register-on-enable)
+# ---------------------------------------------------------------------------
+
+
+def _toggle_app(tmp_path, store, client) -> object:
+    skill = SkillDefinition(
+        name="evolveme",
+        description="d",
+        content="SKILL-CONTENT",
+        source="project",
+        user_invocable=False,
+    )
+    registry = _registry_with(tmp_path / "skills", skill)
+    application = _P03Application(
+        services={
+            "skill_registry": registry,
+            "memory_work_store": store,
+            "mindmemos_client": client,
+        }
+    )
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    return create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+
+
+def test_evolution_toggle_enable_registers_upstream_and_persists_flag(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    remote = MagicMock()
+    remote.register_skill = AsyncMock(
+        return_value={
+            "cloud_skill_id": "uuid-42",
+            "version_id": "ver-1",
+            "version_label": None,
+            "content_hash": "hash-1",
+            "status": "observed",
+        }
+    )
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["evolution_enabled"] is True
+        assert body["evolution_cloud_skill_id"] == "uuid-42"
+        assert body["version_id"] == "ver-1"
+        # Registered with the registry's canonical content, and the returned
+        # server id — not the local name — is what gets persisted.
+        remote.register_skill.assert_awaited_once_with(
+            name="evolveme", content="SKILL-CONTENT"
+        )
+        store.set_skill_evolution_flag.assert_called_once_with(
+            "evolveme", enabled=True, cloud_skill_id="uuid-42"
+        )
+
+
+def test_evolution_toggle_disable_keeps_upstream_registration(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    store.skill_evolution_flag.return_value = {
+        "skill_id": "evolveme",
+        "cloud_skill_id": "uuid-42",
+        "enabled": True,
+    }
+    remote = MagicMock()
+    remote.register_skill = AsyncMock()
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": False})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["evolution_enabled"] is False
+        # The stored server id is still reported (registration is not undone).
+        assert body["evolution_cloud_skill_id"] == "uuid-42"
+        remote.register_skill.assert_not_awaited()
+        store.set_skill_evolution_flag.assert_called_once_with("evolveme", enabled=False)
+
+
+def test_evolution_toggle_unknown_skill_404s(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    with TestClient(_toggle_app(tmp_path, store, MagicMock())) as client:
+        response = client.post("/api/skills/nosuch/evolution", json={"enabled": True})
+        assert response.status_code == 404
+        assert response.json()["code"] == "skill_not_found"
+
+
+def test_evolution_toggle_fails_closed_when_client_fails(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    remote = MagicMock()
+    remote.register_skill = AsyncMock(
+        side_effect=MindMemOSClientError("upstream down")
+    )
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": True})
+        assert response.status_code == 502
+        assert response.json()["code"] == "mindmemos_register_failed"
+        # A failed registration must not leave a half-enabled flag row.
+        store.set_skill_evolution_flag.assert_not_called()

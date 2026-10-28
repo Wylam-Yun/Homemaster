@@ -217,6 +217,132 @@ export type FeedbackRunDetail = FeedbackRun & {
   actions: FeedbackActionDiff[]
 }
 
+/** GET /api/memories/dreaming-sessions — one session row with its aggregate
+ * archive badge. ``unarchived`` covers active sessions with no archive yet. */
+export type DreamingSessionRow = {
+  session_id: string
+  title: string
+  updated_at: string | null
+  archive_state: 'unarchived' | 'processing' | 'completed' | 'failed' | string
+  archive_count: number
+  last_archive_at: number | null
+}
+
+export type DreamingSeed = {
+  operation_id: string
+  turn_id: string | null
+  preview: string | null
+  missing: boolean
+}
+
+export type DreamingJob = {
+  job_id: string
+  status: string
+  attempts: number
+  error: string | null
+  dreaming_record_id: string | null
+  raw_verified: boolean | null
+  missing_ids: string[]
+  extracted_count: number | null
+}
+
+export type DreamingArchive = {
+  archive_id: string
+  state: string
+  turn_range: [number, number]
+  max_event_seq: number
+  created_at: number
+  job: DreamingJob | null
+  seeds: DreamingSeed[]
+  actions: FeedbackActionDiff[] | null
+  diffs_unavailable: boolean
+}
+
+/** GET /api/memories/dreaming-sessions/{session_id} — per-archive runs. */
+export type DreamingSessionDetail = {
+  session_id: string
+  title: string | null
+  archive_state: string
+  session_excerpts: { turn_id: string; preview: string | null }[]
+  archives: DreamingArchive[]
+}
+
+/** GET /api/skill-evolution — one row per skill that has cloud-registered
+ * invocations. */
+export type SkillEvolutionRow = {
+  cloud_skill_id: string
+  skill_id: string | null
+  evolution_enabled: boolean
+  invocation_count: number | null
+  unconsumed_count: number | null
+  batch_size: number
+  batches_count: number
+  last_batch_at: number | null
+  last_draft_version_id: string | null
+}
+
+export type SkillInvocationStep = {
+  tool_call_id: string | null
+  tool_name: string | null
+  arguments: Record<string, unknown> | null
+  result_tail: string | null
+  result_truncated: boolean | null
+  status: string | null
+}
+
+export type SkillInvocationView = {
+  invocation_id: string
+  status: string
+  score: number | null
+  outcome: string | null
+  task_input: string | null
+  sealed_at: number | null
+  evolution_batch_id: string | null
+  skill_version_id: string | null
+  steps: SkillInvocationStep[]
+}
+
+export type SkillEvolutionBatchView = {
+  batch_id: string
+  status: string
+  created_at: number | null
+  trace_ids: string[]
+  job: { job_id: string; status: string; attempts: number; error: string | null } | null
+  draft_version_id: string | null
+}
+
+export type SkillVersionView = {
+  version_id: string
+  parent_version_id: string | null
+  status: string | null
+  version_label: string | null
+  content_hash: string | null
+}
+
+/** GET /api/skill-evolution/{cloud_skill_id} — traces, batches, and the
+ * server-side version lineage. */
+export type SkillEvolutionDetail = {
+  cloud_skill_id: string
+  skill_id: string | null
+  evolution_enabled: boolean
+  unconsumed_count: number | null
+  batch_size: number
+  invocations: SkillInvocationView[]
+  batches: SkillEvolutionBatchView[]
+  versions: SkillVersionView[] | null
+  versions_unavailable: boolean
+}
+
+/** GET .../versions/{version_id}/content — draft SKILL.md plus its parent for
+ * diff rendering. */
+export type SkillVersionContent = {
+  version_id: string
+  status: string | null
+  parent_version_id: string | null
+  content: string
+  parent: { version_id: string; content: string } | null
+}
+
 /** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
  * Neo4j relationships actually stored between them. */
 export type MemoryGraphNode = {
@@ -349,6 +475,19 @@ export type SkillInfo = {
   enabled: boolean
   /** Server-side delete eligibility (raw provenance === 'user'). */
   deletable?: boolean
+  /** Evolution gate: on → registered upstream, sealed traces may evolve. */
+  evolution_enabled?: boolean
+  /** Server-minted cloud_skill_id captured at enable time. */
+  evolution_cloud_skill_id?: string | null
+}
+
+/** POST /api/skills/{name}/evolution — toggle the evolution gate. */
+export type SkillEvolutionToggleResult = {
+  name: string
+  evolution_enabled: boolean
+  evolution_cloud_skill_id: string | null
+  version_id?: string | null
+  content_hash?: string | null
 }
 
 /** One rejected skill source reported alongside the skill list. */
@@ -541,6 +680,31 @@ export class HomeMasterApi {
     return this.request(`/api/memories/feedback-runs/${encodeURIComponent(jobId)}`)
   }
 
+  dreamingSessions(): Promise<{ sessions: DreamingSessionRow[] }> {
+    return this.request('/api/memories/dreaming-sessions')
+  }
+
+  dreamingSessionDetail(sessionId: string): Promise<DreamingSessionDetail> {
+    return this.request(`/api/memories/dreaming-sessions/${encodeURIComponent(sessionId)}`)
+  }
+
+  skillEvolutionOverview(): Promise<{ skills: SkillEvolutionRow[] }> {
+    return this.request('/api/skill-evolution')
+  }
+
+  skillEvolutionDetail(cloudSkillId: string): Promise<SkillEvolutionDetail> {
+    return this.request(`/api/skill-evolution/${encodeURIComponent(cloudSkillId)}`)
+  }
+
+  skillEvolutionVersionContent(
+    cloudSkillId: string,
+    versionId: string,
+  ): Promise<SkillVersionContent> {
+    return this.request(
+      `/api/skill-evolution/${encodeURIComponent(cloudSkillId)}/versions/${encodeURIComponent(versionId)}/content`,
+    )
+  }
+
   providers(): Promise<{ providers: ProviderProfile[] }> {
     return this.request('/api/providers')
   }
@@ -597,6 +761,14 @@ export class HomeMasterApi {
 
   deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }> {
     return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  /** Enable registers the skill upstream; disable only flips the local gate. */
+  setSkillEvolution(name: string, enabled: boolean): Promise<SkillEvolutionToggleResult> {
+    return this.request(`/api/skills/${encodeURIComponent(name)}/evolution`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    })
   }
 
   resolveSkill(text: string): Promise<SkillResolveResult> {

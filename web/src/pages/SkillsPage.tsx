@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HttpError, type SkillInfo, type SkillIssueInfo } from '../api/http'
+import { HttpError, type SkillEvolutionToggleResult, type SkillInfo, type SkillIssueInfo } from '../api/http'
 import { useToast } from '../components/toast'
 import { PageHeader } from '../components/ui/PageHeader'
 import { IconSearch } from '../components/ui/icons'
@@ -14,6 +14,7 @@ export type SkillsApi = {
     overwrite?: boolean,
   ): Promise<{ status: string; skill: SkillInfo }>
   deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }>
+  setSkillEvolution(name: string, enabled: boolean): Promise<SkillEvolutionToggleResult>
 }
 
 type FilterMode = 'all' | 'invocable' | 'auto' | 'user'
@@ -50,6 +51,7 @@ export function SkillsPage({
   const [importing, setImporting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [toggling, setToggling] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<FilterMode>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -123,6 +125,41 @@ export function SkillsPage({
       setDeleting(false)
     }
   }, [api, refresh, toast])
+
+  const toggleEvolution = useCallback(async (skill: SkillInfo) => {
+    const next = skill.evolution_enabled !== true
+    setToggling(skill.name)
+    try {
+      const result = await api.setSkillEvolution(skill.name, next)
+      setSkills(current =>
+        current === null
+          ? current
+          : current.map(item =>
+              item.name === skill.name
+                ? {
+                    ...item,
+                    evolution_enabled: result.evolution_enabled,
+                    evolution_cloud_skill_id: result.evolution_cloud_skill_id,
+                  }
+                : item,
+            ),
+      )
+      toast.show({
+        title: next ? `已开启「${skill.name}」进化` : `已关闭「${skill.name}」进化`,
+        description:
+          next && result.evolution_cloud_skill_id !== null
+            ? `已注册云端技能 ${result.evolution_cloud_skill_id}`
+            : undefined,
+      })
+    } catch (cause) {
+      toast.show({
+        title: `切换「${skill.name}」进化开关失败`,
+        description: cause instanceof Error ? cause.message : undefined,
+      })
+    } finally {
+      setToggling(null)
+    }
+  }, [api, toast])
 
   const filteredSkills = useMemo(() => {
     const list = skills ?? []
@@ -242,6 +279,12 @@ export function SkillsPage({
                   {sourceText !== undefined && <span className={styles.sourceHuman}>{sourceText}</span>}
                   <span className={styles.sourceBadge}>{skill.source}</span>
                   {!skill.user_invocable && <span className={styles.muteBadge} title="该技能由智能助手在推理过程中自动按需调用">不可直接调用</span>}
+                  {skill.evolution_enabled === true && (
+                    <span
+                      className={styles.evolveBadge}
+                      title={`已注册云端技能 ${skill.evolution_cloud_skill_id ?? ''}，sealed trace 达到 8 条后自动进化`}
+                    >可进化</span>
+                  )}
                 </span>
               </div>
               <p className={styles.description}>{skill.description || '（无描述）'}</p>
@@ -255,6 +298,22 @@ export function SkillsPage({
                     在对话中使用 /{skill.command_name} →
                   </button>
                 )}
+                <button
+                  type="button"
+                  className={skill.evolution_enabled === true ? styles.evolveOn : styles.evolveOff}
+                  disabled={toggling === skill.name}
+                  aria-pressed={skill.evolution_enabled === true}
+                  title={skill.evolution_enabled === true
+                    ? '已注册云端，点击关闭（保留云端注册）'
+                    : '开启后注册到 MindMemOS，攒满 8 条 sealed trace 自动进化'}
+                  onClick={() => { void toggleEvolution(skill) }}
+                >
+                  {toggling === skill.name
+                    ? '切换中…'
+                    : skill.evolution_enabled === true
+                      ? '进化：开'
+                      : '进化：关'}
+                </button>
                 {skill.deletable === true && (
                   <button
                     type="button"

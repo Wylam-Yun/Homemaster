@@ -25,7 +25,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Iterable, Literal, Protocol
 
 # ---------------------------------------------------------------------------
 # Status vocabularies (spec §6: shared operation/job status enum)
@@ -161,6 +161,16 @@ class SkillInvocation:
     evolution_batch_id: str | None
     created_at: float
     sealed_at: float | None
+
+
+@dataclass(frozen=True)
+class SkillEvolutionBatch:
+    batch_id: str
+    cloud_skill_id: str
+    trace_ids: tuple[str, ...]
+    job_id: str | None
+    status: str
+    created_at: float
 
 
 @dataclass(frozen=True)
@@ -302,6 +312,7 @@ class MemoryWorkStore(Protocol):
 
     def archive(self, archive_id: str) -> ArchiveSnapshot | None: ...
     def archives_for_session(self, session_id: str) -> list[ArchiveSnapshot]: ...
+    def list_archives(self, *, limit: int = 500) -> list[ArchiveSnapshot]: ...
     def attach_dreaming_job(self, archive_id: str, job_id: str) -> None: ...
     def settle_archive(self, archive_id: str, status: str) -> None: ...
 
@@ -331,10 +342,28 @@ class MemoryWorkStore(Protocol):
         score: float,
     ) -> SkillInvocation: ...
 
+    def skills_with_invocations(self) -> list[dict[str, Any]]: ...
+    def skill_invocations_for_skill(
+        self, cloud_skill_id: str, *, limit: int = 100
+    ) -> list[SkillInvocation]: ...
+    def skill_evolution_batches_for_skill(
+        self, cloud_skill_id: str
+    ) -> list[SkillEvolutionBatch]: ...
     def unconsumed_trace_count(self, cloud_skill_id: str) -> int: ...
     def claim_skill_traces(
         self, cloud_skill_id: str, *, batch_id: str, count: int
     ) -> list[str]: ...
+    def release_skill_traces(self, invocation_ids: Iterable[str]) -> None: ...
+    def skill_evolution_flag(self, skill_id: str) -> dict[str, Any] | None: ...
+    def skill_evolution_enabled(self, skill_id: str) -> bool: ...
+    def skill_evolution_flags(self) -> dict[str, dict[str, Any]]: ...
+    def set_skill_evolution_flag(
+        self,
+        skill_id: str,
+        *,
+        enabled: bool,
+        cloud_skill_id: str | None = None,
+    ) -> None: ...
     def pending_evolution_skills(self, min_traces: int) -> list[str]: ...
 
     # -- feedback watermarks ---------------------------------------------------
@@ -486,6 +515,12 @@ class SQLiteMemoryWorkStore:
                 job_id TEXT,
                 status TEXT NOT NULL,
                 created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skill_evolution_flags (
+                skill_id TEXT PRIMARY KEY,
+                cloud_skill_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL
             );
             CREATE TABLE IF NOT EXISTS feedback_watermarks (
                 scope_key TEXT NOT NULL,
@@ -1166,6 +1201,13 @@ class SQLiteMemoryWorkStore:
             ).fetchall()
             return [self._archive_row(row) for row in rows]
 
+    def list_archives(self, *, limit: int = 500) -> list[ArchiveSnapshot]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM archives ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [self._archive_row(row) for row in rows]
+
     def attach_dreaming_job(self, archive_id: str, job_id: str) -> None:
         with self._lock, self._db:
             self._db.execute(
@@ -1335,6 +1377,24 @@ class SQLiteMemoryWorkStore:
                 )
             return ids
 
+    def release_skill_traces(self, invocation_ids: Iterable[str]) -> None:
+        """Undo a claim that did not form a full batch.
+
+        A concurrent claim can leave a caller holding fewer than the batch
+        threshold; the loser must hand its partial claim back so a later seal
+        can still reach it.
+        """
+        ids = list(invocation_ids)
+        if not ids:
+            return
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE skill_invocations SET status = 'sealed', "
+                "evolution_batch_id = NULL WHERE invocation_id IN "
+                f"({','.join('?' for _ in ids)}) AND status = 'consumed'",
+                ids,
+            )
+
     def create_evolution_batch(
         self, batch_id: str, *, cloud_skill_id: str, trace_ids: list[str], job_id: str | None
     ) -> None:
@@ -1343,9 +1403,74 @@ class SQLiteMemoryWorkStore:
                 """INSERT INTO skill_evolution_batches (
                     batch_id, cloud_skill_id, trace_ids_json, job_id, status, created_at
                 ) VALUES (?, ?, ?, ?, 'created', ?)
-                ON CONFLICT (batch_id) DO NOTHING""",
+                ON CONFLICT (batch_id) DO UPDATE SET
+                    job_id = excluded.job_id
+                WHERE skill_evolution_batches.job_id IS NULL
+                    AND excluded.job_id IS NOT NULL""",
                 (batch_id, cloud_skill_id, _dump(list(trace_ids)), job_id, _now()),
             )
+
+    def set_skill_evolution_flag(
+        self,
+        skill_id: str,
+        *,
+        enabled: bool,
+        cloud_skill_id: str | None = None,
+    ) -> None:
+        """Upsert the per-skill evolution toggle.
+
+        ``cloud_skill_id`` is the server-minted id captured at enable time
+        (``POST /v1/skills/register``); disabling or re-enabling without a
+        fresh registration keeps the previously stored id.
+        """
+        with self._lock, self._db:
+            self._db.execute(
+                """INSERT INTO skill_evolution_flags (skill_id, cloud_skill_id, enabled, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (skill_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    cloud_skill_id = COALESCE(excluded.cloud_skill_id,
+                        skill_evolution_flags.cloud_skill_id),
+                    updated_at = excluded.updated_at""",
+                (skill_id, cloud_skill_id, 1 if enabled else 0, _now()),
+            )
+
+    def skill_evolution_flag(self, skill_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT skill_id, cloud_skill_id, enabled, updated_at "
+                "FROM skill_evolution_flags WHERE skill_id = ?",
+                (skill_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "skill_id": row["skill_id"],
+            "cloud_skill_id": row["cloud_skill_id"],
+            "enabled": bool(row["enabled"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def skill_evolution_enabled(self, skill_id: str) -> bool:
+        flag = self.skill_evolution_flag(skill_id)
+        return bool(flag and flag["enabled"])
+
+    def skill_evolution_flags(self) -> dict[str, dict[str, Any]]:
+        """All flag rows keyed by skill_id (for list views)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT skill_id, cloud_skill_id, enabled, updated_at "
+                "FROM skill_evolution_flags"
+            ).fetchall()
+        return {
+            row["skill_id"]: {
+                "skill_id": row["skill_id"],
+                "cloud_skill_id": row["cloud_skill_id"],
+                "enabled": bool(row["enabled"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        }
 
     def pending_evolution_skills(self, min_traces: int) -> list[str]:
         """Skills having at least ``min_traces`` sealed-but-unclaimed traces
@@ -1357,6 +1482,48 @@ class SQLiteMemoryWorkStore:
                 (min_traces,),
             ).fetchall()
             return [row["cloud_skill_id"] for row in rows]
+
+    def skills_with_invocations(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT cloud_skill_id, MIN(skill_id) AS skill_id, "
+                "COUNT(*) AS invocation_count, MAX(sealed_at) AS last_sealed_at "
+                "FROM skill_invocations GROUP BY cloud_skill_id "
+                "ORDER BY last_sealed_at DESC"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def skill_invocations_for_skill(
+        self, cloud_skill_id: str, *, limit: int = 100
+    ) -> list[SkillInvocation]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM skill_invocations WHERE cloud_skill_id = ? "
+                "ORDER BY COALESCE(sealed_at, created_at) DESC LIMIT ?",
+                (cloud_skill_id, limit),
+            ).fetchall()
+            return [self._invocation_row(row) for row in rows]
+
+    def skill_evolution_batches_for_skill(
+        self, cloud_skill_id: str
+    ) -> list[SkillEvolutionBatch]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM skill_evolution_batches WHERE cloud_skill_id = ? "
+                "ORDER BY created_at DESC",
+                (cloud_skill_id,),
+            ).fetchall()
+            return [
+                SkillEvolutionBatch(
+                    batch_id=row["batch_id"],
+                    cloud_skill_id=row["cloud_skill_id"],
+                    trace_ids=tuple(_load(row["trace_ids_json"]) or ()),
+                    job_id=row["job_id"],
+                    status=row["status"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
 
     # -- feedback watermarks ---------------------------------------------------------
 
@@ -1504,6 +1671,7 @@ __all__ = [
     "MemoryWorkStoreError",
     "OutboxJob",
     "SQLiteMemoryWorkStore",
+    "SkillEvolutionBatch",
     "SkillInvocation",
     "SkillInvocationStep",
     "StoreAudit",

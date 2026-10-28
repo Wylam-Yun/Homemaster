@@ -1,5 +1,45 @@
 # Unreleased
 
+- The Skills page gained an `进化` toggle per skill (`POST
+  /api/skills/{name}/evolution`). Enabling registers the skill with
+  MindMemOS (`POST /v1/skills/register`) and stores the server-issued
+  `cloud_skill_id` in a new `skill_evolution_flags` table; disabling
+  clears the flag. `memory_jobs` now resolves the real cloud id through
+  the flag when submitting traces and evolution batches — previously it
+  sent the local skill name, which the server never recognises
+  (`skill.not_found`). `/api/skill-evolution` lists the union of
+  flagged skills and invocation-backed skills, and detail routes split
+  local-id (traces/batches) from remote-id (versions/content) lookups,
+  so an enabled skill is observable immediately at `0/8` traces.
+
+- RoboCasa benchmark episodes no longer register the `image_to_text`
+  tool bridge: it hardcodes the OpenAI chat-completions SDK while the
+  benchmark provider serves an Anthropic-format endpoint, so every call
+  404'd with an HTML error page. The model already sees observation
+  images inline, so the bridge added nothing but stderr noise.
+
+- New `Dreaming` and `Skill Evolution` sidebar pages complete the
+  memory-pipeline observability trio next to `记忆整理`:
+  - `Dreaming` lists every session — including active, never-archived
+    ones — with aggregate state badges (`unarchived` / `processing` /
+    `completed` / `failed`) and a `×N` marker for sessions archived more
+    than once. Per-archive detail cards show the exact seed turns
+    (resolved via `add_operation_ids` → outbox `turn_id`, not turn-range
+    approximation) and one-to-one before/after memory diffs reusing the
+    shared `ActionDiffCard`, backed by `GET
+    /api/memories/dreaming-sessions[/{session_id}]`.
+  - `Skill Evolution` lists cloud-registered skills with `n/8` trace
+    progress, expandable sealed invocations (tool steps, score, outcome),
+    batch history with job status, the server-side version lineage, and a
+    read-only draft-vs-parent SKILL.md line diff, backed by `GET
+    /api/skill-evolution[/{cloud_skill_id}[/versions/{version_id}/
+    content]]`. Draft versions stay display-only — no activation control.
+  - `MindMemOSClient` gained `list_skill_versions` and
+    `get_skill_version_content`; the contract is verified against a live
+    server (draft versions surface in the list with parent lineage, and
+    content arrives as the canonical JSON bundle, which the route unwraps
+    to SKILL.md before rendering).
+
 - RoboCasa benchmark episodes now advertise the installed
   `robocasa-benchmark` skill under `# Available Skills` and instruct the
   worker to call `load_skill(name="robocasa-benchmark")` at episode

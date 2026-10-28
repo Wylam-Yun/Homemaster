@@ -9,6 +9,8 @@ import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type AttachmentDraft, type ModelSelection } from './components/composer/ComposerPanel'
 import { QueueDock, type QueuedPrompt } from './components/composer/QueueDock'
 import { MemoryPage } from './components/MemoryPage'
+import { DreamingPage } from './components/DreamingPage'
+import { SkillEvolutionPage } from './components/SkillEvolutionPage'
 import { FeedbackRunsPage } from './components/FeedbackRunsPage'
 import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
@@ -31,6 +33,7 @@ import {
   IconShield,
   IconSparkles,
   IconSun,
+  IconTool,
   IconTrash,
 } from './components/ui/icons'
 import { WelcomePanel } from './components/WelcomePanel'
@@ -993,6 +996,7 @@ function AppShell() {
       { id: 'nav.chat', label: '前往：对话', hint: '#/chat', keywords: 'chat home', run: go('#/chat') },
       { id: 'nav.memory', label: '前往：记忆管理', hint: '#/memory', keywords: 'memory', run: go('#/memory') },
       { id: 'nav.skills', label: '前往：技能', hint: '#/skills', keywords: 'skills', run: go('#/skills') },
+      { id: 'nav.skill-evolution', label: '前往：Skill Evolution', hint: '#/skill-evolution', keywords: 'skill evolution draft', run: go('#/skill-evolution') },
       { id: 'nav.permissions', label: '前往：权限', hint: '#/permissions', keywords: 'permissions approval', run: go('#/permissions') },
       { id: 'nav.sessions', label: '前往：会话管理', hint: '#/sessions', keywords: 'sessions history manage', run: go('#/sessions') },
       { id: 'nav.settings', label: '前往：模型与设置', hint: '#/settings', keywords: 'settings provider model', run: go('#/settings') },
@@ -1046,6 +1050,12 @@ function AppShell() {
           </button>
           <button type="button" aria-label="记忆整理" aria-current={route.kind === 'feedback' ? 'page' : undefined} data-active={route.kind === 'feedback' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/feedback') }}>
             <span className="nav-icon"><IconRefresh size={16} /></span>记忆整理
+          </button>
+          <button type="button" aria-label="Dreaming" aria-current={route.kind === 'dreaming' ? 'page' : undefined} data-active={route.kind === 'dreaming' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/dreaming') }}>
+            <span className="nav-icon"><IconArchive size={16} /></span>Dreaming
+          </button>
+          <button type="button" aria-label="Skill Evolution" aria-current={route.kind === 'skill-evolution' ? 'page' : undefined} data-active={route.kind === 'skill-evolution' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skill-evolution') }}>
+            <span className="nav-icon"><IconTool size={16} /></span>Skill Evolution
           </button>
           <button type="button" aria-label="技能" aria-current={route.kind === 'skills' ? 'page' : undefined} data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}>
             <span className="nav-icon"><IconSparkles size={16} /></span>技能
@@ -1255,6 +1265,19 @@ function AppShell() {
             unavailable={memoryUnavailable}
             runImplicitFeedback={typeof api.runImplicitFeedback === 'function'
               ? () => api.runImplicitFeedback() : undefined}
+          />
+        ) : route.kind === 'dreaming' ? (
+          <DreamingPage
+            loadSessions={() => api.dreamingSessions()}
+            loadDetail={sessionId => api.dreamingSessionDetail(sessionId)}
+            unavailable={memoryUnavailable}
+          />
+        ) : route.kind === 'skill-evolution' ? (
+          <SkillEvolutionPage
+            loadOverview={() => api.skillEvolutionOverview()}
+            loadDetail={cloudSkillId => api.skillEvolutionDetail(cloudSkillId)}
+            loadContent={(cloudSkillId, versionId) => api.skillEvolutionVersionContent(cloudSkillId, versionId)}
+            unavailable={memoryUnavailable}
           />
         ) : route.kind === 'skills' ? (
           <SkillsPage

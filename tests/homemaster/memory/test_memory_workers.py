@@ -487,6 +487,9 @@ class TestSkillEvolutionWorker:
 
         store = SQLiteMemoryWorkStore(tmp_path / "w.db")
         store.open()
+        # The executor submits under the SERVER-minted id stored in the flag,
+        # not the local name carried by the job payload.
+        store.set_skill_evolution_flag("cloud-1", enabled=True, cloud_skill_id="uuid-1")
         for i in range(8):
             inv_id = f"inv-{i}"
             store.open_skill_invocation(
@@ -519,15 +522,45 @@ class TestSkillEvolutionWorker:
         assert outcome.result["draft_version_id"] == "draft-1"
         # All 8 sealed traces submitted upstream BEFORE the batch call.
         assert len(client.trace_calls) == 8
+        assert all(c["cloud_skill_id"] == "uuid-1" for c in client.trace_calls)
         assert client.trace_calls[0]["skill_version_id"] == "v1"
         assert client.trace_calls[0]["skill_content_hash"] == "h1"
         assert client.trace_calls[0]["tool_steps"][0]["tool_name"] == "mindmemos_search"
         assert client.trace_calls[0]["outcome"] == "success"
         assert client.trace_calls[0]["score"] == 0.8
         assert client.batch_calls == [
-            {"cloud_skill_id": "cloud-1", "batch_id": "b1",
+            {"cloud_skill_id": "uuid-1", "batch_id": "b1",
              "trace_ids": [f"inv-{i}" for i in range(8)]}
         ]
+        assert outcome.result["cloud_skill_id"] == "uuid-1"
+        store.close()
+
+    @pytest.mark.asyncio
+    async def test_evolution_fails_closed_without_flag(self, tmp_path):
+        """No flag row / disabled → the job must not submit under the local
+        name (which the server 404s)."""
+        from homemaster.memory.memory_jobs import SkillEvolutionExecutor
+
+        store = SQLiteMemoryWorkStore(tmp_path / "w.db")
+        store.open()
+        client = _SkillEvoClient()
+        executor = SkillEvolutionExecutor(store=store, client=client)
+        job = store.enqueue_job(
+            "skill_evolution", "skillevolve:b-off",
+            {"batch_id": "b-off", "cloud_skill_id": "cloud-off",
+             "trace_ids": [f"inv-{i}" for i in range(8)]},
+            session_id=None,
+        )
+        outcome = await executor.execute(job)
+        assert outcome.status == "failed"
+        assert "not enabled" in (outcome.error or "")
+        assert client.trace_calls == [] and client.batch_calls == []
+
+        # Same for an explicitly disabled skill (flag row exists, enabled=0).
+        store.set_skill_evolution_flag("cloud-off", enabled=False, cloud_skill_id="uuid-x")
+        outcome = await executor.execute(job)
+        assert outcome.status == "failed"
+        assert client.trace_calls == [] and client.batch_calls == []
         store.close()
 
     @pytest.mark.asyncio
@@ -536,6 +569,7 @@ class TestSkillEvolutionWorker:
 
         store = SQLiteMemoryWorkStore(tmp_path / "w.db")
         store.open()
+        store.set_skill_evolution_flag("cloud-1", enabled=True, cloud_skill_id="uuid-1")
         store.open_skill_invocation(
             "inv-open", session_id="s1", turn_id="turn-0",
             skill_id="sk", cloud_skill_id="cloud-1",
