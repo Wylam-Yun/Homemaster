@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -377,7 +378,9 @@ def _evolution_client() -> MagicMock:
                 parent_version_id="v1" if version_id == "v2" else None,
                 status="draft" if version_id == "v2" else "observed",
             ),
-            content=f"---\nname: sk-{version_id}\n---\nbody-{version_id}",
+            content=json.dumps(
+                [{"path": "SKILL.md", "content": f"---\nname: sk-{version_id}\n---\nbody-{version_id}"}]
+            ),
         )
     )
     return client

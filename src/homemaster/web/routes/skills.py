@@ -31,6 +31,39 @@ _IMPORT_TOTAL_LIMIT = 4 * 1024 * 1024
 _SKILL_DIR_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 
 
+def _skill_md_from_bundle(content: str) -> str:
+    """Unwrap a canonical skill bundle to its SKILL.md text.
+
+    The version-content route returns the serialized bundle (a JSON list of
+    ``{path, content}`` records), not raw markdown. Raise ``ValueError`` when the
+    payload is not a parseable bundle — that is a contract violation, not a 404.
+    """
+    try:
+        from mindmemos_sdk.skills import deserialize_bundle
+    except ImportError:
+        import json
+
+        def deserialize_bundle(text: str) -> dict[str, str]:
+            records = json.loads(text)
+            if not isinstance(records, list):
+                raise ValueError("bundle must be a list")
+            files: dict[str, str] = {}
+            for record in records:
+                if not isinstance(record, dict):
+                    raise ValueError("bundle record must be an object")
+                files[str(record["path"])] = str(record["content"])
+            return files
+
+    try:
+        files = deserialize_bundle(content)
+    except Exception as exc:
+        raise ValueError("content is not a canonical skill bundle") from exc
+    text = files.get("SKILL.md")
+    if text is None:
+        raise ValueError("bundle has no SKILL.md entry")
+    return text
+
+
 def _user_skill_dirs(ctx: WebAppContext) -> tuple[Path, ...]:
     sources = getattr(ctx.config, "skills", None) if ctx.config is not None else None
     user_dirs = tuple(getattr(sources, "user_dirs", None) or ())
@@ -610,6 +643,16 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "Skill version content could not be read from the server.",
                 retryable=True,
             )
+        try:
+            content = _skill_md_from_bundle(target.content)
+        except ValueError:
+            logger.exception("skill_version_bundle_invalid")
+            return _error(
+                503,
+                "skill_evolution_unavailable",
+                "The skill version content is not a readable skill bundle.",
+                retryable=True,
+            )
         parent: object = None
         parent_id = target.version.parent_version_id
         if parent_id:
@@ -617,18 +660,19 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 parent_content = await get_content(
                     cloud_skill_id=cloud_skill_id, version_id=parent_id
                 )
-            except MindMemOSClientError:
+                parent_text = _skill_md_from_bundle(parent_content.content)
+            except (MindMemOSClientError, ValueError):
                 parent = None
             else:
                 parent = {
                     "version_id": parent_content.version.version_id,
-                    "content": parent_content.content,
+                    "content": parent_text,
                 }
         return {
             "version_id": target.version.version_id,
             "status": target.version.status,
             "parent_version_id": parent_id,
-            "content": target.content,
+            "content": content,
             "parent": parent,
         }
 

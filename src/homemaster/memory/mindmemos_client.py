@@ -563,9 +563,9 @@ class MindMemOSClient:
     async def list_skill_versions(self, *, cloud_skill_id: str) -> list[SkillVersionInfo]:
         """All versions of one cloud skill with parent lineage (read-only).
 
-        UNVERIFIED: response shape follows vendored ``skill_routes.py`` /
-        ``SkillVersionsData``; confirm against a live server before trusting
-        draft visibility.
+        Verified against a live server: the list includes ``draft`` evolution
+        candidates alongside ``observed`` registered versions, each with
+        ``version_id`` / ``parent_version_id`` / ``status`` / ``content_hash``.
         """
         data = await self._get(f"/v1/skills/{cloud_skill_id}/versions")
         return [
@@ -583,9 +583,11 @@ class MindMemOSClient:
     async def get_skill_version_content(
         self, *, cloud_skill_id: str, version_id: str
     ) -> SkillVersionContent:
-        """Full SKILL.md text of one version (read-only).
+        """Version record plus the serialized skill bundle (read-only).
 
-        UNVERIFIED: same caveat as :meth:`list_skill_versions`.
+        Verified against a live server: ``data.content`` is the canonical
+        bundle (JSON ``{path, content}`` records) — callers unwrap ``SKILL.md``
+        via ``mindmemos_sdk.skills.deserialize_bundle``.
         """
         data = await self._get(
             f"/v1/skills/{cloud_skill_id}/versions/{version_id}/content"
