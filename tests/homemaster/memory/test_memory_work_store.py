@@ -186,6 +186,23 @@ class TestOutbox:
         assert [j.job_id for j in claimed] == [job.job_id]
         assert claimed[0].status == "outcome_unknown"
 
+    def test_outcome_unknown_lease_blocks_reclaim(self, store):
+        """A claimed outcome_unknown job keeps its status (the executor needs
+        it to re-enter reconcile), so without a lease guard every poll would
+        re-claim it and spawn duplicate tasks that race at settle."""
+        job = store.enqueue_job("turn_add", "op-1", {})
+        store.claim_jobs("w1")
+        store.mark_job_unknown(job.job_id, owner="w1", error="lost receipt")
+        claimed = store.claim_jobs("w2")
+        assert [j.job_id for j in claimed] == [job.job_id]
+        # w2's lease is live: no worker may see the job until it lapses.
+        assert store.claim_jobs("w3") == []
+        assert store.claim_jobs("w2") == []
+        store._db.execute("UPDATE outbox_jobs SET lease_expires_at = 0")
+        reclaimed = store.claim_jobs("w3")
+        assert [j.job_id for j in reclaimed] == [job.job_id]
+        assert reclaimed[0].status == "outcome_unknown"  # reconcile path intact
+
     def test_requeue_expired(self, store):
         job = store.enqueue_job("turn_add", "op-1", {})
         store.claim_jobs("w1", lease_seconds=0.0)

@@ -892,7 +892,12 @@ class SQLiteMemoryWorkStore:
         lease_seconds: float = 300.0,
     ) -> list[OutboxJob]:
         """Atomically claim pending jobs: ``accepted`` (ready) plus
-        ``processing``/``outcome_unknown`` rows whose lease expired."""
+        ``processing``/``outcome_unknown`` rows whose lease expired.
+
+        ``outcome_unknown`` keeps its status when claimed (the executor uses it
+        to re-enter reconcile), so it must also be excluded while a lease is
+        live — otherwise every poll spawns a duplicate task on the same job
+        and the duplicates race at settle time."""
         now = _now()
         expires = now + lease_seconds
         claimed: list[OutboxJob] = []
@@ -900,15 +905,16 @@ class SQLiteMemoryWorkStore:
             if kinds:
                 marks = ",".join("?" for _ in kinds)
                 kind_filter = f"AND kind IN ({marks})"
-                params: tuple[Any, ...] = (now, now, now, *kinds)
+                params: tuple[Any, ...] = (now, now, now, now, *kinds)
             else:
                 kind_filter = ""
-                params = (now, now, now)
+                params = (now, now, now, now)
             rows = self._db.execute(
                 f"""SELECT job_id FROM outbox_jobs
                     WHERE (status = 'accepted' AND (not_before IS NULL OR not_before <= ?))
                        OR (status = 'outcome_unknown'
-                           AND (not_before IS NULL OR not_before <= ?))
+                           AND (not_before IS NULL OR not_before <= ?)
+                           AND (lease_expires_at IS NULL OR lease_expires_at < ?))
                        OR (status = 'processing'
                            AND lease_expires_at IS NOT NULL AND lease_expires_at < ?)
                     {kind_filter}

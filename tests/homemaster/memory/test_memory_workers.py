@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+
 import pytest
 
 from homemaster.agent.messages import ContentBlock, UserMessage
-from homemaster.memory.memory_jobs import default_executors
+from homemaster.memory.memory_jobs import JobOutcome, default_executors
 from homemaster.memory.memory_work_store import SQLiteMemoryWorkStore
 from homemaster.memory.memory_workers import MemoryWorkerPool
 from homemaster.memory.mindmemos_client import (
@@ -382,6 +386,67 @@ class TestDreamingWorker:
         assert job.status == "completed"
         assert job.result["reconciled"] is True
         assert len(client.add_calls) == 1  # never resubmitted
+
+    @pytest.mark.asyncio
+    async def test_outcome_unknown_claim_is_exclusive(self, stack):
+        """While a task holds the lease on an outcome_unknown job, the next
+        poll must not spawn a duplicate task — those duplicates were what
+        raced at settle and logged 'owned by None'."""
+        store, trace, client, verifier, pool = stack
+        client.fail_next = "unknown"
+        commit = _commit_turn(trace)
+        await pool.run_once()
+        await pool.stop()
+        assert store.job(commit.add_job_id).status == "outcome_unknown"
+
+        gate = asyncio.Event()
+
+        async def blocking_status(operation_id):
+            await gate.wait()
+            raise OperationNotFoundError(operation_id)
+
+        client.operation_status = blocking_status  # reconcile blocks mid-task
+        await pool.run_once()  # claims the job; task holds the lease in flight
+        assert len(pool._inflight) == 1
+        progressed = await pool.run_once()
+        assert not progressed  # lease guard excluded the in-flight job
+        assert len(pool._inflight) == 1
+        gate.set()
+        await pool.stop()
+
+    @pytest.mark.asyncio
+    async def test_stale_settle_on_terminal_job_is_noop(self, stack, tmp_path, caplog):
+        """A stale task settling an already-terminal job is an idempotent
+        no-op — the winning settle already applied the outcome, so no
+        ownership error is logged and no archive side effect runs."""
+        store, trace, client, verifier, pool = stack
+        commit = _commit_turn(trace)
+        await pool.run_once()
+        await pool.stop()
+        job = store.job(commit.add_job_id)
+        assert job.status == "completed"
+        with caplog.at_level(logging.ERROR):
+            pool._settle(job, JobOutcome(status="completed", result={"stale": True}))
+        assert "failed to settle" not in caplog.text
+        assert store.job(commit.add_job_id).status == "completed"
+        events = [
+            json.loads(line)["event"]
+            for line in (tmp_path / "audit.jsonl").read_text().splitlines()
+        ]
+        assert events.count("job.settle_stale") == 1
+
+    @pytest.mark.asyncio
+    async def test_settle_wrong_owner_on_live_job_stays_loud(self, stack, caplog):
+        """Ownership violations on a non-terminal job must still be logged —
+        the terminal-job no-op must not hide genuine races."""
+        store, trace, client, verifier, pool = stack
+        _commit_turn(trace)
+        claimed = store.claim_jobs("other-worker")
+        assert len(claimed) == 1
+        with caplog.at_level(logging.ERROR):
+            pool._settle(claimed[0], JobOutcome(status="completed"))
+        assert "failed to settle" in caplog.text
+        assert store.job(claimed[0].job_id).status == "processing"
 
 
 class _SkillEvoClient(FakeClient):

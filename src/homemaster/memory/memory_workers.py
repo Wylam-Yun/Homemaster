@@ -20,13 +20,19 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from homemaster.events.trace import append_jsonl_event
 from homemaster.memory.memory_jobs import JobExecutor, JobOutcome
-from homemaster.memory.memory_work_store import MemoryWorkStore, OutboxJob, StoreAudit
+from homemaster.memory.memory_work_store import (
+    JOB_TERMINAL_STATUSES,
+    MemoryWorkStore,
+    OutboxJob,
+    StoreAudit,
+)
 from homemaster.memory.mindmemos_client import MindMemOSClient
 
 logger = logging.getLogger(__name__)
@@ -216,6 +222,7 @@ class MemoryWorkerPool:
 
     def _settle(self, job: OutboxJob, outcome: JobOutcome, *, duration_ms: int = 0) -> None:
         error = (outcome.error or "")[:_MAX_ERROR_LEN] or None
+        settled = False
         try:
             if outcome.status == "completed":
                 self._store.complete_job(job.job_id, owner=self._owner, result=outcome.result)
@@ -243,9 +250,25 @@ class MemoryWorkerPool:
                     job.job_id, owner=self._owner, error=error or "retry",
                     retry_delay_seconds=outcome.retry_delay_seconds,
                 )
+            settled = True
         except Exception:
+            # A stale task can lose its lease to a re-claimed duplicate (lease
+            # expiry or crash recovery). If the job already reached a terminal
+            # status, the winning settle applied the outcome — this call is an
+            # idempotent no-op, not an ownership violation.
+            latest: OutboxJob | None = None
+            with suppress(Exception):
+                latest = self._store.job(job.job_id)
+            if latest is not None and latest.status in JOB_TERMINAL_STATUSES:
+                self._log(
+                    "job.settle_stale",
+                    job=latest,
+                    outcome_status=outcome.status,
+                    duration_ms=duration_ms,
+                )
+                return
             logger.exception("failed to settle job %s", job.job_id)
-        if job.archive_id and outcome.status in {"completed", "no_action", "failed"}:
+        if settled and job.archive_id and outcome.status in {"completed", "no_action", "failed"}:
             try:
                 self._store.settle_archive(
                     job.archive_id,
