@@ -8,6 +8,7 @@ from dataclasses import asdict
 
 from fastapi import FastAPI
 
+from homemaster.memory.archive_service import archive_rejection_status
 from homemaster.web._shared import (
     _application_services,
     _ensure_session_loaded,
@@ -22,18 +23,47 @@ from homemaster.web.schemas import SetSessionModeRequest
 logger = logging.getLogger(__name__)
 
 
-def _snapshot_view(snapshot: object) -> dict[str, object]:
+# Internal archive lifecycle → public badge vocabulary. The frontend only
+# knows queued/processing/completed/failed; raw internal states like
+# ``pending``/``dreamed`` would silently drop the badge mid-flight.
+_ARCHIVE_STATE_MAP = {
+    "pending": "processing",
+    "dreamed": "completed",
+    "failed": "failed",
+}
+
+
+def _snapshot_view(snapshot: object, job: object | None = None) -> dict[str, object]:
     """Public projection of an ArchiveSnapshot (V3.8 archive-status contract)."""
+    result = getattr(job, "result", None) or {}
+    produced = result.get("produced_memory_ids")
     return {
-        "state": getattr(snapshot, "status", "unknown"),
+        "state": _ARCHIVE_STATE_MAP.get(
+            getattr(snapshot, "status", "unknown"), getattr(snapshot, "status", "unknown")
+        ),
         "archive_id": getattr(snapshot, "archive_id", None),
-        "dreaming_job_id": getattr(snapshot, "dreaming_job_id", None),
+        "job_id": getattr(snapshot, "dreaming_job_id", None),
         "max_event_seq": getattr(snapshot, "max_event_seq", None),
         "turn_range": [
             getattr(snapshot, "turn_range_start", None),
             getattr(snapshot, "turn_range_end", None),
         ],
+        "extracted_count": len(produced) if isinstance(produced, list) else None,
+        "error": getattr(job, "last_error", None),
     }
+
+
+def _snapshot_job(application: object, snapshot: object) -> object | None:
+    """Best-effort fetch of the snapshot's dreaming job for result detail."""
+    job_id = getattr(snapshot, "dreaming_job_id", None)
+    store = _application_services(application).get("memory_work_store")
+    job_fn = getattr(store, "job", None)
+    if not job_id or not callable(job_fn):
+        return None
+    try:
+        return job_fn(job_id)
+    except Exception:
+        return None
 
 
 def register(app: FastAPI, ctx: WebAppContext) -> None:
@@ -189,6 +219,16 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=True,
             )
         if receipt is None:
+            # Distinguish "nothing to archive" (a stable client state) from a
+            # genuinely unready queue — idempotent re-read, only on this path.
+            status = archive_rejection_status(application, session_id)
+            if status == "no_trace":
+                return _error(
+                    409,
+                    "archive_no_trace",
+                    "The session has no completed turns to archive.",
+                    retryable=False,
+                )
             return _error(
                 503,
                 "archive_not_admitted",
@@ -222,7 +262,11 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         snapshots = await asyncio.to_thread(snapshots_for, session_id)
         if not snapshots:
             return {"session_id": session_id, "state": "none"}
-        return {"session_id": session_id, **_snapshot_view(snapshots[-1])}
+        snapshot = snapshots[-1]
+        return {
+            "session_id": session_id,
+            **_snapshot_view(snapshot, _snapshot_job(application, snapshot)),
+        }
 
     @app.get("/api/archive-status")
     async def archive_statuses() -> object:
@@ -234,7 +278,10 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         for session_id in _session_ids(application.session_manager):
             snapshots = await asyncio.to_thread(snapshots_for, session_id)
             if snapshots:
-                sessions[session_id] = _snapshot_view(snapshots[-1])
+                snapshot = snapshots[-1]
+                sessions[session_id] = _snapshot_view(
+                    snapshot, _snapshot_job(application, snapshot)
+                )
         return {"sessions": sessions}
 
     @app.post("/api/sessions/{session_id}/mode")

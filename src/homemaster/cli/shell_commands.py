@@ -14,7 +14,7 @@ import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +26,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from homemaster.agent.session import new_session_id
+from homemaster.memory.archive_service import archive_rejection_status
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.cli.keymap import KEY_HELP_LINES
 
@@ -402,6 +403,9 @@ def _cmd_archive(ctx: ShellContext, args: str) -> None:
         ctx.echo(f"Archive failed: {exc}")
         return
     if receipt is None:
+        if archive_rejection_status(ctx.application, ctx.session_id) == "no_trace":
+            ctx.echo("Archive: session has no completed turns to archive.")
+            return
         ctx.echo("Archive not admitted: memory backend or work queue is not ready.")
         return
     ctx.echo(

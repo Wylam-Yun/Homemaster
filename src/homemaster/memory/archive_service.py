@@ -19,7 +19,9 @@ Trigger matrix (spec):
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from homemaster.memory.memory_work_store import (
     ArchiveSnapshot,
@@ -109,4 +111,27 @@ class ArchiveService:
         return self._store.archives_for_session(session_id)
 
 
-__all__ = ["ArchiveResult", "ArchiveService"]
+def archive_rejection_status(application: Any, session_id: str) -> str | None:
+    """Classify why an archive admission returned ``None``.
+
+    ``session_end_handler`` reports ``None`` both when no ``archive_service``
+    is bound and when the session simply has no durable terminal turns —
+    callers must not render the latter as a backend-readiness failure. The
+    re-read is idempotent: ``archive_session`` only reads on the
+    ``no_trace``/``no_change`` paths this helper cares about.
+    """
+    services = getattr(
+        getattr(application, "settings", None), "application_services", None
+    )
+    if not isinstance(services, Mapping):
+        return None
+    service = services.get("archive_service")
+    if service is None:
+        return None
+    try:
+        return service.archive_session(session_id).status
+    except Exception:
+        return None
+
+
+__all__ = ["ArchiveResult", "ArchiveService", "archive_rejection_status"]
