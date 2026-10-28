@@ -1,5 +1,38 @@
 # Unreleased
 
+- V3.8 live-run hardening against a real standalone MindMemOS server:
+  - `claim_jobs` now requires an absent/expired lease before claiming
+    `outcome_unknown` rows — that status is preserved for the executor's
+    reconcile path, so every poll previously spawned a duplicate task and
+    the duplicates raced at settle (`job ... owned by None` floods).
+    `MemoryWorkerPool._settle` treats a settle against an
+    already-terminal job as an idempotent `job.settle_stale` audit event
+    and only runs `settle_archive` after a successful job settle;
+    non-terminal ownership violations still surface as errors.
+  - New `memory.mindmemos.project_id` config declares the api_key-bound
+    server partition; `QdrantNeo4jVerifier` and the web graph reader bind
+    it instead of reusing the HomeMaster tenant (`local`) — which had
+    joined SDK memory nodes with Neo4j edges from a different scope.
+    Verifier configuration errors now map to `memory_unavailable`.
+  - Dialogue projections drop whitespace-only text before submit:
+    `trace_event_to_dialogue` (turn adds) and
+    `snapshot_to_dialogue_messages` (explicit feedback). Streaming
+    assistants emit `"\n\n"` blocks next to tool calls — truthy locally
+    but rejected by the server's stripped non-empty validation, which
+    permanently failed every tool-heavy turn_add and starved Dreaming of
+    its seed operations.
+  - `/archive-status` maps internal archive lifecycle to the public badge
+    vocabulary (`pending`→`processing`, `dreamed`→`completed`) and
+    returns `job_id`, `extracted_count`, and `error`; the badge no longer
+    vanishes after the first poll while work is in flight. Archive
+    admission also distinguishes `no_trace` (no durable terminal turns)
+    from backend unavailability — 409 `archive_no_trace` via
+    `archive_rejection_status` shared by route and CLI.
+  - `get_memory`/`delete_memory` no longer send actor-identity fields —
+    the upstream `GetRequest`/`DeleteRequest` schemas carry no identity
+    and forbid extras, so `mindmemos_update`'s pre-read, delete, and the
+    memory-detail view permanently 422'd. `test_mindmemos_client.py` pins
+    real request bodies per endpoint via a stub transport.
 - Outbox jobs now distinguish dependency waits from failures: a new
   `deferred` job outcome (`MemoryWorkStore.defer_job`) reschedules via
   `not_before` without consuming `attempts`, bounded by a 2h budget from

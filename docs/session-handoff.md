@@ -1,5 +1,120 @@
 # Session Handoff
 
+## Local standalone runtime topology - 2026-10-28
+
+### Current state
+
+- `homemaster serve --port 8000` runs against a fully LOCAL MindMemOS server (no hkust4 dependency):
+  `uvicorn mindmemos.api.app:app --host 127.0.0.1 --port 8765` from `../MindMemOS/.venv`,
+  launched with cwd=`../MindMemOS` (repo root — `entity_modeling_path` is CWD-relative),
+  `MINDMEMOS_CONFIG_PATH=config/mindmemos/dev.yaml` (durable, gitignored; was
+  `/tmp/mindmemos-live/` until 2026-10-28) and `PYTHONPATH=src/mindmemos`
+  (the venv's `mindmemos.pth` editable hook does not land on sys.path — always set PYTHONPATH).
+  `auth.api_key_file: api_keys.yaml` resolves relative to the dev.yaml dir, i.e. the
+  committed `config/mindmemos/api_keys.yaml`.
+- Stores: Qdrant = docker container `qdrant` in colima `default` profile
+  (`docker start qdrant` after `colima start`; bind-mounted at
+  `.runtime/memory/mindmemos/qdrant`); Neo4j = `memory.neo4j.mode=managed_local`
+  (`bolt://127.0.0.1:7687`, `neo4j/mindmemos_dev_password`, started by serve).
+- LLM/embedding endpoints in dev.yaml point at `localhost:27940` / `localhost:28360`,
+  i.e. the two `ssh -N -L ... HPC3_Outside` tunnels — these must stay up.
+- `config/homemaster.yaml` now uses `memory.mode: full` + `mindmemos.base_url:
+  http://127.0.0.1:8765` + `api_key` (vanilla key, same value as the committed
+  `config/mindmemos/api_keys.yaml` and the hkust4 dev-live file) +
+  `mindmemos.project_id: proj-dev-vanilla-memory` (graph readback scope) +
+  `memory.qdrant: {mode: server, url: http://127.0.0.1:6333}` (verifier raw
+  readback; `embedded` mode left it with no Qdrant client).
+- Local memory stores are EMPTY/fresh (the 217 memories previously seen were on the
+  hkust4 server and remain there). MindMemOS config now lives at
+  `config/mindmemos/dev.yaml` in the MindMemOS repo (gitignored, durable).
+- Verified: `GET /` 200 serving rebuilt bundle, `GET /api/memories` 200 reaches the
+  local server (`POST /v1/memory/scroll` logged server-side).
+
+### Bug fixes landed this session (2026-10-28, uncommitted)
+
+- **Worker duplicate-settle race** (`memory_work_store.claim_jobs`): `outcome_unknown`
+  rows kept their claimable status after being claimed (the CASE-UPDATE only flips
+  `accepted`→`processing`), so every poll spawned another task on the same job —
+  the audit log showed 4+ concurrent `job.started` and a settle race ending in
+  bursts of `job ... owned by None`. Fix: the `outcome_unknown` claim branch now
+  also requires an absent/expired lease. `MemoryWorkerPool._settle` additionally
+  treats a settle against an already-terminal job as an idempotent no-op
+  (`job.settle_stale` audit event) and only runs `settle_archive` after a
+  successful job settle; non-terminal ownership violations still log loudly.
+- **Graph scope mismatch** (`web/serve.py` + composition): `/api/memories/graph`
+  joined SDK memory nodes (MindMemOS project `proj-dev-vanilla-memory`, resolved
+  from the api_key) with Neo4j edges read under the HomeMaster tenant `local` —
+  entities with edges to memory ids that never list. Fix: new
+  `memory.mindmemos.project_id` config field (bound at `QdrantNeo4jVerifier`
+  construction); `_memory_graph_reader` no longer re-binds `client.scope.tenant_id`.
+  `MemoryManagementService.graph` now maps verifier `RuntimeError` (unconfigured
+  scope / missing driver) to `memory_unavailable` instead of a generic read error.
+- **Missing verifier Qdrant client**: `memory.qdrant` unset → `embedded` mode →
+  `add_record_exists` always False → every turnadd burned 20 retries and failed
+  with `raw readback missing ids`. Set `qdrant.mode: server` to the docker
+  Qdrant; the two failed turn-1 jobs were flipped to `outcome_unknown` and
+  reconciled to `completed` through the normal recovery path.
+- **Archive error classification** (`web/routes/session_ops.py`, CLI `/archive`):
+  `archive_not_admitted` conflated `no_trace` (session has no durable terminal
+  turns) with backend unready. New `archive_rejection_status()` helper in
+  `archive_service.py`; the route now returns 409 `archive_no_trace` "The session
+  has no completed turns to archive." for the former.
+- **Stale graph data deleted**: 189 `local`-project nodes and 15
+  `proj-dev-vanilla-memory` acceptance-fixture nodes (Ada's bakery etc.) removed
+  from local Neo4j per user authorization — graph now returns 0/0/0.
+
+- **Whitespace-only dialogue blocks poisoned every Add** (`session_trace_store.
+  trace_event_to_dialogue`): streaming assistant events emit `"\n\n"` text
+  blocks next to tool_calls — truthy so `if text:` emitted them; MindMemOS
+  `validate_messages_have_content` checks `text.strip()` → whole Add batch
+  422'd → every turnadd failed permanently → dreaming seeds never existed →
+  archives hung forever (this was the "归档一直不出记忆" root cause). Fix:
+  `text.strip()` gating for assistant text AND user messages (empty user
+  entries drop too; tool envelopes are JSON so never empty).
+- **Archive badge vocabulary mismatch** (`web/routes/session_ops.py`):
+  `_snapshot_view` emitted internal states `pending`/`dreamed` while the
+  frontend only knows `queued`/`processing`/`completed`/`failed` → "整理中…"
+  badge vanished on first poll (and `dreamed` success was also invisible).
+  Fix: `_ARCHIVE_STATE_MAP` pending→processing / dreamed→completed, expose
+  `job_id` (was `dreaming_job_id`), `extracted_count` (dreaming job result
+  `produced_memory_ids`), `error` (job last_error); store lookup via
+  `memory_work_store` service, best-effort.
+- Verified live: requeued the 3 failed turnadds → all completed through real
+  MindMemOS extraction; `session-1d7c7b9c5843` archive → `dreamed`
+  (no_action, 0 new) with API state `completed`; `session-36246421327b`
+  archive → dreaming submitted, 34 memories active across 2 sessions.
+- Ops note: macOS graceful drain leaves orphaned ESTABLISHED sockets (browser
+  WS) that keep naive `bind()` reporting EADDRINUSE for ~60s after the
+  listener dies — `lsof -sTCP:LISTEN` shows nothing; probe with SO_REUSEADDR
+  to tell a real listener from a lingering socket before kill -9.
+- **Explicit feedback / CRUD contract bugs** (same session, live-hit by user):
+  `snapshot_to_dialogue_messages` had the same whitespace truthiness bug →
+  `/v1/memory/feedback` 422; `get_memory`/`delete_memory` sent
+  `_scope_fields` to `GetRequest`/`DeleteRequest` which deliberately carry
+  no actor identity and `extra="forbid"` → permanent 422 (broke
+  `mindmemos_update`'s pre-read, `mindmemos_delete`, and web
+  `GET /api/memories/{id}`). Upstream MindMemOS `mappers.
+  to_status_api_response` also had a runtime `ApiResponse[dict[str, Any] |
+  None]` subscript with `Any` unimported → delete mutated then 500'd
+  (fixed in MindMemOS repo, server restarted). Verified live: feedback POST
+  → 200 completed + feedback_record + `noop` action (memory already
+  corrected via turnadd extraction); get → 200; delete reaches handler.
+  New `tests/homemaster/memory/test_mindmemos_client.py` asserts real
+  request bodies via stub transport.
+
+### Known residual issues (not bugs in HomeMaster wiring)
+
+- `job-turnadd:session-1d7c7b9c5843:turn-2` was `failed` on the whitespace
+  bug above — recovered by requeue + the projection fix (now completed).
+- The 03:00 implicit-feedback scheduler writes jobs under `scope_key=local`
+  (HomeMaster tenant), reconciling via server op ids — fine, but note the two
+  scopes (`local` tenant for ops vs `proj-dev-vanilla-memory` for stores).
+- `zh_core_web_sm` was installed into the MindMemOS venv (via clash proxy
+  `127.0.0.1:7897`) — Chinese NER no longer degrades.
+- Regression coverage added for all fixes: 7 new tests across
+  `test_memory_work_store.py`, `test_memory_workers.py`, `test_serve.py`,
+  `test_management.py`, `test_w2_protocol.py`, `test_memory_tier_composition.py`.
+
 ## V3.8 MindMemOS Native Lifecycle Spec - 2026-10-26
 
 ### Current state

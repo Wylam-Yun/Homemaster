@@ -1,3 +1,68 @@
+## 2026-10-28 - 归档"整理中"消失 + 所有 Add 被服务端校验拒：一个投影 bug 一个契约 bug
+
+- 症状：新会话归档徽章显示"整理中…"几秒后消失；后台 turnadd job 全部
+  `failed: messages[N] must contain non-empty content`（烧满 20 次重试），
+  dreaming 永远等不到种子 op，归档挂起。
+- 根因 ①（写入拒收）：`trace_event_to_dialogue` 用 `if text:` 判空——流式
+  assistant 消息常在 tool_calls 旁带 `"\n\n"` 纯空白文本块，truthy 但
+  MindMemOS `validate_messages_have_content` 按 `text.strip()` 校验 →
+  整个 Add batch 被 422 拒，一个空白块毒死全部消息。user 分支甚至无条件
+  透传空 content。
+- 根因 ②（UI 消失）：`_snapshot_view` 直出内部生命周期状态
+  `pending`/`dreamed`/`failed`，而前端徽章词表是
+  `queued`/`processing`/`completed`/`failed`——`pending` 落入 default
+  分支返回 null，首轮轮询把乐观态 `queued` 覆盖成"无徽章"；成功时
+  `dreamed` 同样不可见。后端还根本没发 `memory.work.*` WS 事件、
+  没回 `job_id`/`extracted_count` 字段。
+- 修法/教训：① 投影层负责满足下游契约——非空判定一律 `text.strip()`，
+  空/纯空白消息直接丢弃（空白块对记忆抽取零信息量）。② 公共视图做
+  状态映射 `pending→processing`、`dreamed→completed`，字段名对齐前端
+  契约（`job_id`、`extracted_count` 从 dreaming job result 的
+  `produced_memory_ids` 取数、`error` 透传 last_error）。③ macOS 上
+  老进程被浏览器 WS 长连接挂住 graceful drain——LISTEN 已关但内核残留
+  连接让裸 bind 报 EADDRINUSE，`lsof -sTCP:LISTEN` 和 curl 都探不出来；
+  先 SO_REUSEADDR 探活，确认真死再 kill -9 等 ~60s。修这类"消息被外部
+  校验拒收"的 bug 时别只看索引号对应的消息——先在本地投影层全量打印
+  发给服务器的 messages，证明每条 `content.strip()` 非空。
+- ref: `src/homemaster/memory/session_trace_store.py`
+  (`trace_event_to_dialogue`), `src/homemaster/web/routes/session_ops.py`
+  (`_snapshot_view`), MindMemOS `src/mindmemos/mindmemos/api/schemas.py`
+  (`validate_messages_have_content`)
+
+## 2026-10-28 - 显性 feedback/CRUD 路径再炸三个同源契约 bug（scope 字段 + 上游 NameError）
+
+- 症状：agent 真实对话里调 `mindmemos_feedback` 连续两次
+  `memory_backend_unavailable`，fallback `mindmemos_update` 也失败；
+  前端点记忆详情 `GET /api/memories/{id}` 503。
+- 根因 ①：`feedback_context.snapshot_to_dialogue_messages` 与
+  `trace_event_to_dialogue` 同型 bug——`if text:` truthiness 放行
+  纯空白 text block，`/v1/memory/feedback` 422 `messages[N] must
+  contain non-empty content`（agent 实测 messages[2]）。
+- 根因 ②：`MindMemOSClient.get_memory`/`delete_memory` 给所有请求体
+  统一塞 `_scope_fields`（user_id/app_id/agent_id），但上游
+  `GetRequest`/`DeleteRequest` 刻意不含 actor identity 且
+  `extra="forbid"` → 两接口**永远 422**。`mindmemos_update` 死在
+  update 前 get 预读；web 记忆详情同路径。所有"按想象中的统一形状
+  给外部 API 塞字段"的代码都要逐端点核对 schema——继承
+  `ActorIdentityRequest` 的 8 个端点收 scope，偏偏 get/delete 两个
+  刻意不收。
+- 根因 ③（上游 MindMemOS）：`/v1/memory/delete` 业务执行成功后
+  `to_status_api_response` 里 `ApiResponse[dict[str, Any] | None]`
+  是运行时泛型下标（`from __future__ import annotations` 只懒化
+  annotation，不管 return 语句里的表达式）→ `Any` 未 import →
+  NameError → **变异已发生但响应 500**。客户端看到的"失败"与
+  服务端实际终态相反——这正是 outcome_unknown/回读对账要兜的场景，
+  也是为什么契约测试必须打真服务器：fake client 全绿照不出三个
+  真 schema 问题中的任何一个。
+- 修法/教训：① 三处投影统一 `text.strip()` 判空。② get/delete
+  去掉 scope 字段（partition 由 api_key 服务端解析）。③ 上游补
+  `from typing import Any` 并重启。新增 `test_mindmemos_client.py`
+  用 stub transport 断言真实请求体（get/delete 无 actor 字段、
+  add/update 保留），别再只用方法级 fake client——那照不出 body。
+- ref: `src/homemaster/memory/feedback_context.py`,
+  `src/homemaster/memory/mindmemos_client.py`, MindMemOS
+  `src/mindmemos/mindmemos/api/mappers.py` (`to_status_api_response`)
+
 ## 2026-10-27 - V3.8 远端 live 验收再抓两个"单测绿、真环境炸"的根因
 
 - 症状：RoboCasa full 模式下 archive_dreaming job 必死——`seed operation ... still processing` 重试 20 次耗尽 attempts 报 failed；同时服务端 Dreaming 完成却从未产生 LLM 合并动作。
