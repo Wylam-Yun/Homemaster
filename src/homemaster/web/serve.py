@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import errno
-import functools
 import ipaddress
 import socket
 from pathlib import Path
@@ -31,11 +30,13 @@ def _memory_graph_reader(bundle: Any) -> Any | None:
     """Wire the Neo4j edge reader for the web graph view when one is exposed.
 
     ``application_services`` may carry a ``memory_verifier`` —
-    ``QdrantNeo4jVerifier.graph_edges`` performs the read. The verifier needs
-    the tenant project id, which is bound to the scope-fixed
-    ``MindMemOSClient``; bind it here so the service stays decoupled from
-    verifier internals. Returns ``None`` when no verifier is exposed, in
-    which case the graph endpoint fails closed as ``memory_unavailable``.
+    ``QdrantNeo4jVerifier.graph_edges`` performs the read scoped to the
+    constructor-bound ``project_id`` (``memory.mindmemos.project_id``, the
+    partition the MindMemOS api_key resolves to server-side). The HomeMaster
+    tenant id is NOT that scope — binding it here once read edges from a
+    different project than the SDK memory nodes. Returns ``None`` when no
+    verifier is exposed, in which case the graph endpoint fails closed as
+    ``memory_unavailable``.
     """
 
     services = _application_services(getattr(bundle, "application", None))
@@ -43,10 +44,6 @@ def _memory_graph_reader(bundle: Any) -> Any | None:
     graph_edges = getattr(verifier, "graph_edges", None)
     if not callable(graph_edges):
         return None
-    scope = getattr(getattr(bundle, "mindmemos_client", None), "scope", None)
-    tenant_id = getattr(scope, "tenant_id", None)
-    if tenant_id:
-        return functools.partial(graph_edges, project_id=str(tenant_id))
     return graph_edges
 
 

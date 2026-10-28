@@ -522,6 +522,11 @@ class MindMemOSServerConfig(BaseModel):
 
     base_url: str = ""
     api_key: SecretStr = SecretStr("")
+    # The tenant partition the ``api_key`` resolves to server-side (the
+    # ``project_id`` in the server's api-key registry). Neo4j/Qdrant readback
+    # — e.g. the web memory graph — is scoped by this id, NOT by the
+    # HomeMaster tenant id; leaving it unset fails graph reads closed.
+    project_id: str = ""
     timeout_seconds: float = Field(default=120.0, gt=0)
     max_retries: int = Field(default=0, ge=0)
 

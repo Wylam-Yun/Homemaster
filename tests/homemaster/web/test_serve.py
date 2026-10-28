@@ -60,6 +60,45 @@ def _stub_config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     return config
 
 
+@pytest.mark.asyncio
+async def test_memory_graph_reader_uses_verifier_bound_project_scope() -> None:
+    """Regression: the graph reader must NOT re-bind the HomeMaster tenant id
+    as the Neo4j ``project_id`` — the verifier already carries the MindMemOS
+    project scope, and mixing the two once joined SDK nodes with edges from
+    a different project."""
+    calls: list[tuple[int, str | None]] = []
+
+    async def graph_edges(limit: int, *, project_id: str | None = None):
+        calls.append((limit, project_id))
+        return []
+
+    verifier = SimpleNamespace(graph_edges=graph_edges)
+    bundle = SimpleNamespace(
+        application=SimpleNamespace(
+            settings=SimpleNamespace(
+                application_services={"memory_verifier": verifier}
+            )
+        ),
+        mindmemos_client=SimpleNamespace(scope=SimpleNamespace(tenant_id="local")),
+    )
+
+    reader = serve._memory_graph_reader(bundle)
+
+    assert reader is graph_edges
+    await reader(7)
+    assert calls == [(7, None)]
+
+
+def test_memory_graph_reader_none_without_verifier() -> None:
+    bundle = SimpleNamespace(
+        application=SimpleNamespace(
+            settings=SimpleNamespace(application_services={})
+        ),
+        mindmemos_client=None,
+    )
+    assert serve._memory_graph_reader(bundle) is None
+
+
 def test_create_home_web_app_uses_full_auto_permission_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
     session_manager = object()

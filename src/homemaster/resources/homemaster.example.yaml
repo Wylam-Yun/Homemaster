@@ -104,6 +104,8 @@ memory:
   mindmemos:
     base_url: http://127.0.0.1:8765
     # api_key: "<optional; tenant partition credential>"
+    # project_id: "<tenant partition the api_key resolves to server-side —
+    #   required for Neo4j/Qdrant readback such as the web memory graph>"
     # timeout_seconds: 120
     # max_retries: 0
   # Durable memory-work outbox (turn adds, archive dreaming, skill

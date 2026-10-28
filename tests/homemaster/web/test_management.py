@@ -761,6 +761,23 @@ async def test_graph_requires_reader_and_fails_closed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_graph_unconfigured_scope_maps_to_unavailable() -> None:
+    """The verifier raises plain ``RuntimeError`` when its project scope is
+    unconfigured — a backend-unavailable state, not a read failure."""
+    client = FakeMindMemOSClient(
+        [row("m1", session_id=None, status="active", content="node")]
+    )
+
+    async def graph_edges(limit: int) -> list[dict[str, Any]]:
+        raise RuntimeError("graph edge reads require a project_id")
+
+    service = MemoryManagementService(client, FakeSessions({}), graph_reader=graph_edges)
+
+    with pytest.raises(MemoryUnavailableError):
+        await service.graph(tenant_id="local")
+
+
+@pytest.mark.asyncio
 async def test_graph_marks_truncated_edges() -> None:
     client = FakeMindMemOSClient(
         [row("m1", session_id=None, status="active", content="node")]

@@ -399,7 +399,10 @@ class MemoryManagementService:
         )
         try:
             edge_rows = await edge_fn(_GRAPH_EDGES_LIMIT)
-        except MindMemOSClientError as exc:
+        except RuntimeError as exc:
+            # The verifier raises plain RuntimeError for an unconfigured
+            # project scope or missing Neo4j driver — a backend-unavailable
+            # state, not a read failure.
             raise MemoryUnavailableError(str(exc)) from exc
         edges_truncated = len(edge_rows) > _GRAPH_EDGES_LIMIT
         edges = tuple(

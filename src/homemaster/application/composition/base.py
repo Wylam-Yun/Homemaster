@@ -783,6 +783,10 @@ def _build_memory_verifier(resolved: HomeMasterConfig) -> RawMemoryVerifier:
             neo4j_username=neo4j.username,
             neo4j_password=neo4j.password.get_secret_value() or None,
             neo4j_database=neo4j.database,
+            # Graph nodes live under the MindMemOS project's tenant scope —
+            # the partition the api_key resolves to, not the HomeMaster
+            # tenant id.
+            project_id=resolved.memory.mindmemos.project_id or None,
         )
     except ImportError:
         logger.warning(

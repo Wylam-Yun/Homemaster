@@ -292,6 +292,51 @@ print(json.dumps(payload))
     assert {"SOUL.md", "USER.md", "MEMORY.md"} <= set(payload["files"])
 
 
+def test_full_tier_verifier_binds_mindmemos_project_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The verifier's graph scope is the MindMemOS project the api_key
+    resolves to — NOT the HomeMaster tenant id. Mixing the two once joined
+    SDK memory nodes with Neo4j edges from a different project."""
+    from homemaster.application.composition import base as composition_base
+
+    captured: dict[str, object] = {}
+
+    class _Verifier:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(composition_base, "QdrantNeo4jVerifier", _Verifier)
+
+    def _config(project_id: str | None) -> HomeMasterConfig:
+        mindmemos: dict[str, object] = {"base_url": "http://127.0.0.1:19999"}
+        if project_id is not None:
+            mindmemos["project_id"] = project_id
+        return HomeMasterConfig(
+            memory={
+                "mode": "full",
+                "data_root": tmp_path / "memory-data",
+                "mindmemos": mindmemos,
+                "neo4j": {"uri": "bolt://127.0.0.1:7687"},
+            },
+            runtime={"runtime_root": tmp_path / "runs"},
+            observability={
+                "session_dir": str(tmp_path / "sessions"),
+                "trace_dir": str(tmp_path / "traces"),
+            },
+        )
+
+    verifier = composition_base._build_memory_verifier(_config("proj-dev-vanilla-memory"))
+    assert isinstance(verifier, _Verifier)
+    assert captured["project_id"] == "proj-dev-vanilla-memory"
+
+    # Unset project_id → no bound scope → graph reads fail closed.
+    captured.clear()
+    verifier = composition_base._build_memory_verifier(_config(None))
+    assert isinstance(verifier, _Verifier)
+    assert captured["project_id"] is None
+
+
 def test_memory_off_composes_no_memory_surface_on_files_tier(tmp_path: Path) -> None:
     """``memory_off`` is the real kill-switch: a files-tier config must compose
     zero memory services and zero memory tools when the benchmark disables
