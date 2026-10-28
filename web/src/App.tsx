@@ -9,6 +9,7 @@ import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type AttachmentDraft, type ModelSelection } from './components/composer/ComposerPanel'
 import { QueueDock, type QueuedPrompt } from './components/composer/QueueDock'
 import { MemoryPage } from './components/MemoryPage'
+import { DreamingPage } from './components/DreamingPage'
 import { FeedbackRunsPage } from './components/FeedbackRunsPage'
 import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
@@ -1047,6 +1048,9 @@ function AppShell() {
           <button type="button" aria-label="记忆整理" aria-current={route.kind === 'feedback' ? 'page' : undefined} data-active={route.kind === 'feedback' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/feedback') }}>
             <span className="nav-icon"><IconRefresh size={16} /></span>记忆整理
           </button>
+          <button type="button" aria-label="Dreaming" aria-current={route.kind === 'dreaming' ? 'page' : undefined} data-active={route.kind === 'dreaming' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/dreaming') }}>
+            <span className="nav-icon"><IconArchive size={16} /></span>Dreaming
+          </button>
           <button type="button" aria-label="技能" aria-current={route.kind === 'skills' ? 'page' : undefined} data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}>
             <span className="nav-icon"><IconSparkles size={16} /></span>技能
             {skills.length > 0 && <span className="nav-badge">{skills.length}</span>}
@@ -1255,6 +1259,12 @@ function AppShell() {
             unavailable={memoryUnavailable}
             runImplicitFeedback={typeof api.runImplicitFeedback === 'function'
               ? () => api.runImplicitFeedback() : undefined}
+          />
+        ) : route.kind === 'dreaming' ? (
+          <DreamingPage
+            loadSessions={() => api.dreamingSessions()}
+            loadDetail={sessionId => api.dreamingSessionDetail(sessionId)}
+            unavailable={memoryUnavailable}
           />
         ) : route.kind === 'skills' ? (
           <SkillsPage

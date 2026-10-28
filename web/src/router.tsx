@@ -12,6 +12,7 @@ export type Route =
   | { kind: 'sessions' }
   | { kind: 'memory' }
   | { kind: 'feedback' }
+  | { kind: 'dreaming' }
   | { kind: 'permissions' }
   | { kind: 'skills' }
   | { kind: 'settings' }
@@ -38,6 +39,8 @@ export function parseHash(hash: string): Route {
       return { kind: 'memory' }
     case 'feedback':
       return { kind: 'feedback' }
+    case 'dreaming':
+      return { kind: 'dreaming' }
     case 'permissions':
       return { kind: 'permissions' }
     case 'skills':

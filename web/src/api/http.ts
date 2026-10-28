@@ -217,6 +217,55 @@ export type FeedbackRunDetail = FeedbackRun & {
   actions: FeedbackActionDiff[]
 }
 
+/** GET /api/memories/dreaming-sessions — one session row with its aggregate
+ * archive badge. ``unarchived`` covers active sessions with no archive yet. */
+export type DreamingSessionRow = {
+  session_id: string
+  title: string
+  updated_at: string | null
+  archive_state: 'unarchived' | 'processing' | 'completed' | 'failed' | string
+  archive_count: number
+  last_archive_at: number | null
+}
+
+export type DreamingSeed = {
+  operation_id: string
+  turn_id: string | null
+  preview: string | null
+  missing: boolean
+}
+
+export type DreamingJob = {
+  job_id: string
+  status: string
+  attempts: number
+  error: string | null
+  dreaming_record_id: string | null
+  raw_verified: boolean | null
+  missing_ids: string[]
+  extracted_count: number | null
+}
+
+export type DreamingArchive = {
+  archive_id: string
+  state: string
+  turn_range: [number, number]
+  max_event_seq: number
+  created_at: number
+  job: DreamingJob | null
+  seeds: DreamingSeed[]
+  actions: FeedbackActionDiff[] | null
+  diffs_unavailable: boolean
+}
+
+/** GET /api/memories/dreaming-sessions/{session_id} — per-archive runs. */
+export type DreamingSessionDetail = {
+  session_id: string
+  archive_state: string
+  session_excerpts: { turn_id: string; preview: string | null }[]
+  archives: DreamingArchive[]
+}
+
 /** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
  * Neo4j relationships actually stored between them. */
 export type MemoryGraphNode = {
@@ -539,6 +588,14 @@ export class HomeMasterApi {
 
   feedbackRunDetail(jobId: string): Promise<FeedbackRunDetail> {
     return this.request(`/api/memories/feedback-runs/${encodeURIComponent(jobId)}`)
+  }
+
+  dreamingSessions(): Promise<{ sessions: DreamingSessionRow[] }> {
+    return this.request('/api/memories/dreaming-sessions')
+  }
+
+  dreamingSessionDetail(sessionId: string): Promise<DreamingSessionDetail> {
+    return this.request(`/api/memories/dreaming-sessions/${encodeURIComponent(sessionId)}`)
   }
 
   providers(): Promise<{ providers: ProviderProfile[] }> {
