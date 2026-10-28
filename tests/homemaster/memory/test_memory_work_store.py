@@ -239,6 +239,33 @@ class TestArchives:
         )
         assert a.archive_id != b.archive_id
 
+    def test_list_archives_all_sessions_desc(self, store):
+        first = store.create_archive(
+            "s1", turn_range_start=0, turn_range_end=9, max_event_seq=10,
+            add_operation_ids=["op1"], intent_payload={},
+        )
+        second = store.create_archive(
+            "s2", turn_range_start=0, turn_range_end=4, max_event_seq=7,
+            add_operation_ids=["op2"], intent_payload={},
+        )
+        third = store.create_archive(
+            "s1", turn_range_start=10, turn_range_end=11, max_event_seq=20,
+            add_operation_ids=["op3"], intent_payload={},
+        )
+        listed = store.list_archives()
+        assert [a.archive_id for a in listed] == [
+            third.archive_id, second.archive_id, first.archive_id
+        ]
+        # Per-instance field fidelity, not just ids.
+        by_id = {a.archive_id: a for a in listed}
+        assert by_id[first.archive_id].session_id == "s1"
+        assert by_id[first.archive_id].add_operation_ids == ("op1",)
+        assert by_id[second.archive_id].session_id == "s2"
+        assert by_id[second.archive_id].turn_range_end == 4
+        assert by_id[third.archive_id].max_event_seq == 20
+        limited = store.list_archives(limit=2)
+        assert [a.archive_id for a in limited] == [third.archive_id, second.archive_id]
+
 
 class TestSkillInvocations:
     def test_open_seal_steps(self, store):
@@ -322,6 +349,67 @@ class TestSkillInvocations:
             "inv-cold", task_input="i", agent_completion="c", outcome="success", score=0.9,
         )
         assert store.pending_evolution_skills(8) == ["hot"]
+
+    def _seal(self, store, invocation_id, cloud_skill_id, *, skill_id="sk"):
+        store.open_skill_invocation(
+            invocation_id, session_id="s", turn_id="t", skill_id=skill_id,
+            cloud_skill_id=cloud_skill_id, skill_version_id="v",
+            skill_content_hash="h",
+        )
+        store.seal_skill_invocation(
+            invocation_id, task_input="i", agent_completion="c",
+            outcome="success", score=0.9,
+        )
+
+    def test_skills_with_invocations(self, store):
+        for i in range(3):
+            self._seal(store, f"a-{i}", "cloud-a", skill_id="skill-a")
+        store.open_skill_invocation(
+            "a-open", session_id="s", turn_id="t", skill_id="skill-a",
+            cloud_skill_id="cloud-a", skill_version_id="v", skill_content_hash="h",
+        )
+        self._seal(store, "b-0", "cloud-b", skill_id="skill-b")
+        rows = {r["cloud_skill_id"]: r for r in store.skills_with_invocations()}
+        assert set(rows) == {"cloud-a", "cloud-b"}
+        assert rows["cloud-a"]["skill_id"] == "skill-a"
+        assert rows["cloud-a"]["invocation_count"] == 4  # open 也计入总数
+        assert rows["cloud-b"]["invocation_count"] == 1
+        assert rows["cloud-a"]["last_sealed_at"] is not None
+
+    def test_skill_invocations_for_skill_ordering(self, store):
+        self._seal(store, "sealed-1", "cloud-a")
+        self._seal(store, "sealed-2", "cloud-a")
+        store.open_skill_invocation(
+            "open-1", session_id="s", turn_id="t", skill_id="sk",
+            cloud_skill_id="cloud-a", skill_version_id="v", skill_content_hash="h",
+        )
+        self._seal(store, "other", "cloud-b")
+        invs = store.skill_invocations_for_skill("cloud-a")
+        assert [i.invocation_id for i in invs] == ["open-1", "sealed-2", "sealed-1"]
+        # Per-instance fidelity.
+        assert invs[0].status == "open" and invs[0].sealed_at is None
+        assert invs[1].status == "sealed" and invs[1].score == 0.9
+        assert all(i.cloud_skill_id == "cloud-a" for i in invs)
+
+    def test_skill_evolution_batches_for_skill(self, store):
+        for i in range(8):
+            self._seal(store, f"inv-{i}", "cloud-a")
+        ids = store.claim_skill_traces("cloud-a", batch_id="b1", count=8)
+        store.create_evolution_batch(
+            "b1", cloud_skill_id="cloud-a", trace_ids=ids, job_id="job-1"
+        )
+        store.create_evolution_batch(
+            "bx", cloud_skill_id="cloud-b", trace_ids=["z"], job_id=None
+        )
+        batches = store.skill_evolution_batches_for_skill("cloud-a")
+        assert len(batches) == 1
+        batch = batches[0]
+        assert batch.batch_id == "b1"
+        assert batch.cloud_skill_id == "cloud-a"
+        assert set(batch.trace_ids) == set(ids)
+        assert batch.job_id == "job-1"
+        assert batch.status == "created"
+        assert store.skill_evolution_batches_for_skill("nope") == []
 
 
 class TestAudit:

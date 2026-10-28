@@ -164,6 +164,16 @@ class SkillInvocation:
 
 
 @dataclass(frozen=True)
+class SkillEvolutionBatch:
+    batch_id: str
+    cloud_skill_id: str
+    trace_ids: tuple[str, ...]
+    job_id: str | None
+    status: str
+    created_at: float
+
+
+@dataclass(frozen=True)
 class SkillInvocationStep:
     invocation_id: str
     step_seq: int
@@ -302,6 +312,7 @@ class MemoryWorkStore(Protocol):
 
     def archive(self, archive_id: str) -> ArchiveSnapshot | None: ...
     def archives_for_session(self, session_id: str) -> list[ArchiveSnapshot]: ...
+    def list_archives(self, *, limit: int = 500) -> list[ArchiveSnapshot]: ...
     def attach_dreaming_job(self, archive_id: str, job_id: str) -> None: ...
     def settle_archive(self, archive_id: str, status: str) -> None: ...
 
@@ -331,6 +342,13 @@ class MemoryWorkStore(Protocol):
         score: float,
     ) -> SkillInvocation: ...
 
+    def skills_with_invocations(self) -> list[dict[str, Any]]: ...
+    def skill_invocations_for_skill(
+        self, cloud_skill_id: str, *, limit: int = 100
+    ) -> list[SkillInvocation]: ...
+    def skill_evolution_batches_for_skill(
+        self, cloud_skill_id: str
+    ) -> list[SkillEvolutionBatch]: ...
     def unconsumed_trace_count(self, cloud_skill_id: str) -> int: ...
     def claim_skill_traces(
         self, cloud_skill_id: str, *, batch_id: str, count: int
@@ -1166,6 +1184,13 @@ class SQLiteMemoryWorkStore:
             ).fetchall()
             return [self._archive_row(row) for row in rows]
 
+    def list_archives(self, *, limit: int = 500) -> list[ArchiveSnapshot]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM archives ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [self._archive_row(row) for row in rows]
+
     def attach_dreaming_job(self, archive_id: str, job_id: str) -> None:
         with self._lock, self._db:
             self._db.execute(
@@ -1358,6 +1383,48 @@ class SQLiteMemoryWorkStore:
             ).fetchall()
             return [row["cloud_skill_id"] for row in rows]
 
+    def skills_with_invocations(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT cloud_skill_id, MIN(skill_id) AS skill_id, "
+                "COUNT(*) AS invocation_count, MAX(sealed_at) AS last_sealed_at "
+                "FROM skill_invocations GROUP BY cloud_skill_id "
+                "ORDER BY last_sealed_at DESC"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def skill_invocations_for_skill(
+        self, cloud_skill_id: str, *, limit: int = 100
+    ) -> list[SkillInvocation]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM skill_invocations WHERE cloud_skill_id = ? "
+                "ORDER BY COALESCE(sealed_at, created_at) DESC LIMIT ?",
+                (cloud_skill_id, limit),
+            ).fetchall()
+            return [self._invocation_row(row) for row in rows]
+
+    def skill_evolution_batches_for_skill(
+        self, cloud_skill_id: str
+    ) -> list[SkillEvolutionBatch]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM skill_evolution_batches WHERE cloud_skill_id = ? "
+                "ORDER BY created_at DESC",
+                (cloud_skill_id,),
+            ).fetchall()
+            return [
+                SkillEvolutionBatch(
+                    batch_id=row["batch_id"],
+                    cloud_skill_id=row["cloud_skill_id"],
+                    trace_ids=tuple(_load(row["trace_ids_json"]) or ()),
+                    job_id=row["job_id"],
+                    status=row["status"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+
     # -- feedback watermarks ---------------------------------------------------------
 
     def feedback_watermark(self, scope_key: str, window_start: float) -> dict[str, Any] | None:
@@ -1504,6 +1571,7 @@ __all__ = [
     "MemoryWorkStoreError",
     "OutboxJob",
     "SQLiteMemoryWorkStore",
+    "SkillEvolutionBatch",
     "SkillInvocation",
     "SkillInvocationStep",
     "StoreAudit",
