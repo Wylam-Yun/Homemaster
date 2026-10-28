@@ -16,6 +16,7 @@ from homemaster.alfworld.benchmark.runner import _start_trajectory_runtime
 from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
 from homemaster.config import ConfigError, load_config
 from homemaster.events.sinks import JsonlEventSink
+from homemaster.memory.skill_invocations import SkillIdentity
 from homemaster.providers.attempts import JsonlProviderAttemptSink
 from homemaster.robocasa.adapter import RoboCasaEnvAdapter
 from homemaster.robocasa.benchmark.cells import (
@@ -230,6 +231,14 @@ class RoboCasaBenchmarkRunner:
             trace.write_session_messages(session)
             final_state = adapter.current_state
             success = final_state.success
+            invoked_skills = self._record_skill_invocations(
+                entry=entry,
+                episode_dir=episode_dir,
+                session_id=cell_run_id,
+                task_language=task_language,
+                success=success,
+                agent_completion=result.final_reply,
+            )
             failure_reason = None if success else _failure_reason(result.error_code)
             classification = _classification(
                 success=success,
@@ -273,6 +282,7 @@ class RoboCasaBenchmarkRunner:
                 "outcome": outcome_value,
                 "classification": episode_result.classification,
                 "score_eligible": episode_result.score_eligible,
+                "skill_invocations": invoked_skills,
             }
             trace.write_episode_finished(episode_summary)
             source_trace_sha256 = trace.source_trace_sha256()
@@ -369,6 +379,64 @@ class RoboCasaBenchmarkRunner:
             return None
 
         return application_decide
+
+    # -- skill invocation bookkeeping ----------------------------------------
+
+    def _record_skill_invocations(
+        self,
+        *,
+        entry: BenchmarkApplicationLifecycle,
+        episode_dir: Path,
+        session_id: str,
+        task_language: str,
+        success: bool,
+        agent_completion: str,
+    ) -> list[str]:
+        """Seal one skill invocation per ``load_skill`` call in the cell.
+
+        Model-invoked skills only: a ``load_skill(name=...)`` call in the
+        cell's runtime events is the honest evidence the agent actually
+        consulted the skill; cells without one record nothing. The seal's
+        score maps the environment success flag, which the runtime terminal
+        status alone cannot see. Bookkeeping is observational — a failure
+        here must never change the cell outcome.
+        """
+        try:
+            services = getattr(entry.application.settings, "application_services", None) or {}
+            tracker = services.get("skill_tracker")
+            registry = services.get("skill_registry")
+            if tracker is None or registry is None:
+                return []
+            events_path = episode_dir / "application" / "runtime_events.jsonl"
+            invoked: list[str] = []
+            for event in _read_jsonl(events_path):
+                if event.get("type") != "tool.call_started" or event.get("name") != "load_skill":
+                    continue
+                arguments = (event.get("payload") or {}).get("arguments") or {}
+                skill_name = arguments.get("name") or arguments.get("skill_name")
+                if not skill_name or str(skill_name) in invoked:
+                    continue
+                spec = registry.get_model_visible(str(skill_name))
+                if spec is None:
+                    continue
+                invocation_id = tracker.begin(
+                    session_id=session_id,
+                    turn_id="turn-1",
+                    identity=SkillIdentity.for_local_skill(spec.name, spec.content),
+                )
+                tracker.seal(
+                    invocation_id,
+                    session_id=session_id,
+                    turn_id="turn-1",
+                    terminal_status="completed" if success else "failed",
+                    task_input=task_language,
+                    agent_completion=agent_completion,
+                )
+                invoked.append(str(skill_name))
+            return invoked
+        except Exception:
+            logger.exception("skill invocation bookkeeping failed for %s", session_id)
+            return []
 
     # -- worker lifecycle ---------------------------------------------------
 

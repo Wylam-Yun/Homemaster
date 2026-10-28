@@ -656,6 +656,165 @@ def test_implicit_feedback_routes_enqueue_and_report_status() -> None:
             assert response.json()["code"] == "memory_unavailable"
 
 
+def _coro(value):
+    """Wrap a plain value in a coroutine for sync-shaped fakes of async APIs."""
+
+    async def _inner():
+        return value
+
+    return _inner()
+
+
+def test_feedback_runs_list_and_detail_routes() -> None:
+    """Run list reflects implicit_feedback outbox rows; detail joins the
+    inspector's scanned sessions and per-action diffs; both fail closed."""
+    window = {
+        "window_start": "2026-10-25T12:00:00+00:00",
+        "window_end": "2026-10-28T12:00:00+00:00",
+    }
+    manual_job = SimpleNamespace(
+        job_id="job-1",
+        kind="implicit_feedback",
+        operation_key="implicitcheck:scope:manual:1",
+        status="completed",
+        last_error=None,
+        created_at=1.0,
+        updated_at=5.0,
+        payload={"window": window},
+        result={"actions": [{"action_id": "r:0", "action": "update", "memory_id": "m1"}]},
+    )
+    scheduled_job = SimpleNamespace(
+        **{
+            **vars(manual_job),
+            "job_id": "job-2",
+            "operation_key": "implicitcheck:scope:100",
+            "result": None,
+        }
+    )
+    other_kind = SimpleNamespace(
+        **{**vars(manual_job), "job_id": "job-3", "kind": "turn_add"}
+    )
+    store = SimpleNamespace(
+        list_jobs=lambda kind, limit=50: [manual_job, scheduled_job],
+        job=lambda job_id: {
+            "job-1": manual_job, "job-3": other_kind
+        }.get(job_id),
+    )
+    inspector = SimpleNamespace(
+        scanned_sessions=lambda window: _coro(
+            [
+                SimpleNamespace(
+                    session_id="s-1",
+                    records_count=2,
+                    excerpts=(
+                        SimpleNamespace(
+                            add_record_id="r1",
+                            submitted_at="2026-10-27T10:00:00+00:00",
+                            preview="其实我搬苏州了",
+                        ),
+                    ),
+                )
+            ]
+        ),
+        action_diffs=lambda actions: _coro(
+            [
+                SimpleNamespace(
+                    action_id="r:0",
+                    action="update",
+                    memory_id="m1",
+                    memory_session_id="s-1",
+                    before=SimpleNamespace(content="住杭州", status="archived"),
+                    after=SimpleNamespace(content="住苏州", status="active"),
+                    missing=False,
+                )
+            ]
+        ),
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={
+            "memory_work_store": store,
+            "feedback_run_inspector": inspector,
+        }
+    )
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        listed = client.get("/api/memories/feedback-runs")
+        assert listed.status_code == 200
+        assert listed.json() == {
+            "runs": [
+                {
+                    "job_id": "job-1",
+                    "trigger": "manual",
+                    "status": "completed",
+                    "window": window,
+                    "created_at": 1.0,
+                    "updated_at": 5.0,
+                    "actions_count": 1,
+                    "error": None,
+                },
+                {
+                    "job_id": "job-2",
+                    "trigger": "scheduled",
+                    "status": "completed",
+                    "window": window,
+                    "created_at": 1.0,
+                    "updated_at": 5.0,
+                    "actions_count": 0,
+                    "error": None,
+                },
+            ]
+        }
+
+        detail = client.get("/api/memories/feedback-runs/job-1")
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["sessions"] == [
+            {
+                "session_id": "s-1",
+                "records_count": 2,
+                "excerpts": [
+                    {
+                        "add_record_id": "r1",
+                        "submitted_at": "2026-10-27T10:00:00+00:00",
+                        "preview": "其实我搬苏州了",
+                    }
+                ],
+            }
+        ]
+        assert body["actions"] == [
+            {
+                "action_id": "r:0",
+                "action": "update",
+                "memory_id": "m1",
+                "memory_session_id": "s-1",
+                "before": {"content": "住杭州", "status": "archived"},
+                "after": {"content": "住苏州", "status": "active"},
+                "missing": False,
+            }
+        ]
+
+        assert client.get("/api/memories/feedback-runs/nope").status_code == 404
+        assert client.get("/api/memories/feedback-runs/job-3").status_code == 404
+
+    files_app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+    with TestClient(files_app) as client:
+        for response in (
+            client.get("/api/memories/feedback-runs"),
+            client.get("/api/memories/feedback-runs/job-1"),
+        ):
+            assert response.status_code == 503
+            assert response.json()["code"] == "memory_unavailable"
+
+
 def test_session_attachment_upload_and_message_delivery(tmp_path: Path) -> None:
     import base64
 
@@ -715,6 +874,8 @@ def test_web_route_table_is_stable() -> None:
         ("/api/health", ("GET",)),
         ("/api/memories", ("GET",)),
         ("/api/memories", ("POST",)),
+        ("/api/memories/feedback-runs", ("GET",)),
+        ("/api/memories/feedback-runs/{job_id}", ("GET",)),
         ("/api/memories/graph", ("GET",)),
         ("/api/memories/implicit-feedback", ("POST",)),
         ("/api/memories/implicit-feedback/{job_id}", ("GET",)),

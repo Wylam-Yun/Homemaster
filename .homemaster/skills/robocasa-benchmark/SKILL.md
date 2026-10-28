@@ -1,10 +1,10 @@
 ---
 name: robocasa-benchmark
 description: >
-  跑 RoboCasa 评测集（benchmark-robocasa / robocasa_* 工具）时的操作技能。
-  当任务要求运行、复现、调试或分析 RoboCasa Target50 评测，或以 robocasa profile
-  完成仿真 cell（task+seed）时使用。此 skill 会随运行经验持续自进化，
-  先读 experience/index.md 再行动。
+  只要正在 RoboCasa 仿真环境里执行 cell（用 robocasa_* 工具完成 task+seed），
+  就在开局先调用 load_skill 加载本 skill。它说明 14 个 robocasa_* 工具的
+  调用顺序、VLA 闭环的正确用法、卡死/抓空的恢复套路，以及历次 run 在
+  experience/ 里沉淀的操作经验——先读 experience/index.md 再行动。
 ---
 
 # RoboCasa Benchmark

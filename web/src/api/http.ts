@@ -174,6 +174,49 @@ export type ImplicitFeedbackStatus = {
   raw_verified?: boolean | null
 }
 
+/** GET /api/memories/feedback-runs — one implicit-feedback outbox job. */
+export type FeedbackRun = {
+  job_id: string
+  trigger: 'manual' | 'scheduled'
+  status: string
+  window?: { window_start: string; window_end: string } | null
+  created_at: number
+  updated_at: number
+  actions_count: number
+  error?: string | null
+}
+
+export type FeedbackRunExcerpt = {
+  add_record_id: string
+  submitted_at: string | null
+  preview: string
+}
+
+export type FeedbackRunSession = {
+  session_id: string
+  records_count: number
+  excerpts: FeedbackRunExcerpt[]
+}
+
+/** One memory mutation inside a run. ``before`` is null for `add` and when
+ * the parent version is gone; ``missing`` marks points that could not be
+ * read back from raw storage. */
+export type FeedbackActionDiff = {
+  action_id: string
+  action: string
+  memory_id: string | null
+  memory_session_id: string | null
+  before: { content: string; status: string } | null
+  after: { content: string; status: string } | null
+  missing: boolean
+}
+
+/** GET /api/memories/feedback-runs/{job_id} — rebuilt run detail. */
+export type FeedbackRunDetail = FeedbackRun & {
+  sessions: FeedbackRunSession[]
+  actions: FeedbackActionDiff[]
+}
+
 /** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
  * Neo4j relationships actually stored between them. */
 export type MemoryGraphNode = {
@@ -488,6 +531,14 @@ export class HomeMasterApi {
 
   implicitFeedbackStatus(jobId: string): Promise<ImplicitFeedbackStatus> {
     return this.request(`/api/memories/implicit-feedback/${encodeURIComponent(jobId)}`)
+  }
+
+  feedbackRuns(limit = 50): Promise<{ runs: FeedbackRun[] }> {
+    return this.request(`/api/memories/feedback-runs?limit=${limit}`)
+  }
+
+  feedbackRunDetail(jobId: string): Promise<FeedbackRunDetail> {
+    return this.request(`/api/memories/feedback-runs/${encodeURIComponent(jobId)}`)
   }
 
   providers(): Promise<{ providers: ProviderProfile[] }> {

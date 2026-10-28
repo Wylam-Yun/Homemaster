@@ -11,6 +11,7 @@ export type Route =
   | { kind: 'chat'; sessionId: string | null }
   | { kind: 'sessions' }
   | { kind: 'memory' }
+  | { kind: 'feedback' }
   | { kind: 'permissions' }
   | { kind: 'skills' }
   | { kind: 'settings' }
@@ -35,6 +36,8 @@ export function parseHash(hash: string): Route {
       return { kind: 'sessions' }
     case 'memory':
       return { kind: 'memory' }
+    case 'feedback':
+      return { kind: 'feedback' }
     case 'permissions':
       return { kind: 'permissions' }
     case 'skills':

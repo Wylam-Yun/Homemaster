@@ -9,6 +9,7 @@ import { ApprovalDialog } from './components/ApprovalDialog'
 import { ComposerPanel, type AttachmentDraft, type ModelSelection } from './components/composer/ComposerPanel'
 import { QueueDock, type QueuedPrompt } from './components/composer/QueueDock'
 import { MemoryPage } from './components/MemoryPage'
+import { FeedbackRunsPage } from './components/FeedbackRunsPage'
 import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
 import { GlobalShortcuts, ShortcutHelpDialog } from './components/ShortcutHelpDialog'
@@ -24,6 +25,7 @@ import {
   IconMemory,
   IconMoon,
   IconPlus,
+  IconRefresh,
   IconSearch,
   IconSettings,
   IconShield,
@@ -1042,6 +1044,9 @@ function AppShell() {
             <span className="nav-icon"><IconMemory size={16} /></span>记忆管理
             {memoryTotal !== undefined && memoryTotal > 0 && <span className="nav-badge">{memoryTotal}</span>}
           </button>
+          <button type="button" aria-label="记忆整理" aria-current={route.kind === 'feedback' ? 'page' : undefined} data-active={route.kind === 'feedback' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/feedback') }}>
+            <span className="nav-icon"><IconRefresh size={16} /></span>记忆整理
+          </button>
           <button type="button" aria-label="技能" aria-current={route.kind === 'skills' ? 'page' : undefined} data-active={route.kind === 'skills' || undefined} onClick={() => { setSidebarOpen(false); navigate('#/skills') }}>
             <span className="nav-icon"><IconSparkles size={16} /></span>技能
             {skills.length > 0 && <span className="nav-badge">{skills.length}</span>}
@@ -1241,10 +1246,15 @@ function AppShell() {
               await api.deleteMemory(id)
               toast.show({ title: '已删除（归档）该记忆' })
             } : undefined}
+          />
+        ) : route.kind === 'feedback' ? (
+          <FeedbackRunsPage
+            loadRuns={() => api.feedbackRuns()}
+            loadDetail={jobId => api.feedbackRunDetail(jobId)}
+            sessions={sessions}
+            unavailable={memoryUnavailable}
             runImplicitFeedback={typeof api.runImplicitFeedback === 'function'
               ? () => api.runImplicitFeedback() : undefined}
-            implicitFeedbackStatus={typeof api.implicitFeedbackStatus === 'function'
-              ? jobId => api.implicitFeedbackStatus(jobId) : undefined}
           />
         ) : route.kind === 'skills' ? (
           <SkillsPage

@@ -41,6 +41,10 @@ from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.memory.archive_service import ArchiveService
 from homemaster.memory.context_service import FrozenMemoryContextService
 from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.feedback_runs import (
+    FeedbackRunInspector,
+    NullFeedbackRunInspector,
+)
 from homemaster.memory.feedback_scheduler import ImplicitFeedbackConfig, ImplicitFeedbackScheduler
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
@@ -435,6 +439,7 @@ def _finish_home_application(
     archive_service: ArchiveService | None = None
     skill_tracker: SkillInvocationTracker | None = None
     feedback_scheduler: ImplicitFeedbackScheduler | None = None
+    feedback_run_inspector: Any = None
     memory_migration: MemoryMigrationCoordinator | None = None
     # W1 memory tiers: the files tier (mode="files") runs purely on local file
     # memory — store, frozen prompt context, and the dependency-free evidence
@@ -493,6 +498,7 @@ def _finish_home_application(
                 timeout_seconds=mm_cfg.timeout_seconds,
             )
             memory_verifier = _build_memory_verifier(resolved)
+            feedback_run_inspector = _build_feedback_inspector(resolved)
             skill_tracker = SkillInvocationTracker(memory_work_store)
             archive_service = ArchiveService(memory_work_store)
             fb_cfg = resolved.memory.implicit_feedback
@@ -691,6 +697,7 @@ def _finish_home_application(
                             "session_trace": session_trace,
                             "memory_worker_pool": memory_worker_pool,
                             "feedback_scheduler": feedback_scheduler,
+                            "feedback_run_inspector": feedback_run_inspector,
                             "archive_service": archive_service,
                             "skill_tracker": skill_tracker,
                             "memory_verifier": memory_verifier,
@@ -795,6 +802,36 @@ def _build_memory_verifier(resolved: HomeMasterConfig) -> RawMemoryVerifier:
             " not installed in this environment"
         )
         return NullVerifier()
+
+
+def _build_feedback_inspector(resolved: HomeMasterConfig) -> Any:
+    """Read-only run observability over the same Qdrant the verifier uses.
+
+    Qdrant is mandatory here: both reconstructions (scanned ``add_record_v1``
+    sessions and ``memory_item_v1`` diffs) live in that store — without it the
+    inspector cannot honestly report anything, so it degrades to the null
+    variant instead of guessing from the graph store.
+    """
+
+    qdrant = resolved.memory.qdrant
+    qdrant_url: str | None = None
+    if qdrant.mode == "server":
+        qdrant_url = qdrant.url
+    elif qdrant.mode == "managed_local":
+        qdrant_url = f"http://127.0.0.1:{qdrant.rest_port}"
+    if qdrant_url is None:
+        return NullFeedbackRunInspector()
+    try:
+        return FeedbackRunInspector(
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant.api_key.get_secret_value() or None,
+            project_id=resolved.memory.mindmemos.project_id or None,
+        )
+    except ImportError:
+        logger.warning(
+            "feedback run inspector disabled: qdrant-client not installed"
+        )
+        return NullFeedbackRunInspector()
 
 
 def _inventory_stale_finalizer_jobs(data_root: Path) -> list[Path]:

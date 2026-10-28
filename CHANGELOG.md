@@ -1,5 +1,14 @@
 # Unreleased
 
+- RoboCasa benchmark episodes now advertise the installed
+  `robocasa-benchmark` skill under `# Available Skills` and instruct the
+  worker to call `load_skill(name="robocasa-benchmark")` at episode
+  start; the skill's frontmatter description is rewritten as an
+  always-load trigger scoped to robocasa cells. Previously nothing told
+  the agent the skill existed, so the per-cell `skill_invocations`
+  sealing recorded `[]` for every cell and the skill-evolution pipeline
+  had no invocations to learn from.
+
 - V3.8 live-run hardening against a real standalone MindMemOS server:
   - `claim_jobs` now requires an absent/expired lease before claiming
     `outcome_unknown` rows — that status is preserved for the executor's
