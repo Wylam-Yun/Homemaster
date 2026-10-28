@@ -266,6 +266,77 @@ export type DreamingSessionDetail = {
   archives: DreamingArchive[]
 }
 
+/** GET /api/skill-evolution — one row per skill that has cloud-registered
+ * invocations. */
+export type SkillEvolutionRow = {
+  cloud_skill_id: string
+  skill_id: string | null
+  invocation_count: number | null
+  unconsumed_count: number | null
+  batch_size: number
+  batches_count: number
+  last_batch_at: string | null
+  last_draft_version_id: string | null
+}
+
+export type SkillInvocationStep = {
+  tool_call_id: string | null
+  tool_name: string | null
+  arguments: Record<string, unknown> | null
+  status: string | null
+}
+
+export type SkillInvocationView = {
+  invocation_id: string
+  status: string
+  score: number | null
+  outcome: string | null
+  task_input: string | null
+  sealed_at: string | null
+  evolution_batch_id: string | null
+  skill_version_id: string | null
+  steps: SkillInvocationStep[]
+}
+
+export type SkillEvolutionBatchView = {
+  batch_id: string
+  status: string
+  created_at: string | null
+  trace_ids: string[]
+  job: { job_id: string; status: string; attempts: number; error: string | null } | null
+  draft_version_id: string | null
+}
+
+export type SkillVersionView = {
+  version_id: string
+  parent_version_id: string | null
+  status: string | null
+  version_label: string | null
+  content_hash: string | null
+}
+
+/** GET /api/skill-evolution/{cloud_skill_id} — traces, batches, and the
+ * server-side version lineage. */
+export type SkillEvolutionDetail = {
+  cloud_skill_id: string
+  skill_id: string | null
+  unconsumed_count: number | null
+  invocations: SkillInvocationView[]
+  batches: SkillEvolutionBatchView[]
+  versions: SkillVersionView[] | null
+  versions_unavailable: boolean
+}
+
+/** GET .../versions/{version_id}/content — draft SKILL.md plus its parent for
+ * diff rendering. */
+export type SkillVersionContent = {
+  version_id: string
+  status: string | null
+  parent_version_id: string | null
+  content: string
+  parent: { version_id: string; content: string } | null
+}
+
 /** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
  * Neo4j relationships actually stored between them. */
 export type MemoryGraphNode = {
@@ -596,6 +667,23 @@ export class HomeMasterApi {
 
   dreamingSessionDetail(sessionId: string): Promise<DreamingSessionDetail> {
     return this.request(`/api/memories/dreaming-sessions/${encodeURIComponent(sessionId)}`)
+  }
+
+  skillEvolutionOverview(): Promise<{ skills: SkillEvolutionRow[] }> {
+    return this.request('/api/skill-evolution')
+  }
+
+  skillEvolutionDetail(cloudSkillId: string): Promise<SkillEvolutionDetail> {
+    return this.request(`/api/skill-evolution/${encodeURIComponent(cloudSkillId)}`)
+  }
+
+  skillEvolutionVersionContent(
+    cloudSkillId: string,
+    versionId: string,
+  ): Promise<SkillVersionContent> {
+    return this.request(
+      `/api/skill-evolution/${encodeURIComponent(cloudSkillId)}/versions/${encodeURIComponent(versionId)}/content`,
+    )
   }
 
   providers(): Promise<{ providers: ProviderProfile[] }> {
