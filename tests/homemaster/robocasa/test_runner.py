@@ -22,7 +22,7 @@ def _provider_config(tmp_path: Path) -> Path:
     path.write_text(
         """
         {
-          "memory": {"enabled": true, "data_root": "./memory"},
+          "memory": {"mode": "files", "data_root": "./memory"},
           "providers": {
             "default": "mimo_v25",
             "items": [

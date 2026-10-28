@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,8 @@ from homemaster.web.memory_views import (
     ManagedMemory,
     MemoryGroup,
     MemoryNotFoundError,
+    MemorySearchHit,
+    MemorySearchResult,
     MemorySnapshot,
     MemoryStats,
 )
@@ -154,8 +157,9 @@ class _FakeMemoryManagementService:
         content: str,
         *,
         tenant_id: str,
+        fields: dict[str, object] | None = None,
     ) -> ManagedMemory:
-        del content, tenant_id
+        del content, tenant_id, fields
         if memory_id == "missing":
             raise MemoryNotFoundError(memory_id)
         return _managed_memory(memory_id)
@@ -171,17 +175,34 @@ class _FakeMemoryManagementService:
             raise MemoryNotFoundError(memory_id)
         return {"memory_id": memory_id, "deleted": True, "status": "archived"}
 
+    async def detail(self, memory_id: str, *, tenant_id: str) -> ManagedMemory:
+        del tenant_id
+        if memory_id == "missing":
+            raise MemoryNotFoundError(memory_id)
+        return _managed_memory(memory_id)
 
-class _FakeCompileJobs:
-    def __init__(self) -> None:
-        self.enqueued: list[tuple[str, str]] = []
-
-    def enqueue(self, memory_id: str, *, session_id: str) -> dict[str, str]:
-        self.enqueued.append((memory_id, session_id))
-        return {"job_id": "job-01", "status": "queued"}
-
-    def get(self, job_id: str) -> dict[str, str] | None:
-        return {"job_id": job_id, "status": "succeeded"} if job_id == "job-01" else None
+    async def search(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        top_k: int = 10,
+    ) -> MemorySearchResult:
+        del tenant_id, top_k
+        return MemorySearchResult(
+            query=query,
+            hits=(
+                MemorySearchHit(
+                    memory_id="memory-01",
+                    content="visible memory",
+                    memory_type="fact",
+                    memory_type_label="事实",
+                    score=0.5,
+                    session_id="session-01",
+                ),
+            ),
+            search_record_id="sr-1",
+        )
 
 
 class _FailingApplication:
@@ -270,11 +291,13 @@ def test_web_memory_routes_return_503_without_memory_service() -> None:
     with TestClient(app) as client:
         snapshot = client.get("/api/memories")
         history = client.get("/api/memories/memory-01/history")
-    assert snapshot.status_code == 503
-    assert snapshot.json()["code"] == "memory_unavailable"
-    assert snapshot.json()["retryable"] is True
-    assert history.status_code == 503
-    assert history.json()["code"] == "memory_unavailable"
+        detail = client.get("/api/memories/memory-01")
+        search = client.get("/api/memories/search", params={"q": "x"})
+        graph = client.get("/api/memories/graph")
+    for response in (snapshot, history, detail, search, graph):
+        assert response.status_code == 503
+        assert response.json()["code"] == "memory_unavailable"
+        assert response.json()["retryable"] is True
 
 
 def test_web_lifespan_starts_application_before_serving() -> None:
@@ -502,6 +525,21 @@ def test_memory_snapshot_and_history_are_get_only() -> None:
         assert deleted.status_code == 200
         assert deleted.json()["deleted"] is True
 
+        detail = client.get("/api/memories/memory-01")
+        assert detail.status_code == 200
+        assert detail.json()["memory_id"] == "memory-01"
+        missing_detail = client.get("/api/memories/missing")
+        assert missing_detail.status_code == 404
+        assert missing_detail.json()["code"] == "memory_not_found"
+
+        found = client.get("/api/memories/search", params={"q": "visible"})
+        assert found.status_code == 200
+        assert found.json()["query"] == "visible"
+        assert found.json()["hits"][0]["memory_id"] == "memory-01"
+        assert found.json()["search_record_id"] == "sr-1"
+        empty_query = client.get("/api/memories/search", params={"q": "  "})
+        assert empty_query.status_code == 422
+
 
 def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
     without_service = create_web_app(
@@ -528,24 +566,94 @@ def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
         }
 
 
-def test_alfworld_compile_routes_only_admit_and_read_server_owned_jobs() -> None:
-    jobs = _FakeCompileJobs()
+def test_implicit_feedback_routes_enqueue_and_report_status() -> None:
+    """POST admits one implicit-feedback outbox job; GET reflects the
+    work-store row; both fail closed when memory services are absent."""
+    window = {
+        "window_start": "2026-10-25T12:00:00+00:00",
+        "window_end": "2026-10-28T12:00:00+00:00",
+    }
+    done_job = SimpleNamespace(
+        job_id="job-1",
+        kind="implicit_feedback",
+        status="completed",
+        last_error=None,
+        result={
+            "actions": [
+                {"action_id": "r:0", "action": "update", "memory_id": "m1"},
+                {"action_id": "r:1", "action": "noop", "memory_id": None},
+            ],
+            "raw_verified": True,
+        },
+        payload={"window": window},
+    )
+    accepted_job = SimpleNamespace(
+        **{**vars(done_job), "status": "accepted", "result": None}
+    )
+    other_kind_job = SimpleNamespace(**{**vars(done_job), "kind": "turn_add"})
+    enqueued: list[bool] = []
+
+    def _enqueue() -> object:
+        enqueued.append(True)
+        return accepted_job
+
+    store = SimpleNamespace(
+        job=lambda job_id: {"job-1": done_job, "job-2": other_kind_job}.get(job_id)
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={
+            "feedback_scheduler": SimpleNamespace(enqueue_manual=_enqueue),
+            "memory_work_store": store,
+        }
+    )
     app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        accepted = client.post("/api/memories/implicit-feedback")
+        assert accepted.status_code == 201
+        assert accepted.json() == {
+            "job_id": "job-1",
+            "status": "accepted",
+            "window": window,
+        }
+
+        status = client.get("/api/memories/implicit-feedback/job-1")
+        assert status.status_code == 200
+        assert status.json() == {
+            "job_id": "job-1",
+            "status": "completed",
+            "error": None,
+            "actions_count": 1,
+            "raw_verified": True,
+        }
+
+        missing = client.get("/api/memories/implicit-feedback/nope")
+        assert missing.status_code == 404
+        assert missing.json()["code"] == "feedback_job_not_found"
+
+        # A job id that belongs to a different outbox kind is not a
+        # feedback job — don't leak it through this surface.
+        wrong_kind = client.get("/api/memories/implicit-feedback/job-2")
+        assert wrong_kind.status_code == 404
+
+    assert enqueued == [True]
+
+    files_app = create_web_app(
         application=_FakeApplication(),
         confirmation_handler=WebConfirmationHandler(timeout_s=None),
-        alfworld_compile_jobs=jobs,
     )
-    with TestClient(app) as client:
-        accepted = client.post("/api/memories/source-01/compile")
-        status = client.get("/api/memory-compilations/job-01")
-        missing = client.get("/api/memory-compilations/missing")
-
-    assert accepted.status_code == 202
-    assert accepted.json() == {"job_id": "job-01", "status": "queued"}
-    assert jobs.enqueued == [("source-01", "web-memory-management")]
-    assert status.status_code == 200
-    assert status.json()["status"] == "succeeded"
-    assert missing.status_code == 404
+    with TestClient(files_app) as client:
+        for response in (
+            client.post("/api/memories/implicit-feedback"),
+            client.get("/api/memories/implicit-feedback/job-1"),
+        ):
+            assert response.status_code == 503
+            assert response.json()["code"] == "memory_unavailable"
 
 
 def test_session_attachment_upload_and_message_delivery(tmp_path: Path) -> None:
@@ -608,11 +716,13 @@ def test_web_route_table_is_stable() -> None:
         ("/api/memories", ("GET",)),
         ("/api/memories", ("POST",)),
         ("/api/memories/graph", ("GET",)),
+        ("/api/memories/implicit-feedback", ("POST",)),
+        ("/api/memories/implicit-feedback/{job_id}", ("GET",)),
+        ("/api/memories/search", ("GET",)),
         ("/api/memories/{memory_id}", ("DELETE",)),
+        ("/api/memories/{memory_id}", ("GET",)),
         ("/api/memories/{memory_id}", ("PATCH",)),
-        ("/api/memories/{memory_id}/compile", ("POST",)),
         ("/api/memories/{memory_id}/history", ("GET",)),
-        ("/api/memory-compilations/{job_id}", ("GET",)),
         ("/api/meta", ("GET",)),
         ("/api/permissions/grants", ("GET",)),
         ("/api/permissions/grants/{grant_id}/revoke", ("POST",)),

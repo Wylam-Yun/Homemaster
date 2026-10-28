@@ -265,9 +265,17 @@ def test_top_level_print_forwards_limited_provider_and_model_overrides(
 
 def test_dry_run_resolves_home_profile_without_application_or_external_io(
     monkeypatch,
+    tmp_path,
 ) -> None:
     def forbidden(*args, **kwargs):
         raise AssertionError("dry-run created the application")
+
+    # Keep the dry-run hermetic: the default resolution would pick up the
+    # developer-local config/homemaster.yaml, whose memory tier is a local
+    # deployment detail rather than test input.
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+    monkeypatch.setattr("homemaster.config.config.HOMEMASTER_CONFIG_PATH", config_path)
 
     monkeypatch.setattr("homemaster.application.composition.base.create_application", forbidden)
     result = CliRunner().invoke(
@@ -372,7 +380,13 @@ def test_dry_run_with_files_tier_config_exposes_only_context_memory(
 def test_dry_run_with_full_tier_config_keeps_mindmemos_tools(tmp_path: Path) -> None:
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text(
-        f"memory:\n  mode: full\n  data_root: {tmp_path / 'memory-data'}\n",
+        "memory:\n"
+        "  mode: full\n"
+        f"  data_root: {tmp_path / 'memory-data'}\n"
+        # V3.8: full tier requires the standalone MindMemOS endpoint; the
+        # dry-run never dials out.
+        "  mindmemos:\n"
+        "    base_url: http://127.0.0.1:19999\n",
         encoding="utf-8",
     )
 

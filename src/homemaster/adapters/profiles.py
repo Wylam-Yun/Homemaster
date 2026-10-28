@@ -56,7 +56,6 @@ _ROBOCASA_MUTATING_TOOLS = frozenset(
 _MEMORY_WRITE_TOOL_NAMES = frozenset(
     {
         "memory_writer",
-        "mindmemos_add",
         "mindmemos_update",
         "mindmemos_delete",
         "mindmemos_feedback",

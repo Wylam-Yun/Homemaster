@@ -19,6 +19,7 @@ from pydantic import (
     PrivateAttr,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -352,11 +353,18 @@ class MemoryMigrationSpec(BaseModel):
 
 
 class MemoryNeo4jConfig(BaseModel):
-    """Neo4j connection and optional HomeMaster-owned local process settings."""
+    """Neo4j connection and optional HomeMaster-owned local process settings.
+
+    In V3.8 the MindMemOS server owns the graph store, so the default
+    ``server`` mode manages no process at all — ``uri``/credentials are only
+    used by the raw-readback verifier. ``managed_local`` remains as an
+    explicit opt-in for single-node installs that want HomeMaster to spawn
+    and babysit a private Neo4j.
+    """
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    mode: Literal["managed_local"] = "managed_local"
+    mode: Literal["server", "managed_local"] = "server"
     home: Path | None = None
     java_home: Path | None = None
     uri: str = "bolt://127.0.0.1:7687"
@@ -397,16 +405,26 @@ class MemoryNeo4jConfig(BaseModel):
 
     @field_validator("uri")
     @classmethod
-    def _valid_bolt_uri(cls, value: str) -> str:
+    def _valid_bolt_uri(cls, value: str, info: ValidationInfo) -> str:
         parsed = urlsplit(value)
         if parsed.scheme not in {"bolt", "neo4j"} or not parsed.hostname:
             raise ValueError("Neo4j uri must be an absolute bolt/neo4j URI")
-        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        # Loopback is a managed_local constraint (HomeMaster spawns the
+        # process); "server" mode may point at any reachable bolt endpoint.
+        if info.data.get("mode") == "managed_local" and parsed.hostname not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
             raise ValueError("managed_local Neo4j uri must use a loopback host")
         return value
 
     @model_validator(mode="after")
     def _managed_local_has_runtime_inputs(self) -> MemoryNeo4jConfig:
+        # Only managed_local owns a process; "server" mode only needs the
+        # readback uri/credentials, whatever subset is configured.
+        if self.mode != "managed_local":
+            return self
         # The in-memory default remains constructible; setup/load of an explicit
         # managed_local deployment must provide the concrete runtime credentials.
         if self.home is None and self.java_home is None and not self.password.get_secret_value():
@@ -492,6 +510,60 @@ class MemoryQdrantConfig(BaseModel):
         return self.url
 
 
+class MindMemOSServerConfig(BaseModel):
+    """Connection to the standalone MindMemOS HTTP server (V3.8).
+
+    The server owns the memory pipelines and stores; HomeMaster talks to it
+    exclusively through ``mindmemos_sdk``. ``base_url`` is REQUIRED when
+    ``memory.mode=full`` — the former embedded runtime is removed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = ""
+    api_key: SecretStr = SecretStr("")
+    # The tenant partition the ``api_key`` resolves to server-side (the
+    # ``project_id`` in the server's api-key registry). Neo4j/Qdrant readback
+    # — e.g. the web memory graph — is scoped by this id, NOT by the
+    # HomeMaster tenant id; leaving it unset fails graph reads closed.
+    project_id: str = ""
+    timeout_seconds: float = Field(default=120.0, gt=0)
+    max_retries: int = Field(default=0, ge=0)
+
+    @field_validator("base_url")
+    @classmethod
+    def _valid_base_url(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        parsed = urlsplit(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("memory.mindmemos.base_url must be an absolute http(s) URI")
+        return stripped.rstrip("/")
+
+
+class MemoryWorkerConfig(BaseModel):
+    """Durable outbox worker tuning (V3.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    poll_interval_seconds: float = Field(default=1.0, gt=0)
+    lease_seconds: float = Field(default=300.0, gt=0)
+    max_concurrent: int = Field(default=4, ge=1)
+
+
+class ImplicitFeedbackSettings(BaseModel):
+    """Daily implicit-feedback schedule (V3.8 §4.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    hour: int = Field(default=3, ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    timezone_name: str = "Asia/Shanghai"
+    interval_seconds: float = Field(default=60.0, gt=0)
+
+
 class MemoryConfig(BaseModel):
     """File memory and embedded MindMemOS configuration.
 
@@ -540,6 +612,13 @@ class MemoryConfig(BaseModel):
     dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     qdrant: MemoryQdrantConfig = Field(default_factory=MemoryQdrantConfig)
+    # V3.8: standalone MindMemOS HTTP server endpoint (required for mode=full),
+    # the durable memory-work workers, and the implicit-feedback schedule.
+    mindmemos: MindMemOSServerConfig = Field(default_factory=MindMemOSServerConfig)
+    worker: MemoryWorkerConfig = Field(default_factory=MemoryWorkerConfig)
+    implicit_feedback: ImplicitFeedbackSettings = Field(
+        default_factory=ImplicitFeedbackSettings
+    )
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
     @model_validator(mode="before")
@@ -622,6 +701,15 @@ class MemoryConfig(BaseModel):
         if not stripped:
             raise ValueError("embedding_provider_name must not be blank")
         return stripped
+
+    @model_validator(mode="after")
+    def _full_tier_requires_server(self) -> MemoryConfig:
+        if self.mode == "full" and not self.mindmemos.base_url:
+            raise ValueError(
+                "memory.mode=full requires memory.mindmemos.base_url pointing at a "
+                "standalone MindMemOS server (the embedded runtime was removed in V3.8)"
+            )
+        return self
 
     @property
     def soul_path(self) -> Path:

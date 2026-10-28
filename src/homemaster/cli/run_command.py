@@ -32,6 +32,7 @@ from homemaster.cli.server_process import ensure_server, stop_server
 from homemaster.config import load_config
 from homemaster.events.logger import setup_logging
 from homemaster.events.public_projection import PublicEventProjection
+from homemaster.memory.skill_invocations import SkillInvocation
 from homemaster.skills.commands import resolve_skill_command
 
 
@@ -123,7 +124,18 @@ def execute_one_shot(
                         run_policy=RunPolicy(
                             max_tool_iterations=config.runtime.max_tool_iterations,
                         ),
-                        dependencies={"skill_registry": bundle.skill_registry},
+                        dependencies={
+                            "skill_registry": bundle.skill_registry,
+                            **(
+                                {
+                                    "skill_invocation": SkillInvocation.from_resolved(
+                                        resolved_skill
+                                    )
+                                }
+                                if resolved_skill is not None
+                                else {}
+                            ),
+                        },
                         environment=HomeCliBackend(
                             memory_path=memory_path,
                         ),

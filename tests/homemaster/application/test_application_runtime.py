@@ -6,7 +6,6 @@ import gc
 import hashlib
 import io
 import json
-import re
 import threading
 import time
 import weakref
@@ -20,13 +19,13 @@ import pytest
 from PIL import Image
 
 from homemaster.agent.context import ContextAssembler
-from homemaster.agent.messages import AssistantMessage, ContentBlock, ToolCall, UserMessage
+from homemaster.agent.messages import ToolCall
 from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequest, RunStatus
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import (
     ApplicationRuntime,
     ApplicationSession,
-    AutomaticRecallRunDeadlineExceeded,
+    _terminal_status_for,
 )
 
 
@@ -75,16 +74,14 @@ from homemaster.extensions import (
     HookSpec,
     LoadedExtension,
 )
-from homemaster.memory.add_queue import MemoryAddQueue
-from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
-from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
-from homemaster.memory.models import FactRecord
+from homemaster.memory.memory_work_store import JOB_TURN_ADD, SQLiteMemoryWorkStore
+from homemaster.memory.mindmemos_client import MindMemOSClient, SearchHit, SearchReceipt
+from homemaster.memory.session_trace_store import SessionTraceStore
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
-from homemaster.providers.errors import LLMNetworkError
 from homemaster.providers.types import TransportDelta
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.tools import make_task_progress_check_tool
@@ -175,87 +172,6 @@ class _FakeTransport:
             yield delta
 
 
-class _AutomaticRecallStore(EmbeddedMindMemOS):
-    def __init__(self, order, *, memories=(), error=None) -> None:
-        self.order = order
-        self.memories = list(memories)
-        self.error = error
-        self.calls: list[tuple[str, Any, dict[str, Any]]] = []
-
-    async def search(self, query, context, **kwargs):
-        self.order.append("search")
-        self.calls.append((query, context, kwargs))
-        if self.error is not None:
-            raise self.error
-        return SimpleNamespace(status="ok", memories=list(self.memories))
-
-
-class _BlockingAutomaticRecallStore(EmbeddedMindMemOS):
-    def __init__(self) -> None:
-        self.entered = asyncio.Event()
-        self.cancelled = False
-
-    async def search(self, *_args, **_kwargs):
-        self.entered.set()
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            self.cancelled = True
-            raise
-
-
-class _AutomaticRecallTransport(_FakeTransport):
-    def __init__(self, order) -> None:
-        super().__init__([_text("完成")])
-        self.order = order
-
-    async def stream(self, *args, **kwargs):
-        self.order.append("provider")
-        async for delta in super().stream(*args, **kwargs):
-            yield delta
-
-    async def complete(self, *_args, **_kwargs):
-        return AssistantMessage(content=[ContentBlock(text="compact summary")])
-
-
-class _AutomaticRecallRetryTransport:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    async def stream(
-        self,
-        messages,
-        *,
-        tools=None,
-        attempt_sink=None,
-        model_attempt_id="attempt",
-        **_kwargs,
-    ):
-        self.calls.append({"messages": messages, "tools": tools})
-        request_hash = hashlib.sha256(repr((messages, tools)).encode()).hexdigest()
-        failed = len(self.calls) == 1
-        if attempt_sink is not None:
-            attempt_sink.record_attempt(
-                ProviderAttemptRecord(
-                    model_attempt_id=model_attempt_id,
-                    request_sha256=request_hash,
-                    outbound_images=(),
-                    stripped_images=False,
-                    response_completed=not failed,
-                    error_type="network_error" if failed else None,
-                    cause_code="transient_network" if failed else None,
-                )
-            )
-        if failed:
-            raise LLMNetworkError(
-                error_type="network_error",
-                message="connection reset",
-                cause_code="transient_network",
-            )
-        for delta in _text("done"):
-            yield delta
-
-
 class _BlockingTransport(_FakeTransport):
     def __init__(self) -> None:
         super().__init__([_text("late response")])
@@ -319,107 +235,52 @@ class _FailingCloseTransport(_FakeTransport):
         raise RuntimeError("provider close failed")
 
 
-class _MemoryEvidenceTransport:
+class _FakeMindMemOSClient(MindMemOSClient):
+    """In-memory stand-in for the standalone MindMemOS HTTP client.
+
+    Subclassing satisfies the ``isinstance`` service check in the memory
+    tools; the async surface is overridden per test — no HTTP transport is
+    constructed (``__init__`` is deliberately skipped).
+    """
+
+    def __init__(self) -> None:  # noqa: D107 - intentionally no super()
+        pass
+
+
+class _MemorySearchClient(_FakeMindMemOSClient):
     def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
+        self.search_calls: list[dict[str, Any]] = []
 
-    async def stream(self, messages, *, tools=None, **kwargs):
-        del kwargs
-        self.calls.append({"messages": messages, "tools": tools})
-        if len(self.calls) == 1:
-            context_text = "\n".join(
-                block.text for message in messages for block in message.content if block.text
-            )
-            assert re.search(r"memory-evidence-[0-9a-f]{32}", context_text) is None
-            assert "evidence_refs" not in json.dumps(tools, ensure_ascii=False)
-            for delta in _tool(
-                "memory-add-1",
-                "mindmemos_add",
-                {
-                    "memory_type": "fact",
-                    "content": "钥匙在玄关抽屉",
-                },
-            ):
-                yield delta
-            return
-        for delta in _text("记住了"):
-            yield delta
-
-
-class _RecordingMindMemOS(EmbeddedMindMemOS):
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, int, str]] = []
-        self.records: dict[str, dict[str, object]] = {}
-
-    async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
-        del context
-        self.calls.append((content, memory_type, provenance_seq, evidence_kind))
-        memory_id = f"memory-runtime-{len(self.calls)}"
-        self.records[memory_id] = {
-            "content": content,
-            "homemaster_memory_type": memory_type,
-            "provenance_seq": provenance_seq,
-            "evidence_kind": evidence_kind,
-        }
-        return {"memory_id": memory_id, "verified_terminal_state": True}
-
-    async def get_raw(self, memory_id, context):
-        del context
-        metadata = self.records.get(memory_id)
-        if metadata is None:
-            return None
-        return SimpleNamespace(
-            memory_id=memory_id,
-            mem_type="experience" if metadata["homemaster_memory_type"] == "procedure" else "fact",
-            content=metadata["content"],
-            metadata=metadata,
-            created_at=None,
-            update_at=None,
-            status="active",
-        )
-
-    async def enrich_flat_memory(self, *, memory_id, content, context):
-        del content, context
-        return {"memory_id": memory_id, "entity_ids": []}
-
-
-class _MemoryRecallStore(EmbeddedMindMemOS):
-    def __init__(self) -> None:
-        self.search_calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def search(self, query, context, **kwargs):
-        from mindmemos.typing import MemorySearchItem
-
-        del context
+    async def search(
+        self,
+        query,
+        *,
+        session_id=None,
+        top_k=5,
+        filters=None,
+        **_kwargs,
+    ):
         assert query == "钥匙在哪里"
-        self.search_calls.append((query, kwargs))
-        return SimpleNamespace(
-            status="ok",
-            memories=[
-                MemorySearchItem(
+        self.search_calls.append(
+            {
+                "query": query,
+                "session_id": session_id,
+                "top_k": top_k,
+                "filters": filters,
+            }
+        )
+        return SearchReceipt(
+            search_record_id="search-record-1",
+            hits=(
+                SearchHit(
                     id="memory-recall-1",
                     memory="钥匙 的 location 是玄关抽屉",
                     memory_type="fact",
-                    last_update_at="2026-07-28 00:00:00",
-                )
-            ],
-        )
-
-    async def get_raw(self, memory_id, context):
-        del context
-        record = FactRecord(
-            memory_type="fact",
-            subject={"type": "object", "name": "钥匙"},
-            predicate="location",
-            value={"container": "玄关抽屉"},
-            source="user_statement",
-        )
-        return SimpleNamespace(
-            memory_id=memory_id,
-            metadata={"request_metadata": {"record_json": record.model_dump_json()}},
-            created_at=None,
-            update_at=None,
-            status="active",
+                    score=0.91,
+                    metadata={"record": {"value": {"container": "玄关抽屉"}}},
+                ),
+            ),
+            request_id="req-search-1",
         )
 
 
@@ -441,44 +302,29 @@ class _MemoryRecallTransport:
         tool_message = tool_result_blocks(messages, name="mindmemos_search")[0]
         payload = json.loads(result_text(tool_message))
         assert payload["records"][0]["memory_id"] == "memory-recall-1"
-        assert payload["records"][0]["record"]["value"] == {"container": "玄关抽屉"}
+        assert payload["records"][0]["metadata"]["record"]["value"] == {
+            "container": "玄关抽屉"
+        }
         for delta in _text("钥匙在玄关抽屉"):
             yield delta
 
 
-class _MemoryHistoryStore(EmbeddedMindMemOS):
-    def __init__(self) -> None:
-        pass
-
-    async def search(self, query, context, **kwargs):
-        del query, context, kwargs
-        return SimpleNamespace(status="ok", memories=[])
-
-    async def get_history(self, memory_id, context):
-        del context
-        assert memory_id == "memory-current"
+class _MemoryHistoryClient(_FakeMindMemOSClient):
+    async def get_memory(self, *, filters):
+        assert filters == {"memory_id": "memory-current"}
 
         def version(version_id: str, value: str, status: str):
-            record = FactRecord(
-                memory_type="fact",
-                subject={"type": "other", "name": "Aurora-A18"},
-                predicate="package_manager",
-                value=value,
-                source="user_statement",
-            )
-            return SimpleNamespace(
-                memory_id=version_id,
-                content=f'Aurora-A18 的 package_manager 是 "{value}"',
-                metadata={"request_metadata": {"record_json": record.model_dump_json()}},
-                created_at=None,
-                update_at=None,
-                status=status,
-            )
+            return {
+                "id": version_id,
+                "memory": f'Aurora-A18 的 package_manager 是 "{value}"',
+                "record": {"value": value},
+                "status": status,
+            }
 
-        return [
-            version("memory-current", "uv", "active"),
-            version("memory-old", "conda", "archived"),
-        ]
+        return {
+            "memories": [version("memory-current", "uv", "active")],
+            "history": [version("memory-old", "conda", "archived")],
+        }
 
 
 class _MemoryHistoryTransport:
@@ -519,41 +365,6 @@ class _ObservationExecutor:
             data={"observed": True},
             backend_attempted=True,
         )
-
-
-class _ProcedureEvidenceTransport:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    async def stream(self, messages, *, tools=None, **kwargs):
-        del kwargs
-        self.calls.append({"messages": messages, "tools": tools})
-        if len(self.calls) == 1:
-            for call_id in ("observation-step", "observation-success"):
-                for delta in _tool(call_id, "read_observation", {}):
-                    yield delta
-            return
-        if len(self.calls) == 2:
-            visible_text = "\n".join(
-                text
-                for message in messages
-                for block in message.content
-                if (text := getattr(block, "text", None))
-            )
-            assert re.search(r"memory-evidence-[0-9a-f]{32}", visible_text) is None
-            assert "evidence_refs" not in json.dumps(tools, ensure_ascii=False)
-            for delta in _tool(
-                "procedure-add",
-                "mindmemos_add",
-                {
-                    "memory_type": "procedure",
-                    "content": "查看告警：打开 https://monitor.example.com/alarms，确认看到告警。",
-                },
-            ):
-                yield delta
-            return
-        for delta in _text("流程已保存"):
-            yield delta
 
 
 class _FailingSaveBackend:
@@ -874,6 +685,7 @@ def _application(
     permission_checker: Any | None = None,
     confirmation_handler: Any | None = None,
     resource_manager: Any | None = None,
+    session_trace: SessionTraceStore | None = None,
 ) -> ApplicationRuntime:
     del profile_name
     registry = ToolRegistry()
@@ -939,6 +751,7 @@ def _application(
         settings=settings,
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
+        session_trace=session_trace,
     )
 
 
@@ -1109,343 +922,311 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
     await app.aclose()
 
 
-@pytest.mark.asyncio
-async def test_automatic_recall_precedes_first_provider_request(tmp_path) -> None:
-    from mindmemos.typing import MemorySearchItem
-
-    order: list[str] = []
-    store = _AutomaticRecallStore(
-        order,
-        memories=[
-            MemorySearchItem(
-                id="profile-1",
-                memory="用户偏好中文",
-                memory_type="profile",
-                last_update_at="2026-08-13 10:00:00",
-            ),
-            MemorySearchItem(
-                id="experience-1",
-                memory="先检查告警详情",
-                memory_type="experience",
-                last_update_at="2026-08-13 11:00:00",
-            ),
-        ],
-    )
-    transport = _AutomaticRecallTransport(order)
-    app = _application(
-        tmp_path,
-        [],
-        {"处理告警": transport},
-        application_services={"mindmemos": store},
-    )
-    request = RunRequest(
-        text="处理告警",
-        session_id="automatic-recall",
-        profile="home",
-        permission_subject=PermissionSubject(
-            subject_id="operator-a",
-            tenant_id="tenant-a",
-            channel="test",
-            capabilities=(),
-        ),
-    )
-
-    result = await app.run(request)
-
-    assert result.status is RunStatus.REPLIED
-    assert order == ["search", "provider"]
-    query, context, kwargs = store.calls[0]
-    assert query == request.text
-    assert context.account_id == "tenant-a"
-    assert context.session_id == "automatic-recall"
-    assert kwargs == {
-        "top_k": 5,
-        "search_pipeline": "vanilla",
-        "rerank": False,
-        "filters": None,
-    }
-    first_messages = transport.calls[0]["messages"]
-    request_text = _request_text(first_messages)
-    assert "profile-1" in request_text
-    assert "experience-1" in request_text
-    assert request_text.count("<memory-context>") == 1
-    assert first_messages[-1].content[0].text == request.text
-    assert all(message.role != "tool" for message in first_messages)
-    runtime = app.session_manager.get("automatic-recall")
-    assert runtime.require_recall is False
-    assert all(not getattr(message, "tool_calls", []) for message in runtime.session.messages)
-    await app.aclose()
+@pytest.fixture()
+def memory_trace(tmp_path):
+    """Durable V3.8 turn trace: SQLite work store + runtime-facing facade."""
+    store = SQLiteMemoryWorkStore(tmp_path / "memory_work.db")
+    store.open()
+    try:
+        yield store, SessionTraceStore(store)
+    finally:
+        store.close()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["empty", "error", "backend-timeout", "unavailable"])
-async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(tmp_path, mode) -> None:
-    order: list[str] = []
-    services: dict[str, object] = {}
-    if mode != "unavailable":
-        errors = {
-            "error": RuntimeError("recall backend failed"),
-            "backend-timeout": TimeoutError("backend timed out"),
-        }
-        services["mindmemos"] = _AutomaticRecallStore(
-            order,
-            error=errors.get(mode),
+def _turn_add_jobs(store: SQLiteMemoryWorkStore, session_id: str):
+    return [
+        job
+        for job in (
+            store.job_by_operation_key(f"turnadd:{session_id}:{turn.turn_id}")
+            for turn in store.turns_for_session(session_id)
         )
-    transport = _AutomaticRecallTransport(order)
+        if job is not None
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_commits_completed_turn_with_exactly_one_turn_add_job(
+    tmp_path, memory_trace
+) -> None:
+    store, trace = memory_trace
+    transport = _FakeTransport(
+        [
+            _tool("call-1", "echo", {"value": "ok"}),
+            _text("done"),
+        ]
+    )
     app = _application(
-        tmp_path,
-        [],
-        {mode: transport},
-        application_services=services,
+        tmp_path, [_echo_tool()], {"request": transport}, session_trace=trace
     )
 
     result = await app.run(
-        RunRequest(
-            text=mode,
-            session_id=f"recall-{mode}",
-            run_policy=RunPolicy(deadline_s=10 if mode == "backend-timeout" else None),
-        )
+        RunRequest(text="request", session_id="trace-completed", profile="test")
     )
 
     assert result.status is RunStatus.REPLIED
-    assert order[-1] == "provider"
-    assert "<memory-context>" not in _request_text(transport.calls[0]["messages"])
-    assert app.session_manager.get(f"recall-{mode}").require_recall is False
-    events = [event for event in app.event_bus.events if event.type == "memory.automatic_recall"]
-    assert len(events) == 1
-    assert events[0].payload["status"] == ("error" if mode == "backend-timeout" else mode)
+    turns = store.turns_for_session("trace-completed")
+    assert len(turns) == 1
+    turn = turns[0]
+    assert turn.turn_id == "turn-1"
+    assert turn.run_id == result.run_id
+    assert turn.status == "completed"
+    assert turn.terminal_reason == "replied"
+    jobs = _turn_add_jobs(store, "trace-completed")
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.kind == JOB_TURN_ADD
+    assert job.session_id == "trace-completed"
+    assert job.turn_id == "turn-1"
+    assert job.status == "accepted"
+    assert turn.add_job_id == job.job_id
+    assert job.payload["source"] == "homemaster.turn"
+    assert job.payload["terminal_status"] == "completed"
+    events = store.events_for_turn("trace-completed", "turn-1")
+    assert [event.event_seq for event in events] == [0, 1, 2, 3]
+    assert [event.kind for event in events] == ["message"] * 4
+    assert [event.payload["role"] for event in events] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
+    assert events[0].payload["content"] == "request"
+    assert events[1].payload["tool_calls"][0]["id"] == "call-1"
+    assert events[2].payload["tool_call_id"] == "call-1"
+    assert events[3].payload["content"] == "done"
+    dialogue = trace.dialogue_for_turn("trace-completed", "turn-1")
+    assert dialogue[0] == {"role": "user", "content": "request"}
+    assert [entry["role"] for entry in dialogue] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
+    tool_call_envelope = json.loads(dialogue[1]["content"])
+    assert tool_call_envelope["tool_call_id"] == "call-1"
+    tool_result_envelope = json.loads(dialogue[2]["content"])
+    assert tool_result_envelope["tool_call_id"] == "call-1"
     await app.aclose()
 
 
 @pytest.mark.asyncio
-async def test_automatic_recall_runs_once_per_session_and_survives_resume(tmp_path) -> None:
-    order: list[str] = []
-    store = _AutomaticRecallStore(order)
-    first = _AutomaticRecallTransport(order)
-    second = _AutomaticRecallTransport(order)
+async def test_failed_run_commits_failed_terminal_turn(tmp_path, memory_trace) -> None:
+    store, trace = memory_trace
+    transport = _FakeTransport([])  # provider raises before producing a reply
+    app = _application(tmp_path, [_echo_tool()], {"failure": transport}, session_trace=trace)
+
+    result = await app.run(
+        RunRequest(text="failure", session_id="trace-failed", profile="test")
+    )
+
+    assert result.status is RunStatus.FAILED
+    (turn,) = store.turns_for_session("trace-failed")
+    assert turn.status == "failed"
+    assert turn.terminal_reason == "failed"
+    (job,) = _turn_add_jobs(store, "trace-failed")
+    assert job.kind == JOB_TURN_ADD
+    assert job.payload["terminal_status"] == "failed"
+    events = store.events_for_turn("trace-failed", "turn-1")
+    assert events[0].payload["role"] == "user"
+    assert events[0].payload["content"] == "failure"
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_run_commits_cancelled_terminal_turn(
+    tmp_path, memory_trace
+) -> None:
+    store, trace = memory_trace
+    transport = _BlockingTransport()
+    app = _application(tmp_path, [_echo_tool()], {"blocking": transport}, session_trace=trace)
+    run_task = asyncio.create_task(
+        app.run(RunRequest(text="blocking", session_id="trace-cancelled", profile="test"))
+    )
+    await asyncio.to_thread(transport.entered.wait, 2)
+
+    assert app.cancel("trace-cancelled") is True
+    transport.release.set()
+    result = await run_task
+
+    assert result.status is RunStatus.CANCELLED
+    (turn,) = store.turns_for_session("trace-cancelled")
+    assert turn.status == "cancelled"
+    assert turn.terminal_reason == "cancelled"
+    (job,) = _turn_add_jobs(store, "trace-cancelled")
+    assert job.payload["terminal_status"] == "cancelled"
+    events = store.events_for_turn("trace-cancelled", "turn-1")
+    assert [event.payload["role"] for event in events] == ["user"]
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_each_terminal_turn_commits_its_own_slice_and_add_job(
+    tmp_path, memory_trace
+) -> None:
+    store, trace = memory_trace
     app = _application(
         tmp_path,
-        [],
-        {"first": first, "second": second},
-        application_services={"mindmemos": store},
+        [_echo_tool()],
+        {
+            "first": _FakeTransport([_text("one")]),
+            "second": _FakeTransport([_text("two")]),
+        },
+        session_trace=trace,
     )
 
-    await app.run(RunRequest(text="first", session_id="repeat"))
-    await app.run(RunRequest(text="second", session_id="repeat", resume=True))
-
-    assert len(store.calls) == 1
-    assert "<memory-context>" not in _request_text(second.calls[0]["messages"])
-    restored = await SessionManager(session_root=tmp_path).resume("repeat")
-    assert restored.require_recall is False
-    await app.aclose()
-
-
-@pytest.mark.asyncio
-async def test_manual_compact_rearms_only_the_next_real_user_run(tmp_path) -> None:
-    order: list[str] = []
-    store = _AutomaticRecallStore(order)
-    first = _AutomaticRecallTransport(order)
-    second = _AutomaticRecallTransport(order)
-    app = _application(
-        tmp_path,
-        [],
-        {"first": first, "after compact": second},
-        application_services={"mindmemos": store},
+    first = await app.run(RunRequest(text="first", session_id="trace-multi", profile="test"))
+    second = await app.run(
+        RunRequest(text="second", session_id="trace-multi", profile="test", resume=True)
     )
 
-    await app.run(RunRequest(text="first", session_id="compact-recall"))
-    runtime = app.session_manager.get("compact-recall")
-    runtime.task_state_store.create_or_replace_plan(
-        goal="recover alert",
-        subtasks=[{"id": "inspect", "description": "inspect current alert"}],
-        current_subtask="inspect",
-        next_focus="read alert details",
-    )
-    for index in range(8):
-        runtime.session.append(UserMessage.from_text(f"history {index} " + "x" * 600))
-        runtime.session.append(
-            AssistantMessage(content=[ContentBlock(text=f"result {index} " + "y" * 600)])
-        )
-
-    compact = await app.compact("compact-recall")
-
-    assert compact.triggered is True
-    assert len(store.calls) == 1
-    assert runtime.require_recall is True
-
-    await app.run(
-        RunRequest(
-            text="after compact",
-            session_id="compact-recall",
-            resume=True,
-        )
-    )
-
-    assert len(store.calls) == 2
-    query = store.calls[1][0]
-    assert query.startswith("[Compact Summary]\ncompact summary\n\n")
-    assert "[Current Task State]\n" in query
-    assert query.endswith("[Current User Message]\nafter compact")
-    assert runtime.require_recall is False
-    await app.aclose()
-
-
-@pytest.mark.asyncio
-async def test_automatic_recall_tenant_and_session_identity_never_crosses(tmp_path) -> None:
-    order: list[str] = []
-    store = _AutomaticRecallStore(order)
-    transports = {
-        "tenant-a": _AutomaticRecallTransport(order),
-        "tenant-b": _AutomaticRecallTransport(order),
+    turns = store.turns_for_session("trace-multi")
+    assert [turn.turn_id for turn in turns] == ["turn-1", "turn-2"]
+    assert turns[0].run_id == first.run_id
+    assert turns[1].run_id == second.run_id
+    assert all(turn.status == "completed" for turn in turns)
+    jobs = _turn_add_jobs(store, "trace-multi")
+    assert {job.operation_key for job in jobs} == {
+        "turnadd:trace-multi:turn-1",
+        "turnadd:trace-multi:turn-2",
     }
-    app = _application(
-        tmp_path,
-        [],
-        transports,
-        application_services={"mindmemos": store},
-    )
-
-    for tenant in ("tenant-a", "tenant-b"):
-        await app.run(
-            RunRequest(
-                text=tenant,
-                session_id=f"session-{tenant}",
-                permission_subject=PermissionSubject(
-                    subject_id=f"subject-{tenant}",
-                    tenant_id=tenant,
-                    channel="test",
-                    capabilities=(),
-                ),
-            )
-        )
-
-    assert len(store.calls) == 2
-    for tenant, (_, context, _) in zip(("tenant-a", "tenant-b"), store.calls, strict=True):
-        assert (context.account_id, context.project_id, context.user_id) == (
-            tenant,
-            tenant,
-            tenant,
-        )
-        assert context.session_id == f"session-{tenant}"
+    # The second turn's canonical slice contains only the messages appended by
+    # that turn — earlier messages belong to turn-1's committed events.
+    first_events = store.events_for_turn("trace-multi", "turn-1")
+    second_events = store.events_for_turn("trace-multi", "turn-2")
+    assert [event.payload["content"] for event in first_events] == ["first", "one"]
+    assert [event.payload["content"] for event in second_events] == ["second", "two"]
     await app.aclose()
 
 
 @pytest.mark.asyncio
-async def test_provider_retry_reuses_recalled_context_without_repeating_search(tmp_path) -> None:
-    from mindmemos.typing import MemorySearchItem
-
-    order: list[str] = []
-    store = _AutomaticRecallStore(
-        order,
-        memories=[
-            MemorySearchItem(
-                id="retry-memory",
-                memory="stable",
-                memory_type="profile",
-                last_update_at="2026-08-13 12:00:00",
-            )
-        ],
-    )
-    transport = _AutomaticRecallRetryTransport()
-    app = _application(
-        tmp_path,
-        [],
-        {"retry": transport},
-        application_services={"mindmemos": store},
-    )
-
-    result = await app.run(RunRequest(text="retry", session_id="recall-retry"))
-
-    assert result.status is RunStatus.REPLIED
-    assert len(store.calls) == 1
-    assert len(transport.calls) == 2
-    assert transport.calls[0]["messages"] == transport.calls[1]["messages"]
-    assert _request_text(transport.calls[0]["messages"]).count("retry-memory") == 1
-    await app.aclose()
-
-
-@pytest.mark.asyncio
-async def test_automatic_recall_uses_existing_run_deadline(tmp_path) -> None:
-    store = _BlockingAutomaticRecallStore()
+async def test_unavailable_turn_trace_fails_run_before_provider_call(tmp_path) -> None:
+    store = SQLiteMemoryWorkStore(tmp_path / "memory_work.db")
+    store.open()
+    store.close()  # closed store -> begin_turn cannot admit the turn durably
     transport = _FakeTransport([_text("must not run")])
     app = _application(
         tmp_path,
-        [],
+        [_echo_tool()],
         {"deadline": transport},
-        application_services={"mindmemos": store},
+        session_trace=SessionTraceStore(store),
     )
 
-    with pytest.raises(AutomaticRecallRunDeadlineExceeded):
-        await app.run(
-            RunRequest(
-                text="deadline",
-                session_id="recall-deadline",
-                run_policy=RunPolicy(deadline_s=0.5),
-            )
-        )
+    result = await app.run(
+        RunRequest(text="deadline", session_id="trace-admission", profile="test")
+    )
 
-    assert store.entered.is_set()
-    assert store.cancelled is True
+    assert result.status is RunStatus.FAILED
+    assert result.error_code == "memory_trace_unavailable"
     assert transport.calls == []
     await app.aclose()
 
 
+def test_terminal_status_mapping_covers_failed_budget_and_cancelled() -> None:
+    def result(status: RunStatus, error_code: str | None = None):
+        return SimpleNamespace(status=status, error_code=error_code)
+
+    assert _terminal_status_for(result(RunStatus.REPLIED)) == "completed"
+    assert _terminal_status_for(result(RunStatus.COMPLETED)) == "completed"
+    assert _terminal_status_for(result(RunStatus.WAITING_USER)) == "completed"
+    assert _terminal_status_for(result(RunStatus.CANCELLED)) == "cancelled"
+    assert _terminal_status_for(result(RunStatus.FAILED, "reply_error")) == "failed"
+    assert (
+        _terminal_status_for(result(RunStatus.FAILED, "attempt_budget_exhausted"))
+        == "budget_exhausted"
+    )
+
+
 @pytest.mark.asyncio
-async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_path) -> None:
+async def test_run_registers_user_statement_evidence_without_leaking_refs(tmp_path) -> None:
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
-    store = _RecordingMindMemOS()
-    queue = MemoryAddQueue(store, audit_path=tmp_path / "add-jobs.jsonl")
-    await queue.start()
-    enrichment_queue = MemoryEnrichmentQueue(
-        store,
-        audit_path=tmp_path / "enrichment-jobs.jsonl",
-    )
-    await enrichment_queue.start()
-    transport = _MemoryEvidenceTransport()
+    transport = _FakeTransport([_text("ok")])
     app = _application(
         tmp_path,
-        list(build_memory_tools()),
+        [_echo_tool()],
         {"钥匙在玄关抽屉": transport},
-        application_services={
-            "memory_evidence_ledger": ledger,
-            "mindmemos": store,
-            "memory_add_queue": queue,
-            "memory_enrichment_queue": enrichment_queue,
-        },
+        application_services={"memory_evidence_ledger": ledger},
     )
 
     result = await app.run(
         RunRequest(
             text="钥匙在玄关抽屉",
-            session_id="memory-runtime",
+            session_id="memory-evidence",
             profile="home",
+            permission_subject=PermissionSubject(
+                subject_id="operator-a",
+                tenant_id="tenant-a",
+                channel="test",
+            ),
         )
     )
 
     assert result.status is RunStatus.REPLIED
-    assert result.final_reply == "记住了"
-    await enrichment_queue.wait_idle()
-    assert len(store.calls) == 1
-    content, memory_type, provenance_seq, evidence_kind = store.calls[0]
-    assert content == "钥匙在玄关抽屉"
-    assert memory_type == "fact"
-    assert evidence_kind == "user_statement"
-    assert provenance_seq > 0
-    first_messages = transport.calls[0]["messages"]
-    assert first_messages[-1].content[0].text == "钥匙在玄关抽屉"
-    assert "memory-evidence-" not in first_messages[-1].content[0].text
-    add_result = tool_result_blocks(transport.calls[1]["messages"], name="mindmemos_add")[0]
-    add_payload = json.loads(result_text(add_result))
-    assert add_payload["operation"] == "add"
-    assert add_payload["status"] == "success"
-    assert add_payload["domain_status"] == "stored"
-    assert add_payload["memory_id"] == "memory-runtime-1"
-    assert add_payload["verified_terminal_state"] is True
-    assert "job_id" not in add_payload
-    assert "background" not in add_payload
-    await enrichment_queue.aclose()
-    await queue.aclose()
+    evidence = ledger.for_scope(
+        kind="user_statement",
+        tenant_id="tenant-a",
+        session_id="memory-evidence",
+        run_id=result.run_id,
+        turn_id="turn-1",
+    )
+    assert len(evidence) == 1
+    canonical_refs = app.session_manager.get("memory-evidence").canonical_evidence_refs
+    assert evidence[0].ref in canonical_refs
+    provider_text = _request_text(transport.calls[0]["messages"])
+    assert "memory-evidence-" not in provider_text
+    assert "evidence_refs" not in provider_text
+    assert "evidence_refs" not in json.dumps(
+        transport.calls[0]["tools"], ensure_ascii=False, default=str
+    )
+    await app.aclose()
+    ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_read_only_backend_observation_registers_environment_evidence(tmp_path) -> None:
+    ledger = MemoryEvidenceLedger(tmp_path / "env-evidence.sqlite3")
+    ledger.start()
+    transport = _FakeTransport(
+        [
+            [
+                *(_tool("observation-step", "read_observation", {})),
+                *(_tool("observation-success", "read_observation", {})),
+            ],
+            _text("done"),
+        ]
+    )
+    app = _application(
+        tmp_path,
+        [_observation_tool()],
+        {"observe": transport},
+        application_services={"memory_evidence_ledger": ledger},
+    )
+
+    result = await app.run(
+        RunRequest(
+            text="observe",
+            session_id="env-evidence",
+            profile="test",
+            permission_subject=PermissionSubject(
+                subject_id="operator-b",
+                tenant_id="tenant-b",
+                channel="test",
+            ),
+        )
+    )
+
+    assert result.status is RunStatus.REPLIED
+    evidence = ledger.for_scope(
+        kind="environment_observation",
+        tenant_id="tenant-b",
+        session_id="env-evidence",
+        run_id=result.run_id,
+        turn_id="turn-1",
+    )
+    assert [item.tool_call_id for item in evidence] == [
+        "observation-step",
+        "observation-success",
+    ]
     await app.aclose()
     ledger.close()
 
@@ -1455,12 +1236,12 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     tmp_path,
 ) -> None:
     transport = _MemoryRecallTransport()
-    store = _MemoryRecallStore()
+    client = _MemorySearchClient()
     app = _application(
         tmp_path,
         list(build_memory_tools()),
         {"钥匙在哪里": transport},
-        application_services={"mindmemos": store},
+        application_services={"mindmemos_client": client},
     )
 
     result = await app.run(
@@ -1470,10 +1251,11 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "钥匙在玄关抽屉"
     assert len(transport.calls) == 2
-    assert len(store.search_calls) == 2
-    assert store.search_calls[0][1]["filters"] is None
-    assert store.search_calls[0][1]["top_k"] == 5
-    assert store.search_calls[1][1]["filters"] == {"mem_type": "fact"}
+    assert len(client.search_calls) == 1
+    search_call = client.search_calls[0]
+    assert search_call["session_id"] == "memory-recall-runtime"
+    assert search_call["top_k"] == 5
+    assert search_call["filters"] == {"mem_type": "fact"}
     tool_results = tool_result_blocks(transport.calls[1]["messages"], name="mindmemos_search")
     assert len(tool_results) == 1
     await app.aclose()
@@ -1486,7 +1268,7 @@ async def test_runtime_projects_memory_history_into_model_tool_content(tmp_path)
         tmp_path,
         list(build_memory_tools()),
         {"之前用的什么": transport},
-        application_services={"mindmemos": _MemoryHistoryStore()},
+        application_services={"mindmemos_client": _MemoryHistoryClient()},
     )
 
     result = await app.run(
@@ -1497,51 +1279,6 @@ async def test_runtime_projects_memory_history_into_model_tool_content(tmp_path)
     assert result.final_reply == "之前使用 conda，现在使用 uv"
     assert len(transport.calls) == 2
     await app.aclose()
-
-
-@pytest.mark.asyncio
-async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_path) -> None:
-    ledger = MemoryEvidenceLedger(tmp_path / "procedure-evidence.sqlite3")
-    ledger.start()
-    store = _RecordingMindMemOS()
-    queue = MemoryAddQueue(store, audit_path=tmp_path / "procedure-add-jobs.jsonl")
-    await queue.start()
-    enrichment_queue = MemoryEnrichmentQueue(
-        store,
-        audit_path=tmp_path / "procedure-enrichment-jobs.jsonl",
-    )
-    await enrichment_queue.start()
-    transport = _ProcedureEvidenceTransport()
-    app = _application(
-        tmp_path,
-        [*build_memory_tools(), _observation_tool()],
-        {"学习查看告警流程": transport},
-        application_services={
-            "memory_evidence_ledger": ledger,
-            "mindmemos": store,
-            "memory_add_queue": queue,
-            "memory_enrichment_queue": enrichment_queue,
-        },
-    )
-
-    result = await app.run(
-        RunRequest(text="学习查看告警流程", session_id="procedure-runtime", profile="home")
-    )
-
-    assert result.status is RunStatus.REPLIED
-    assert result.final_reply == "流程已保存"
-    await enrichment_queue.wait_idle()
-    assert len(store.calls) == 1
-    content, memory_type, provenance_seq, evidence_kind = store.calls[0]
-    assert content.startswith("查看告警")
-    assert memory_type == "procedure"
-    assert evidence_kind == "environment_observation"
-    assert provenance_seq > 0
-    assert len(transport.calls) == 3
-    await enrichment_queue.aclose()
-    await queue.aclose()
-    await app.aclose()
-    ledger.close()
 
 
 @pytest.mark.asyncio
@@ -1868,7 +1605,8 @@ async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_
     assert _schema_name(transport.calls[0]["tools"][0]) == "echo"
     status = app.status(result.session_id)
     assert status.active is False
-    assert status.revision == 2
+    # V3.8: exactly one fenced commit+save per run on a fresh session.
+    assert status.revision == 1
     roles = [
         message.role for message in app.session_manager.get(result.session_id).session.messages
     ]
@@ -2183,7 +1921,9 @@ async def test_provider_that_swallows_cancellation_cannot_publish_late_events(
     assert result.error_code == "user_interrupted"
     assert tuple(app.event_bus.events) == events_before_cancel
     assert runtime.last_result is None
-    assert runtime.revision == 1
+    # The user cancel bumps the generation, so the fenced run exits through
+    # the SessionGenerationError path: no durable revision is committed.
+    assert runtime.revision == 0
     await app.event_bus.aclose()
 
 
@@ -2374,7 +2114,8 @@ async def test_same_session_turns_are_serialized(tmp_path) -> None:
     assert (await second_run).status is RunStatus.REPLIED
 
     runtime = app.session_manager.get("shared")
-    assert runtime.revision == 3
+    # Two serialized turns -> two durable revisions.
+    assert runtime.revision == 2
     assert [message.role for message in runtime.session.messages] == [
         "user",
         "assistant",

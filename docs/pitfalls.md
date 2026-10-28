@@ -1,3 +1,116 @@
+## 2026-10-28 - 归档"整理中"消失 + 所有 Add 被服务端校验拒：一个投影 bug 一个契约 bug
+
+- 症状：新会话归档徽章显示"整理中…"几秒后消失；后台 turnadd job 全部
+  `failed: messages[N] must contain non-empty content`（烧满 20 次重试），
+  dreaming 永远等不到种子 op，归档挂起。
+- 根因 ①（写入拒收）：`trace_event_to_dialogue` 用 `if text:` 判空——流式
+  assistant 消息常在 tool_calls 旁带 `"\n\n"` 纯空白文本块，truthy 但
+  MindMemOS `validate_messages_have_content` 按 `text.strip()` 校验 →
+  整个 Add batch 被 422 拒，一个空白块毒死全部消息。user 分支甚至无条件
+  透传空 content。
+- 根因 ②（UI 消失）：`_snapshot_view` 直出内部生命周期状态
+  `pending`/`dreamed`/`failed`，而前端徽章词表是
+  `queued`/`processing`/`completed`/`failed`——`pending` 落入 default
+  分支返回 null，首轮轮询把乐观态 `queued` 覆盖成"无徽章"；成功时
+  `dreamed` 同样不可见。后端还根本没发 `memory.work.*` WS 事件、
+  没回 `job_id`/`extracted_count` 字段。
+- 修法/教训：① 投影层负责满足下游契约——非空判定一律 `text.strip()`，
+  空/纯空白消息直接丢弃（空白块对记忆抽取零信息量）。② 公共视图做
+  状态映射 `pending→processing`、`dreamed→completed`，字段名对齐前端
+  契约（`job_id`、`extracted_count` 从 dreaming job result 的
+  `produced_memory_ids` 取数、`error` 透传 last_error）。③ macOS 上
+  老进程被浏览器 WS 长连接挂住 graceful drain——LISTEN 已关但内核残留
+  连接让裸 bind 报 EADDRINUSE，`lsof -sTCP:LISTEN` 和 curl 都探不出来；
+  先 SO_REUSEADDR 探活，确认真死再 kill -9 等 ~60s。修这类"消息被外部
+  校验拒收"的 bug 时别只看索引号对应的消息——先在本地投影层全量打印
+  发给服务器的 messages，证明每条 `content.strip()` 非空。
+- ref: `src/homemaster/memory/session_trace_store.py`
+  (`trace_event_to_dialogue`), `src/homemaster/web/routes/session_ops.py`
+  (`_snapshot_view`), MindMemOS `src/mindmemos/mindmemos/api/schemas.py`
+  (`validate_messages_have_content`)
+
+## 2026-10-28 - 显性 feedback/CRUD 路径再炸三个同源契约 bug（scope 字段 + 上游 NameError）
+
+- 症状：agent 真实对话里调 `mindmemos_feedback` 连续两次
+  `memory_backend_unavailable`，fallback `mindmemos_update` 也失败；
+  前端点记忆详情 `GET /api/memories/{id}` 503。
+- 根因 ①：`feedback_context.snapshot_to_dialogue_messages` 与
+  `trace_event_to_dialogue` 同型 bug——`if text:` truthiness 放行
+  纯空白 text block，`/v1/memory/feedback` 422 `messages[N] must
+  contain non-empty content`（agent 实测 messages[2]）。
+- 根因 ②：`MindMemOSClient.get_memory`/`delete_memory` 给所有请求体
+  统一塞 `_scope_fields`（user_id/app_id/agent_id），但上游
+  `GetRequest`/`DeleteRequest` 刻意不含 actor identity 且
+  `extra="forbid"` → 两接口**永远 422**。`mindmemos_update` 死在
+  update 前 get 预读；web 记忆详情同路径。所有"按想象中的统一形状
+  给外部 API 塞字段"的代码都要逐端点核对 schema——继承
+  `ActorIdentityRequest` 的 8 个端点收 scope，偏偏 get/delete 两个
+  刻意不收。
+- 根因 ③（上游 MindMemOS）：`/v1/memory/delete` 业务执行成功后
+  `to_status_api_response` 里 `ApiResponse[dict[str, Any] | None]`
+  是运行时泛型下标（`from __future__ import annotations` 只懒化
+  annotation，不管 return 语句里的表达式）→ `Any` 未 import →
+  NameError → **变异已发生但响应 500**。客户端看到的"失败"与
+  服务端实际终态相反——这正是 outcome_unknown/回读对账要兜的场景，
+  也是为什么契约测试必须打真服务器：fake client 全绿照不出三个
+  真 schema 问题中的任何一个。
+- 修法/教训：① 三处投影统一 `text.strip()` 判空。② get/delete
+  去掉 scope 字段（partition 由 api_key 服务端解析）。③ 上游补
+  `from typing import Any` 并重启。新增 `test_mindmemos_client.py`
+  用 stub transport 断言真实请求体（get/delete 无 actor 字段、
+  add/update 保留），别再只用方法级 fake client——那照不出 body。
+- ref: `src/homemaster/memory/feedback_context.py`,
+  `src/homemaster/memory/mindmemos_client.py`, MindMemOS
+  `src/mindmemos/mindmemos/api/mappers.py` (`to_status_api_response`)
+
+## 2026-10-27 - V3.8 远端 live 验收再抓两个"单测绿、真环境炸"的根因
+
+- 症状：RoboCasa full 模式下 archive_dreaming job 必死——`seed operation ... still processing` 重试 20 次耗尽 attempts 报 failed；同时服务端 Dreaming 完成却从未产生 LLM 合并动作。
+- 根因 ①：依赖等待被当成普通重试——种子 Add 服务端抽取 ~5min（27B），而 dreaming 每 10s 烧 1 attempt ×20 上限 = 只等 200s。等待在飞依赖 ≠ 失败。
+- 根因 ②：MindMemOS dreaming 的 relation_detection/action_planning 发 system-only messages，HPC3 OpenResty shim 要求至少一条 user 消息 → 400 `No user query found`；管线静默降级（except → None → 跳过合并阶段），表面 completed 实则语义合并从未发生。
+- 修法/教训：依赖等待走专用 `deferred` outcome + `not_before` 重排、不烧 attempts、2h 预算兜底（job.created_at 起算）；HTTP 202 `code=processing` 映射 `OperationStillProcessingError`；服务端 ledger 300s lease 让重启后 abandoned op 可被幂等重驱。真环境验收必须检查"每阶段 LLM 调用真的 200"——聚合的 completed 状态会掩盖逐阶段静默降级（§3 聚合判据掩盖 per-instance 失败）。
+- ref: `src/homemaster/memory/memory_jobs.py`, `src/homemaster/memory/memory_work_store.py` (`defer_job`), MindMemOS `src/mindmemos/mindmemos/pipelines/dreaming/default.py` (`494ec7d`)
+
+## 2026-10-27 - V3.8 live 验收连抓三个"SDK 能调通但契约已错"的真 bug
+
+- 症状：单测全绿（fake client）、SDK transport 无异常，但真打 MindMemOS
+  server 时三连错：① 原始回读校验器查不到刚写入的记录（Neo4j 警告
+  它在查不存在的 `AddRecord` label 和 `id` 属性）；② explicit feedback
+  被 400 拒——server 只要 `mode: sync|async` 且 `recalled_memories[].
+  last_update_at` 必填；③ Dreaming 被 400 拒——`DreamingRequest` 根本
+  没有 `archive_id` 字段；④ skill trace 被 400 拒——上游要
+  `skill_version_id`/`skill_content_hash`/`tool_steps`，不是 `steps`。
+- 根因：HomeMaster 侧的客户端签名和校验器 schema 是按"想象中的上游
+  形状"写的，fake 测试互相印证同一个错误假设（同源回声）。真实的上游
+  schema：AddRecord 在 Qdrant `add_record_v1` collection（不是 Neo4j
+  节点）、Memory 节点用 `project_id`+`memory_id`（不是 `id`）、feedback
+  `window` 用 `window_start`/`window_end`/`since_activity_id`、archive_id
+  只是 HomeMaster 本地 store 的边界标识、skill trace 字段名与旧
+  AddRecord 形态完全不同。
+- 修法/教训：每个外部 API 字段在写代码前以真 server 的 pydantic schema
+  为准（`mindmemos/api/*_schemas.py`），写完跑一遍真环境 facade 验收——
+  10/10 + 7/7 live checks 抓到的是单测永远抓不到的。**"内部自洽的
+  fake 全绿"对外部契约是零证据**。
+- Ref: `src/homemaster/memory/mindmemos_client.py`,
+  `src/homemaster/memory/memory_verifier.py`,
+  `src/homemaster/memory/memory_jobs.py`,
+  `/tmp/mindmemos-live/acceptance{,2}.py`
+
+## 2026-10-27 - uv editable .pth 被 macOS UF_HIDDEN 标志静默跳过
+
+- 症状：`uv pip install -e ../MindMemOS/src/mindmemos_sdk` 显示成功，
+  `import mindmemos_sdk` 却 ModuleNotFound；`site.py` 的 verbose 日志显示
+  `.pth` 文件被跳过，从未执行 `open_code`。
+- 根因：此 uv-Python 3.11.15 的 `site.py` 会跳过带 `UF_HIDDEN` chflag 的
+  `.pth`；uv 生成的 `mindmemos_sdk.pth` 恰好被标了 hidden（flags=32832）。
+  `uv run` 每次 re-sync 还会重建 hidden .pth，修了也白修。
+- 修法/教训：`chflags nohidden` 可临时救；长期改用非 editable 快照安装
+  （`uv pip install ../MindMemOS/src/mindmemos_sdk`），上游改动后重装。
+  教训：**Python 环境层的"安装成功"不等于"import 可用"**——跨 venv 复用
+  editable 依赖时必须从 consumer Python 实际 import 验证。
+- Ref: `.venv/lib/python3.11/site-packages/site.py:306+`（hidden flag
+  skip）、`docs/session-handoff.md`
+
 ## 2026-10-25 - "复制 store 目录"隔离不了 Neo4j：managed_local 的图是全局共享的
 
 - 症状：A/B 三份 `cp -r` 的 memory store 启动时先后报

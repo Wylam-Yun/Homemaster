@@ -1,18 +1,25 @@
+"""HTTP-level read surface tests for the MindMemOS-native memory routes.
+
+V3.8: ``EmbeddedMindMemOS`` and its ``mindmemos.infra`` fixtures are gone;
+these tests drive ``GET /api/memories*`` through a duck-typed
+``MindMemOSClient`` and assert the read paths never reach the mutating
+client surface (create/update/delete).
+"""
+
 from __future__ import annotations
 
-import hashlib
-import importlib
-from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
-from mindmemos.infra.db import MemoryPoint, SparseVectorData
 
 from homemaster.application import SessionManager
-from homemaster.config import HomeMasterConfig, ProviderProfileConfig
 from homemaster.events.bus import EventBus
+from homemaster.memory.mindmemos_client import (
+    MutationReceipt,
+    SearchHit,
+    SearchReceipt,
+)
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.memory_views import MemoryManagementService
@@ -27,111 +34,97 @@ class _Application:
         await self.event_bus.aclose()
 
 
-def _provider(name: str, *, kind: str) -> ProviderProfileConfig:
-    return ProviderProfileConfig(
-        name=name,
-        api_format="openai",
-        base_url="https://provider.invalid/v1",
-        model="test-model",
-        api_keys=["test-key"],
-        kind=kind,
-        embedding_url=("https://provider.invalid/v1/embeddings" if kind == "embedding" else None),
-    )
+def _row(
+    memory_id: str,
+    *,
+    status: str,
+    session_id: str,
+    content: str = "fixture",
+) -> dict[str, Any]:
+    return {
+        "memory_id": memory_id,
+        "session_id": session_id,
+        "status": status,
+        "content": content or f"{status} fixture",
+        "mem_type": "fact",
+        "metadata": {"delete_reason": "user_request"} if status == "archived" else {},
+        "status_changed_at": "2026-08-24T08:30:00+00:00" if status == "archived" else None,
+        "updated_at": "2026-08-24T08:30:00+00:00",
+        "created_at": "2026-08-24T08:00:00+00:00",
+    }
 
 
-def _point(memory_id: str, *, status: str, session_id: str) -> MemoryPoint:
-    return MemoryPoint(
-        memory_id=memory_id,
-        semantic_vector=[0.0] * 8,
-        bm25_vector=SparseVectorData(indices=[1], values=[1.0]),
-        payload={
-            "memory_id": memory_id,
-            "project_id": "local",
-            "content": f"{status} fixture",
-            "mem_type": "fact",
-            "status": status,
-            "session_id": session_id,
-            "metadata": {"delete_reason": "user_request"} if status == "archived" else {},
-            "status_changed_at": "2026-08-24T08:30:00+00:00" if status == "archived" else None,
-        },
-    )
+class FakeMindMemOSClient:
+    """Duck-typed ``MindMemOSClient``: GETs read ``rows``; mutations record
+    calls so tests can prove the read-only routes never touch them."""
 
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = {row["memory_id"]: row for row in rows}
+        self.search_hits: list[SearchHit] = []
+        self.mutation_calls: list[str] = []
 
-def _fingerprint(root: Path) -> tuple[tuple[object, ...], ...]:
-    rows: list[tuple[object, ...]] = []
-    for path in sorted(root.rglob("*")):
-        stat = path.lstat()
-        kind = "dir" if path.is_dir() else "file" if path.is_file() else "other"
-        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-        rows.append(
-            (
-                path.relative_to(root).as_posix(),
-                kind,
-                stat.st_mode,
-                stat.st_size,
-                stat.st_mtime_ns,
-                digest,
-            )
+    async def scroll_memories(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"memories": list(self.rows.values()), "next_cursor": None}
+
+    async def get_memory(self, *, filters: dict[str, Any]) -> dict[str, Any]:
+        memory_id = (filters or {}).get("memory_id")
+        row = self.rows.get(memory_id)
+        return {"memories": [row] if row is not None else []}
+
+    async def search(
+        self,
+        query: str,
+        *,
+        session_id: str | None = None,
+        top_k: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> SearchReceipt:
+        return SearchReceipt(
+            search_record_id="sr-1",
+            hits=tuple(self.search_hits),
+            request_id=None,
         )
-    return tuple(rows)
+
+    async def create_memory(self, **kwargs: Any) -> MutationReceipt:
+        self.mutation_calls.append("create")
+        return MutationReceipt(status="completed", memory_id=None, request_id=None)
+
+    async def update_memory(self, **kwargs: Any) -> MutationReceipt:
+        self.mutation_calls.append("update")
+        return MutationReceipt(status="completed", memory_id=None, request_id=None)
+
+    async def delete_memory(self, **kwargs: Any) -> MutationReceipt:
+        self.mutation_calls.append("delete")
+        return MutationReceipt(status="completed", memory_id=None, request_id=None)
+
+
+def _app(sessions: SessionManager, service: MemoryManagementService | None) -> Any:
+    return create_web_app(
+        application=_Application(sessions),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=service,
+    )
 
 
 @pytest.mark.asyncio
-async def test_memory_get_routes_do_not_write_isolated_quiescent_root(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime_module = importlib.import_module("homemaster.memory.mindmemos_runtime")
-    infra_db = importlib.import_module("mindmemos.infra.db")
+async def test_memory_get_routes_read_without_mutating_backend(tmp_path) -> None:
     active_id = "00000000-0000-0000-0000-000000000001"
     archived_id = "00000000-0000-0000-0000-000000000002"
-
-    class FakeNeo4jStore:
-        def __init__(self, _config: Any) -> None:
-            pass
-
-        async def ensure_schema(self) -> None:
-            pass
-
-        async def run_read(self, _query: str, **_params: Any) -> list[dict[str, str]]:
-            return [{"memory_id": active_id}]
-
-        async def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(infra_db, "Neo4jStore", FakeNeo4jStore)
-    data_root = tmp_path / "memory-root"
-    config = HomeMasterConfig(
-        providers={
-            "items": [
-                _provider("Mimo", kind="chat"),
-                _provider("MemoryEmbedding", kind="embedding"),
-            ]
-        },
-        memory={"data_root": data_root, "embedding_dimensions": 8},
-    )
-    runtime = runtime_module.EmbeddedMindMemOS(config)
-    await runtime.start()
-    assert runtime.available, runtime.unavailable_cause
-    await runtime.qdrant.upsert_memories(
+    client = FakeMindMemOSClient(
         [
-            _point(active_id, status="active", session_id="session-01"),
-            _point(archived_id, status="archived", session_id="session-01"),
+            _row(active_id, status="active", session_id="session-01"),
+            _row(archived_id, status="archived", session_id="session-01"),
         ]
     )
-
     sessions = SessionManager(session_root=tmp_path / "sessions")
-    app = create_web_app(
-        application=_Application(sessions),
-        confirmation_handler=WebConfirmationHandler(timeout_s=None),
-        memory_management_service=MemoryManagementService(runtime, sessions),
-    )
-    before = _fingerprint(tmp_path)
+    app = _app(sessions, MemoryManagementService(client, sessions))
+
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        snapshot = await client.get("/api/memories")
-        history = await client.get(f"/api/memories/{active_id}/history")
-    after = _fingerprint(tmp_path)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        snapshot = await http.get("/api/memories")
+        detail = await http.get(f"/api/memories/{active_id}")
+        missing = await http.get("/api/memories/not-there")
+        history = await http.get(f"/api/memories/{active_id}/history")
 
     assert snapshot.status_code == 200
     assert snapshot.json()["stats"] == {
@@ -140,90 +133,63 @@ async def test_memory_get_routes_do_not_write_isolated_quiescent_root(
         "total_count": 2,
         "session_group_count": 1,
     }
+    assert detail.status_code == 200
+    assert detail.json()["memory_id"] == active_id
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "memory_not_found"
     assert history.status_code == 200
-    assert before == after
+    assert history.json()["memory_id"] == active_id
+    assert len(history.json()["versions"]) == 1
+    # Read-only guarantee: no GET route reached a mutating client method.
+    assert client.mutation_calls == []
 
     await app.state.aclose()
-    await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_memory_graph_joins_qdrant_nodes_with_neo4j_edges(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime_module = importlib.import_module("homemaster.memory.mindmemos_runtime")
-    infra_db = importlib.import_module("mindmemos.infra.db")
+async def test_memory_graph_joins_listed_nodes_with_verifier_edges(tmp_path) -> None:
     memory_id = "00000000-0000-0000-0000-0000000000aa"
     related_id = "00000000-0000-0000-0000-0000000000bb"
     entity_id = "ent-001"
-
-    class FakeNeo4jStore:
-        def __init__(self, _config: Any) -> None:
-            self.queries: list[str] = []
-
-        async def ensure_schema(self) -> None:
-            pass
-
-        async def run_read(self, query: str, **_params: Any) -> list[dict[str, Any]]:
-            self.queries.append(query)
-            if "MENTIONS" not in query:
-                return []
-            return [
-                {
-                    "src": memory_id,
-                    "rel": "MENTIONS",
-                    "dst": entity_id,
-                    "dst_label": "Entity",
-                    "entity_name": "厨房",
-                },
-                {
-                    "src": memory_id,
-                    "rel": "RELATES_TO",
-                    "dst": related_id,
-                    "dst_label": "Memory",
-                    "entity_name": None,
-                },
-            ]
-
-        async def close(self) -> None:
-            pass
-
-    store = FakeNeo4jStore(None)
-    monkeypatch.setattr(infra_db, "Neo4jStore", lambda _config: store)
-    data_root = tmp_path / "memory-root"
-    config = HomeMasterConfig(
-        providers={
-            "items": [
-                _provider("Mimo", kind="chat"),
-                _provider("MemoryEmbedding", kind="embedding"),
-            ]
-        },
-        memory={"data_root": data_root, "embedding_dimensions": 8},
-    )
-    runtime = runtime_module.EmbeddedMindMemOS(config)
-    await runtime.start()
-    assert runtime.available, runtime.unavailable_cause
-    await runtime.qdrant.upsert_memories(
+    client = FakeMindMemOSClient(
         [
-            _point(memory_id, status="active", session_id="session-01"),
-            _point(related_id, status="active", session_id="session-01"),
+            _row(memory_id, status="active", session_id="session-01", content="active fixture"),
+            _row(related_id, status="active", session_id="session-01"),
         ]
     )
+    queries: list[int] = []
+
+    async def graph_edges(limit: int) -> list[dict[str, Any]]:
+        queries.append(limit)
+        return [
+            {
+                "src": memory_id,
+                "rel": "MENTIONS",
+                "dst": entity_id,
+                "dst_label": "Entity",
+                "entity_name": "厨房",
+            },
+            {
+                "src": memory_id,
+                "rel": "RELATES_TO",
+                "dst": related_id,
+                "dst_label": "Memory",
+                "entity_name": None,
+            },
+        ]
 
     sessions = SessionManager(session_root=tmp_path / "sessions")
-    app = create_web_app(
-        application=_Application(sessions),
-        confirmation_handler=WebConfirmationHandler(timeout_s=None),
-        memory_management_service=MemoryManagementService(runtime, sessions),
+    app = _app(
+        sessions,
+        MemoryManagementService(client, sessions, graph_reader=graph_edges),
     )
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/memories/graph")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        response = await http.get("/api/memories/graph")
 
     assert response.status_code == 200
     body = response.json()
-    # Node fields come from the Qdrant payload, never from Neo4j properties.
+    # Node fields come from the memory payload, never from Neo4j properties.
     nodes = {node["memory_id"]: node for node in body["nodes"]}
     assert nodes[memory_id]["preview"] == "active fixture"
     assert nodes[memory_id]["memory_type"] == "fact"
@@ -232,27 +198,72 @@ async def test_memory_graph_joins_qdrant_nodes_with_neo4j_edges(
     assert body["entities"] == [{"entity_id": entity_id, "name": "厨房"}]
     # No session file on disk → the service falls back to the truncated-id label.
     assert body["sessions"] == [{"session_id": "session-01", "title": "会话 session-"}]
-    assert any("MENTIONS" in query for query in store.queries)
+    assert queries == [2000]
 
     await app.state.aclose()
-    await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_memory_graph_reports_unavailable_without_neo4j(tmp_path: Path) -> None:
-    async def _list_raw(_context: Any) -> list[Any]:
-        return []
-
-    fake = SimpleNamespace(neo4j_store=None, list_raw_memories=_list_raw)
+async def test_memory_graph_reports_unavailable_without_graph_reader(tmp_path) -> None:
+    client = FakeMindMemOSClient([])
     sessions = SessionManager(session_root=tmp_path / "sessions")
-    app = create_web_app(
-        application=_Application(sessions),
-        confirmation_handler=WebConfirmationHandler(timeout_s=None),
-        memory_management_service=MemoryManagementService(fake, sessions),
-    )
+    app = _app(sessions, MemoryManagementService(client, sessions))
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/memories/graph")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        response = await http.get("/api/memories/graph")
 
     assert response.status_code == 503
     assert response.json()["code"] == "memory_unavailable"
+
+    await app.state.aclose()
+
+
+@pytest.mark.asyncio
+async def test_memory_search_route_returns_hits(tmp_path) -> None:
+    client = FakeMindMemOSClient([])
+    client.search_hits.append(
+        SearchHit(
+            id="m1",
+            memory="hit one",
+            memory_type="fact",
+            score=0.9,
+            metadata={"session_id": "s1"},
+        )
+    )
+    sessions = SessionManager(session_root=tmp_path / "sessions")
+    app = _app(sessions, MemoryManagementService(client, sessions))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        found = await http.get("/api/memories/search", params={"q": "hit"})
+        empty = await http.get("/api/memories/search", params={"q": "  "})
+
+    assert found.status_code == 200
+    body = found.json()
+    assert body["query"] == "hit"
+    assert body["search_record_id"] == "sr-1"
+    assert body["hits"][0]["memory_id"] == "m1"
+    assert body["hits"][0]["memory_type_label"] == "事实"
+    assert empty.status_code == 422
+    assert empty.json()["code"] == "invalid_memory_input"
+
+    await app.state.aclose()
+
+
+@pytest.mark.asyncio
+async def test_memory_search_route_503_without_service(tmp_path) -> None:
+    sessions = SessionManager(session_root=tmp_path / "sessions")
+    app = _app(sessions, None)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        for path in (
+            "/api/memories",
+            "/api/memories/search?q=x",
+            "/api/memories/graph",
+            "/api/memories/m1",
+            "/api/memories/m1/history",
+        ):
+            response = await http.get(path)
+            assert response.status_code == 503, path
+            assert response.json()["code"] == "memory_unavailable", path
+
+    await app.state.aclose()

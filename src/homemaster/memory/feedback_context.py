@@ -19,7 +19,6 @@ class FeedbackContextSnapshot:
 def build_feedback_context_snapshot(
     messages: Sequence[Message],
     *,
-    automatic_recalled_memories: Sequence[Any] = (),
     recalled_memories_by_tool_call_id: Mapping[str, Sequence[Any]] | None = None,
 ) -> FeedbackContextSnapshot:
     frozen_messages = tuple(message.model_copy(deep=True) for message in messages)
@@ -30,9 +29,8 @@ def build_feedback_context_snapshot(
     }
     recalled: list[Any] = []
     seen_ids: set[str] = set()
-    sources = [automatic_recalled_memories]
     by_call = recalled_memories_by_tool_call_id or {}
-    sources.extend(by_call.get(call_id, ()) for call_id in visible_search_call_ids)
+    sources = [by_call.get(call_id, ()) for call_id in visible_search_call_ids]
     for source in sources:
         for memory in source:
             memory_id = str(getattr(memory, "id", "") or "")
@@ -58,7 +56,6 @@ def bind_feedback_contexts(
         return
     snapshot = build_feedback_context_snapshot(
         frozen_messages,
-        automatic_recalled_memories=deps.get("automatic_recalled_memories", ()),
         recalled_memories_by_tool_call_id=deps.get("recalled_memories_by_tool_call_id", {}),
     )
     by_call = deps.setdefault("memory_feedback_context_by_tool_call_id", {})
@@ -66,16 +63,18 @@ def bind_feedback_contexts(
         by_call[call.id] = snapshot
 
 
-def snapshot_to_dialogue_messages(snapshot: FeedbackContextSnapshot) -> list[Any]:
-    from mindmemos.typing import DialogueMessage
-
-    messages: list[Any] = []
+def snapshot_to_dialogue_messages(snapshot: FeedbackContextSnapshot) -> list[dict[str, Any]]:
+    """Provider-visible messages as plain dicts for the SDK feedback body."""
+    messages: list[dict[str, Any]] = []
     for message in snapshot.messages:
         text = "\n".join(
             block.text for block in message.content if block.type == "text" and block.text
         )
-        if text:
-            messages.append(DialogueMessage(role=message.role, content=text))
+        # Whitespace-only text (streaming assistants emit "\n\n" blocks next
+        # to tool calls) is truthy but fails the server-side non-empty
+        # stripped-content check and would reject the whole feedback batch.
+        if text.strip():
+            messages.append({"role": message.role, "content": text})
     return messages
 
 

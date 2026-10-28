@@ -41,6 +41,10 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
           # surface, while the lightweight default tier is "files".
           mode: full
           data_root: {tmp_path / "memory-data"}
+          # V3.8: the embedded runtime is gone; mode=full requires a
+          # standalone MindMemOS HTTP endpoint (unreachable here → WARN).
+          mindmemos:
+            base_url: http://127.0.0.1:19999
           embedding_dimensions: 8
           neo4j:
             mode: managed_local
@@ -147,16 +151,17 @@ def test_doctor_ready_state_does_not_materialize_backend_or_cache(
     assert not (tmp_path / "memory-data").exists()
 
 
-def test_doctor_checks_embedded_mindmemos_import(
+def test_doctor_checks_mindmemos_sdk_import(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """V3.8: the standalone-client SDK module replaces the embedded runtime."""
     from homemaster.cli import doctor as doctor_module
 
     events: list[str] = []
     original_import = doctor_module.importlib.import_module
 
     def tracked_import(name: str):
-        if name == "mindmemos":
+        if name == "mindmemos_sdk":
             events.append("import")
         return original_import(name)
 
@@ -164,7 +169,7 @@ def test_doctor_checks_embedded_mindmemos_import(
 
     checks = doctor_module._import_checks()
 
-    assert next(check for check in checks if check.name == "import:mindmemos").status == "PASS"
+    assert next(check for check in checks if check.name == "import:mindmemos_sdk").status == "PASS"
     assert events == ["import"]
 
 
@@ -205,7 +210,7 @@ def test_doctor_files_tier_reports_mode_and_skips_full_tier_checks(
     assert "mindmemos_runtime" not in names
     assert "embedding_endpoint" not in names
     assert "memory_backend" not in names
-    for heavy in ("jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"):
+    for heavy in ("jieba", "mindmemos", "mindmemos_sdk", "qdrant_client", "neo4j", "spacy"):
         assert f"import:{heavy}" not in names
     assert "import:homemaster" in names
     # The embedding provider is optional in files mode and must not fail config.
@@ -236,7 +241,7 @@ def test_doctor_full_tier_keeps_mindmemos_and_backend_checks() -> None:
     assert "mindmemos_runtime" in names
     assert "memory_backend" in names
     assert "embedding_endpoint" in names
-    assert "import:mindmemos" in names
+    assert "import:mindmemos_sdk" in names
 
 
 def test_doctor_default_report_skips_optional_alfworld_checks() -> None:

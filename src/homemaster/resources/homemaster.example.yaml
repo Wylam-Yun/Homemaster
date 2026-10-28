@@ -94,10 +94,32 @@ runtime_defaults:
 memory:
   # W1 tiers: "files" runs purely on local file memory with no MindMemOS
   # backend and is the built-in default for lightweight installs; "full"
-  # composes the embedded MindMemOS stack below and needs the `memory`
-  # install extra.  This example opts into "full"; omit the key for "files".
+  # talks to a standalone MindMemOS HTTP server through mindmemos_sdk and
+  # needs the `memory` install extra.  This example opts into "full"; omit
+  # the key for "files".
   # The legacy `enabled` field is deprecated: true -> "full", false -> "files".
   mode: full
+  # V3.8: standalone MindMemOS HTTP server endpoint. REQUIRED for mode=full;
+  # the server owns all memory processing and storage.
+  mindmemos:
+    base_url: http://127.0.0.1:8765
+    # api_key: "<optional; tenant partition credential>"
+    # project_id: "<tenant partition the api_key resolves to server-side —
+    #   required for Neo4j/Qdrant readback such as the web memory graph>"
+    # timeout_seconds: 120
+    # max_retries: 0
+  # Durable memory-work outbox (turn adds, archive dreaming, skill
+  # evolution, implicit feedback) polled by the background worker pool.
+  # worker:
+  #   poll_interval_seconds: 1.0
+  #   lease_seconds: 300
+  #   max_concurrent: 4
+  # Daily implicit-feedback schedule (03:00 Asia/Shanghai by default).
+  # implicit_feedback:
+  #   enabled: true
+  #   hour: 3
+  #   minute: 0
+  #   timezone_name: Asia/Shanghai
   dreaming_memory_threshold: 8
   # `scripts/setup_memory_runtime.py setup` writes this portable value and binds
   # the ignored .runtime directory once per server. Do not commit server paths.
@@ -109,27 +131,31 @@ memory:
   memory_char_limit: 2200
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
+  # "server" (default) manages no process — the MindMemOS server owns the
+  # graph store; uri/credentials here only feed the raw-readback verifier.
   # Use managed_local when HomeMaster should share one private Neo4j process
   # across all HomeMaster instances on the same node. Keep the real password
   # only in the gitignored config/homemaster.yaml (chmod 600).
   neo4j:
-    mode: managed_local
-    home: ../.runtime/neo4j
-    java_home: ../.runtime/java
+    mode: server
     uri: bolt://127.0.0.1:7687
     username: neo4j
     password: "<set-during-setup>"
     database: neo4j
-    start_timeout_seconds: 60
-    stop_timeout_seconds: 30
-  # "embedded" opens a process-local Qdrant directory under
-  # data_root/mindmemos/qdrant — zero deployment, but the directory lock is
-  # exclusive so only one HomeMaster process may run full mode at a time.
-  # "managed_local" has HomeMaster itself spawn and babysit one private
-  # `qdrant` binary (same lifecycle shape as managed_local Neo4j: first
-  # process starts it, later ones attach, last leaser stops it) — no
-  # docker/root needed; data lives under data_root/mindmemos/qdrant_service.
-  # "server" connects to an externally managed Qdrant service.
+    # managed_local fields (only with mode: managed_local):
+    # home: ../.runtime/neo4j
+    # java_home: ../.runtime/java
+    # start_timeout_seconds: 60
+    # stop_timeout_seconds: 30
+  # "embedded" means the MindMemOS server owns a process-local Qdrant
+  # directory under data_root/mindmemos/qdrant — HomeMaster cannot read
+  # vectors back in that mode, so worker readback verification covers
+  # Neo4j only. "managed_local" has HomeMaster spawn and babysit one
+  # private `qdrant` binary (same lifecycle shape as managed_local Neo4j:
+  # first process starts it, later ones attach, last leaser stops it) —
+  # no docker/root needed; data lives under
+  # data_root/mindmemos/qdrant_service. "server" connects to an
+  # externally managed Qdrant service.
   qdrant:
     mode: embedded
     # managed_local fields:

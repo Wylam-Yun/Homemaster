@@ -17,6 +17,7 @@ from homemaster.application.composition import HomeCliBackend, compose_applicati
 from homemaster.cli.confirmation import CliConfirmationHandler, CliPermissionMode
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.config import load_config
+from homemaster.memory.skill_invocations import SkillInvocation
 from homemaster.skills.commands import resolve_skill_command
 from homemaster.tools.contracts import PermissionSubject
 
@@ -277,6 +278,15 @@ def run_interactive_shell(
                                 permission_subject=permission_subject,
                                 dependencies={
                                     "skill_registry": bundle.skill_registry,
+                                    **(
+                                        {
+                                            "skill_invocation": SkillInvocation.from_resolved(
+                                                resolved_skill
+                                            )
+                                        }
+                                        if resolved_skill is not None
+                                        else {}
+                                    ),
                                     "ask_user_prompt": ask_user,
                                 },
                                 environment=ctx.backend,

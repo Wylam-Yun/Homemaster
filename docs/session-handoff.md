@@ -1,5 +1,169 @@
 # Session Handoff
 
+## Local standalone runtime topology - 2026-10-28
+
+### Current state
+
+- `homemaster serve --port 8000` runs against a fully LOCAL MindMemOS server (no hkust4 dependency):
+  `uvicorn mindmemos.api.app:app --host 127.0.0.1 --port 8765` from `../MindMemOS/.venv`,
+  launched with cwd=`../MindMemOS` (repo root — `entity_modeling_path` is CWD-relative),
+  `MINDMEMOS_CONFIG_PATH=config/mindmemos/dev.yaml` (durable, gitignored; was
+  `/tmp/mindmemos-live/` until 2026-10-28) and `PYTHONPATH=src/mindmemos`
+  (the venv's `mindmemos.pth` editable hook does not land on sys.path — always set PYTHONPATH).
+  `auth.api_key_file: api_keys.yaml` resolves relative to the dev.yaml dir, i.e. the
+  committed `config/mindmemos/api_keys.yaml`.
+- Stores: Qdrant = docker container `qdrant` in colima `default` profile
+  (`docker start qdrant` after `colima start`; bind-mounted at
+  `.runtime/memory/mindmemos/qdrant`); Neo4j = `memory.neo4j.mode=managed_local`
+  (`bolt://127.0.0.1:7687`, `neo4j/mindmemos_dev_password`, started by serve).
+- LLM/embedding endpoints in dev.yaml point at `localhost:27940` / `localhost:28360`,
+  i.e. the two `ssh -N -L ... HPC3_Outside` tunnels — these must stay up.
+- `config/homemaster.yaml` now uses `memory.mode: full` + `mindmemos.base_url:
+  http://127.0.0.1:8765` + `api_key` (vanilla key, same value as the committed
+  `config/mindmemos/api_keys.yaml` and the hkust4 dev-live file) +
+  `mindmemos.project_id: proj-dev-vanilla-memory` (graph readback scope) +
+  `memory.qdrant: {mode: server, url: http://127.0.0.1:6333}` (verifier raw
+  readback; `embedded` mode left it with no Qdrant client).
+- Local memory stores are EMPTY/fresh (the 217 memories previously seen were on the
+  hkust4 server and remain there). MindMemOS config now lives at
+  `config/mindmemos/dev.yaml` in the MindMemOS repo (gitignored, durable).
+- Verified: `GET /` 200 serving rebuilt bundle, `GET /api/memories` 200 reaches the
+  local server (`POST /v1/memory/scroll` logged server-side).
+
+### Bug fixes landed this session (2026-10-28, uncommitted)
+
+- **Worker duplicate-settle race** (`memory_work_store.claim_jobs`): `outcome_unknown`
+  rows kept their claimable status after being claimed (the CASE-UPDATE only flips
+  `accepted`→`processing`), so every poll spawned another task on the same job —
+  the audit log showed 4+ concurrent `job.started` and a settle race ending in
+  bursts of `job ... owned by None`. Fix: the `outcome_unknown` claim branch now
+  also requires an absent/expired lease. `MemoryWorkerPool._settle` additionally
+  treats a settle against an already-terminal job as an idempotent no-op
+  (`job.settle_stale` audit event) and only runs `settle_archive` after a
+  successful job settle; non-terminal ownership violations still log loudly.
+- **Graph scope mismatch** (`web/serve.py` + composition): `/api/memories/graph`
+  joined SDK memory nodes (MindMemOS project `proj-dev-vanilla-memory`, resolved
+  from the api_key) with Neo4j edges read under the HomeMaster tenant `local` —
+  entities with edges to memory ids that never list. Fix: new
+  `memory.mindmemos.project_id` config field (bound at `QdrantNeo4jVerifier`
+  construction); `_memory_graph_reader` no longer re-binds `client.scope.tenant_id`.
+  `MemoryManagementService.graph` now maps verifier `RuntimeError` (unconfigured
+  scope / missing driver) to `memory_unavailable` instead of a generic read error.
+- **Missing verifier Qdrant client**: `memory.qdrant` unset → `embedded` mode →
+  `add_record_exists` always False → every turnadd burned 20 retries and failed
+  with `raw readback missing ids`. Set `qdrant.mode: server` to the docker
+  Qdrant; the two failed turn-1 jobs were flipped to `outcome_unknown` and
+  reconciled to `completed` through the normal recovery path.
+- **Archive error classification** (`web/routes/session_ops.py`, CLI `/archive`):
+  `archive_not_admitted` conflated `no_trace` (session has no durable terminal
+  turns) with backend unready. New `archive_rejection_status()` helper in
+  `archive_service.py`; the route now returns 409 `archive_no_trace` "The session
+  has no completed turns to archive." for the former.
+- **Stale graph data deleted**: 189 `local`-project nodes and 15
+  `proj-dev-vanilla-memory` acceptance-fixture nodes (Ada's bakery etc.) removed
+  from local Neo4j per user authorization — graph now returns 0/0/0.
+
+- **Whitespace-only dialogue blocks poisoned every Add** (`session_trace_store.
+  trace_event_to_dialogue`): streaming assistant events emit `"\n\n"` text
+  blocks next to tool_calls — truthy so `if text:` emitted them; MindMemOS
+  `validate_messages_have_content` checks `text.strip()` → whole Add batch
+  422'd → every turnadd failed permanently → dreaming seeds never existed →
+  archives hung forever (this was the "归档一直不出记忆" root cause). Fix:
+  `text.strip()` gating for assistant text AND user messages (empty user
+  entries drop too; tool envelopes are JSON so never empty).
+- **Archive badge vocabulary mismatch** (`web/routes/session_ops.py`):
+  `_snapshot_view` emitted internal states `pending`/`dreamed` while the
+  frontend only knows `queued`/`processing`/`completed`/`failed` → "整理中…"
+  badge vanished on first poll (and `dreamed` success was also invisible).
+  Fix: `_ARCHIVE_STATE_MAP` pending→processing / dreamed→completed, expose
+  `job_id` (was `dreaming_job_id`), `extracted_count` (dreaming job result
+  `produced_memory_ids`), `error` (job last_error); store lookup via
+  `memory_work_store` service, best-effort.
+- Verified live: requeued the 3 failed turnadds → all completed through real
+  MindMemOS extraction; `session-1d7c7b9c5843` archive → `dreamed`
+  (no_action, 0 new) with API state `completed`; `session-36246421327b`
+  archive → dreaming submitted, 34 memories active across 2 sessions.
+- Ops note: macOS graceful drain leaves orphaned ESTABLISHED sockets (browser
+  WS) that keep naive `bind()` reporting EADDRINUSE for ~60s after the
+  listener dies — `lsof -sTCP:LISTEN` shows nothing; probe with SO_REUSEADDR
+  to tell a real listener from a lingering socket before kill -9.
+- **Explicit feedback / CRUD contract bugs** (same session, live-hit by user):
+  `snapshot_to_dialogue_messages` had the same whitespace truthiness bug →
+  `/v1/memory/feedback` 422; `get_memory`/`delete_memory` sent
+  `_scope_fields` to `GetRequest`/`DeleteRequest` which deliberately carry
+  no actor identity and `extra="forbid"` → permanent 422 (broke
+  `mindmemos_update`'s pre-read, `mindmemos_delete`, and web
+  `GET /api/memories/{id}`). Upstream MindMemOS `mappers.
+  to_status_api_response` also had a runtime `ApiResponse[dict[str, Any] |
+  None]` subscript with `Any` unimported → delete mutated then 500'd
+  (fixed in MindMemOS repo, server restarted). Verified live: feedback POST
+  → 200 completed + feedback_record + `noop` action (memory already
+  corrected via turnadd extraction); get → 200; delete reaches handler.
+  New `tests/homemaster/memory/test_mindmemos_client.py` asserts real
+  request bodies via stub transport.
+
+### Known residual issues (not bugs in HomeMaster wiring)
+
+- `job-turnadd:session-1d7c7b9c5843:turn-2` was `failed` on the whitespace
+  bug above — recovered by requeue + the projection fix (now completed).
+- The 03:00 implicit-feedback scheduler writes jobs under `scope_key=local`
+  (HomeMaster tenant), reconciling via server op ids — fine, but note the two
+  scopes (`local` tenant for ops vs `proj-dev-vanilla-memory` for stores).
+- `zh_core_web_sm` was installed into the MindMemOS venv (via clash proxy
+  `127.0.0.1:7897`) — Chinese NER no longer degrades.
+- Regression coverage added for all fixes: 7 new tests across
+  `test_memory_work_store.py`, `test_memory_workers.py`, `test_serve.py`,
+  `test_management.py`, `test_w2_protocol.py`, `test_memory_tier_composition.py`.
+
+## V3.8 MindMemOS Native Lifecycle Spec - 2026-10-26
+
+### Current state
+
+- User requested a V3.8 design spec under `plan/V3.8` for replacing HomeMaster's old MindMemOS lifecycle with the latest native MindMemOS source. This turn only updated the spec; no runtime code, data migration, production memory, or RoboCasa benchmark was changed or run.
+- Spec: `plan/V3.8/mindmemos-native-lifecycle-spec.md` (untracked review draft). It now selects native MindMemOS Vanilla Add for each terminal Turn, with a background HomeMaster Outbox worker, `memory_algorithm=vanilla`, and entity extraction enabled for Dreaming's shared-entity scope.
+- Spec also requires Web Memory UI/API parity for manual create/read/search/update/delete/history, including structured memory correction; removes the current HomeMaster `add_flat` update fallback from the target behavior.
+- RoboCasa baseline was checked read-only on `hkust4`: RPent commit `0ae9f9edc67cd5c184915e83a80b32c1ec241526`; `robots/robocasa/eval/target50_v2.json` SHA-256 `fca5eba7de3635930fced5b11d5a1dff35c81ae141988753a6db80eb729d1575`.
+- R5 is atomic/target seed 1 for `CloseBlenderLid`, `CloseFridge`, `CloseToasterOvenDoor`, `CoffeeSetupMug`, `NavigateKitchen`. R20 is the 18 atomic tasks at seed 1 followed by the first two tasks at seed 2. Spec requires per-feature black-box then five consecutive R5 cases, then a fresh-scope 20-case integration gate.
+- Existing user changes in `src/homemaster/memory/mindmemos_runtime.py`, `tests/homemaster/memory/test_mindmemos_runtime.py`, and `CHANGELOG.md` were left untouched.
+
+### Next steps
+
+1. Tell the user Vanilla Add is reasonable for Turn-level conversational extraction, with the caveat that an AddRecord can yield zero or multiple memories and entities must be enabled for Dreaming.
+2. Report that the spec now includes the requested per-feature 5-case RoboCasa consecutive gate and final 20-trajectory gate, with external readback and per-cell failures unable to be masked.
+3. Keep this as a review draft and wait for spec feedback before implementation; the user's current scope was design/spec, not source implementation or remote evaluation.
+
+### Verification
+
+- `git diff --check` passed for the HomeMaster worktree.
+- Remote read-only manifest verification confirmed 18 atomic tasks, the fixed R5 order, and 20 valid fixed R20 cells. No benchmark was started.
+- MindMemOS source was inspected at `/Users/wylam/Documents/workspace/MindMemOS`, HEAD `186db4a75122b1d8691933f280bec10191c82c28`; it maps `vanilla` to `vanilla_add`, and `enable_entities` defaults to false.
+
+## V3.8 MindMemOS Native Lifecycle Implementation Plan - 2026-10-27
+
+### Current state
+
+- Implementation plan: `plan/V3.8/mindmemos-native-lifecycle-implementation-plan.md`. This planning turn changed no runtime source, test implementation, MindMemOS source, production memory, or RoboCasa remote state.
+- Two independent read-only reviews and a second review of the prior plan revision reported no plan-level blockers. The user then clarified that trajectory compilation and its output are not yet understood, and asked why Session deletion was specified as hard delete. The plan has been corrected: compile retention remains an unresolved product decision. The user subsequently clarified Session DELETE is not a priority: preserve its existing local session/files/attachment behavior, with no new soft-delete or Memory-cascade design. Session DELETE is out of the V3.8 product decision gates; MindMemOS Memory CRUD remains in scope. Successful compile output is a candidate reusable Procedure; failure/unknown output is a non-executable diagnostic. Compile R5, file scope, final audit, and docs now depend on the selected ADR branch. No persisted benchmark evidence or MindMemOS Memory is to be deleted. The latest revision has not yet been re-reviewed. This remains planning only; the Qdrant/Neo4j late-writer protocol has not been live-tested.
+- R5 is nine feature gates plus a separate SDK/package Gate 0; R20 is a new isolated integration scope. Both R5 and R20 invalidate the full scope after any invalid attempt with possible external side effects.
+- Current worktree has `docs/session-handoff.md` modified and `plan/V3.8/` untracked. Planning documents only have changed. Actual compiler output was generated from synthetic repository success/failure fixtures, revealing loss of the `cabinet` receptacle in the put step; see `plan/V3.8/trajectory-compile-current-output-example.md`. This is not live benchmark evidence. Compile's V3.8 branch remains unselected and outside the nine RoboCasa gates unless a later ADR adds its own ALFWorld validation. Session DELETE stays unchanged and out of scope. Latest document revision has not been independently re-reviewed.
+
+### Decisions still required before dependent implementation
+
+- Select the production implicit Feedback time/timezone and MindMemOS Server owner/topology/auth/scope mapping.
+- Decide whether to retain, preview, or remove the independent trajectory compiler. Session DELETE stays unchanged and is no longer an implementation decision gate; do not expand it into soft deletion or remote Memory cleanup.
+- Validate the proposed immutable-version + visibility-pointer protocol against real Qdrant/Neo4j before implementing mutation writers. If it cannot meet the spec, update the spec and make an architecture decision first.
+
+### Next steps
+
+1. Review the implementation plan and resolve the product decisions above in its ADR before dependent tasks begin.
+2. Start Task 1 from the audited MindMemOS baseline and preserve the current local worktree edits.
+3. For each feature, start its RoboCasa R5 only after Gate 0 and that feature's isolated real black-box pass. Run R20 only after all nine R5 gates pass, in a new integration scope.
+
+### Verification
+
+- Read-only reviews checked the plan against the V3.8 spec, current HomeMaster test/config paths, and current MindMemOS test tree. The final acceptance and architecture reviewers both reported no blocking findings.
+- `git diff --check` passed. No implementation tests were run because this turn only prepared an implementation plan.
+
 ## V3.5 continuation - 2026-09-26
 
 ### Current state
@@ -1003,3 +1167,38 @@ memories created by an older direct-update implementation without a real
 `DERIVED_FROM` edge cannot be reconstructed into history and must not be guessed. Keep the structured feedback
 exact-record/content/lineage terminal gate when changing the vendored executor. Optional Playwright/MCP environment
 failures and unrelated cleanup-guard expected-set drift remain outside this follow-up.
+
+
+## V3.8 Implementation Complete - 2026-10-27
+
+### Delivered
+
+- `feature/v3.8-implementation` branch replaces embedded MindMemOS with the standalone server + SDK boundary
+  (upstream pin `third_party/MINDMEMOS_UPSTREAM.md` → MindMemOS `feature/v3.8-native-lifecycle` @ e0797b9).
+- New durable surfaces: `SQLiteMemoryWorkStore` (canonical trace/terminal/outbox/archive/skill/watermark),
+  `SessionTraceStore`, `MemoryWorkerPool` + executors, `MindMemOSClient` (lazy SDK), `QdrantNeo4jVerifier`,
+  `ArchiveService`, `ImplicitFeedbackScheduler`, `SkillInvocationTracker`, `FeedbackContextBinder`.
+- Removed: vendored MindMemOS, EmbeddedMindMemOS, Add/Enrichment queues, Session Finalizer + schema extractors,
+  automatic recall (pre-turn + compaction), `mindmemos_add` tool, add_flat update fallback, AddRecord skill
+  evolution, all `mindmemos_*` local-runtime modules and their tests.
+- Live acceptance against a real MindMemOS server + Qdrant 1.20 + Neo4j + local LLM endpoints:
+  script 1 = 10/10 (health, add, replay, 409, op ledger, raw add_record+memory readback, search, feedback, list);
+  script 2 = 7/7 (archive idempotency, ArchiveDreamingExecutor→real Dreaming, ImplicitFeedbackExecutor→real
+  feedback actions, SkillEvolutionExecutor→8 upstream-sealed traces→batch→draft version, upstream trace readback).
+- Tests: 2047 passed / 12 skipped / 6 deselected (~2min). Ruff clean on all changed files; legacy-term guard clean.
+- Four contract bugs found only by live acceptance (recorded in pitfalls.md): verifier read wrong Qdrant/Neo4j
+  schema (add_record_v1 collection + memory_id key), feedback needs mode+last_update_at, DreamingRequest has no
+  archive_id, skill trace needs tool_steps/skill_version_id/skill_content_hash. All fixed and re-verified live.
+
+### Notes / remaining
+
+- `test_provider_deadline_cancels_native_async_stream` (0.02s deadline) is load-flaky on baseline too — not a
+  V3.8 regression; it passed in the final full run.
+- Qdrant client 1.18 warns vs server 1.20 (minor-version gap) — deployment note only, all live checks passed.
+- RoboCasa R5/R20 acceptance NOT run (needs robot sim env); LoCoMo runner migrated and unit-verified.
+- Upstream MindMemOS branch committed at e0797b9 (server pin only). The `mindmemos-sdk` Python dep now
+  resolves from PyPI 0.1.4 — verified in a clean venv that only the generic envelope transport is used,
+  so no source override/git pin exists anymore. e0797b9 still needs an upstream merge+release for the
+  *server* image, not for the client dependency.
+- Live services used for acceptance: `uvicorn` on :8765 (config /tmp/mindmemos-live/dev.yaml + api_keys.yaml),
+  colima+docker qdrant container. Credentials were temp-only, not committed.

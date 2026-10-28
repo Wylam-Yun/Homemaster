@@ -1,5 +1,77 @@
 # Unreleased
 
+- V3.8 live-run hardening against a real standalone MindMemOS server:
+  - `claim_jobs` now requires an absent/expired lease before claiming
+    `outcome_unknown` rows — that status is preserved for the executor's
+    reconcile path, so every poll previously spawned a duplicate task and
+    the duplicates raced at settle (`job ... owned by None` floods).
+    `MemoryWorkerPool._settle` treats a settle against an
+    already-terminal job as an idempotent `job.settle_stale` audit event
+    and only runs `settle_archive` after a successful job settle;
+    non-terminal ownership violations still surface as errors.
+  - New `memory.mindmemos.project_id` config declares the api_key-bound
+    server partition; `QdrantNeo4jVerifier` and the web graph reader bind
+    it instead of reusing the HomeMaster tenant (`local`) — which had
+    joined SDK memory nodes with Neo4j edges from a different scope.
+    Verifier configuration errors now map to `memory_unavailable`.
+  - Dialogue projections drop whitespace-only text before submit:
+    `trace_event_to_dialogue` (turn adds) and
+    `snapshot_to_dialogue_messages` (explicit feedback). Streaming
+    assistants emit `"\n\n"` blocks next to tool calls — truthy locally
+    but rejected by the server's stripped non-empty validation, which
+    permanently failed every tool-heavy turn_add and starved Dreaming of
+    its seed operations.
+  - `/archive-status` maps internal archive lifecycle to the public badge
+    vocabulary (`pending`→`processing`, `dreamed`→`completed`) and
+    returns `job_id`, `extracted_count`, and `error`; the badge no longer
+    vanishes after the first poll while work is in flight. Archive
+    admission also distinguishes `no_trace` (no durable terminal turns)
+    from backend unavailability — 409 `archive_no_trace` via
+    `archive_rejection_status` shared by route and CLI.
+  - `get_memory`/`delete_memory` no longer send actor-identity fields —
+    the upstream `GetRequest`/`DeleteRequest` schemas carry no identity
+    and forbid extras, so `mindmemos_update`'s pre-read, delete, and the
+    memory-detail view permanently 422'd. `test_mindmemos_client.py` pins
+    real request bodies per endpoint via a stub transport.
+- Outbox jobs now distinguish dependency waits from failures: a new
+  `deferred` job outcome (`MemoryWorkStore.defer_job`) reschedules via
+  `not_before` without consuming `attempts`, bounded by a 2h budget from
+  job creation. Previously every wait outcome burned a retry attempt, so a
+  Dreaming job whose seed Add was still extracting server-side (~5 min for
+  a large turn) exhausted its 20×10s budget and died permanently, leaving
+  the archive `pending` forever. Applies to seed resolution, `outcome_unknown`
+  reconcile waits, and resubmits answered with HTTP 202 `processing` (now
+  mapped to `OperationStillProcessingError` instead of a generic retry).
+  `claim_jobs` honours `not_before` for `outcome_unknown` rows so deferred
+  reconcile jobs wait out their delay instead of hot-looping. Archives now
+  advance `pending` → `dreamed`/`failed` when their Dreaming job settles
+  (surfaced via `/api/.../archive-status`) instead of staying `pending`
+  forever.
+
+- `memory.neo4j.mode` gains `"server"` (new default): no managed process —
+  the MindMemOS server owns the graph store and `uri`/credentials only feed
+  the raw-readback verifier. The former `managed_local` default crashed any
+  `memory.mode=full` start that omitted `neo4j.home`/`java_home`
+  (`ManagedNeo4jRuntime` was constructed unconditionally). The
+  `mode="after"` credential validator and the loopback `uri` restriction
+  now gate on `mode == "managed_local"` only, so `server` accepts any
+  reachable bolt endpoint and partial credentials. Composition now also
+  opens `memory_work_store` before optional managed stores so a failed
+  managed start cannot leave session-close archive hitting a closed store.
+
+- V3.8 MindMemOS-native lifecycle: replaced the embedded MindMemOS runtime
+  with the standalone MindMemOS server reached through `mindmemos_sdk`
+  (`memory` extra). Every terminal turn now durably enqueues exactly one
+  Vanilla Add (`SQLiteMemoryWorkStore` + `SessionTraceStore` +
+  `MemoryWorkerPool`), reconciles `outcome_unknown` calls through the server
+  operation ledger, and settles only on raw Qdrant/Neo4j readback.
+  Automatic recall, the Session Finalizer FIFO, `mindmemos_add`, the
+  add_flat update fallback, AddRecord skill evolution, and the vendored
+  `third_party/MindMemOS` package are removed. Added Session Archive
+  snapshots feeding Dreaming via `seed_add_record_ids`, daily watermarked
+  implicit feedback, Skill Trace + 8-trace Evolution batches, and native
+  web memory CRUD. Upstream pin: `third_party/MINDMEMOS_UPSTREAM.md`.
+
 - Memory embed router no longer force-sends the `dimensions` request
   parameter: `build_mindmemos_config` now leaves
   `embed_model_router.dimensions_supported_models` empty, so litellm

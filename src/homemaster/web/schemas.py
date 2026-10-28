@@ -60,11 +60,17 @@ class CreateMemoryRequest(BaseModel):
 
 
 class UpdateMemoryRequest(BaseModel):
-    """Update the text content of an active memory."""
+    """Update the text content of an active memory.
+
+    ``fields`` performs a native structured update (new version + lineage) on
+    memories that carry a structured record; without it a content-only patch
+    on a structured memory is rejected, exactly like the pre-V3.8 surface.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     content: str = Field(min_length=1, max_length=20_000)
+    fields: dict[str, Any] | None = None
 
 
 class SetSessionModeRequest(BaseModel):
@@ -221,6 +227,31 @@ class MemoryHistoryResponse(BaseModel):
         return cls.model_validate({"memory_id": memory_id, "versions": versions})
 
 
+class MemorySearchHitResponse(BaseModel):
+    """One MindMemOS search hit projected for the browser."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: str
+    content: str
+    memory_type: str
+    memory_type_label: str
+    score: float | None
+    session_id: str | None
+
+
+class MemorySearchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    query: str
+    hits: tuple[MemorySearchHitResponse, ...]
+    search_record_id: str | None
+
+    @classmethod
+    def from_domain(cls, result: Any) -> MemorySearchResponse:
+        return cls.model_validate(result)
+
+
 class MemoryGraphNodeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -327,6 +358,8 @@ __all__ = [
     "MemoryGraphSessionResponse",
     "MemoryGroupResponse",
     "MemoryHistoryResponse",
+    "MemorySearchHitResponse",
+    "MemorySearchResponse",
     "MemorySnapshotResponse",
     "MemoryStatsResponse",
     "RenameSessionRequest",

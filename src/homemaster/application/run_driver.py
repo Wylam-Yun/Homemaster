@@ -31,10 +31,6 @@ from homemaster.application.contracts import (
     RunStatus,
     RuntimeStopDecision,
 )
-from homemaster.application.memory_recall import (
-    AutomaticRecallRunDeadlineExceeded,
-    AutomaticRecallService,
-)
 from homemaster.application.resources import RunResourceScope
 from homemaster.application.session import (
     SessionGenerationError,
@@ -42,6 +38,7 @@ from homemaster.application.session import (
     SessionRuntime,
 )
 from homemaster.application.tool_executor import ApplicationToolExecutor
+from homemaster.application.user_evidence import register_user_evidence
 from homemaster.artifacts import ArtifactPublisher
 from homemaster.memory.feedback_context import bind_feedback_contexts
 from homemaster.providers.attempts import ListProviderAttemptSink
@@ -152,7 +149,6 @@ class RunDriver:
         self._save_fn = save_fn
         self._commit_fn = commit_fn
         self._browser_run_scopes = browser_run_scopes
-        self._recall = AutomaticRecallService(settings)
 
     async def execute(
         self,
@@ -179,7 +175,8 @@ class RunDriver:
                 assembler.bind_working_directory(self._working_directory)
                 agent_state = runtime.agent_state.model_copy(deep=True)
                 agent_state.run_id = run_id
-                current_user_evidence = self._recall.register_user_evidence(
+                current_user_evidence = register_user_evidence(
+                    settings=self._settings,
                     request=request,
                     session_id=session_id,
                     run_id=run_id,
@@ -210,37 +207,6 @@ class RunDriver:
                     ),
                     initial_memory_evidence_refs=current_user_evidence,
                 )
-                try:
-                    (
-                        recall_attempted,
-                        automatic_memory_context,
-                        automatic_recalled_memories,
-                    ) = await self._recall.recall(
-                        request=request,
-                        runtime=runtime,
-                        generation=generation,
-                        run_id=run_id,
-                        task_state_store=task_state_store,
-                        event_sink=run_event_sink,
-                        deadline=executor.deadline,
-                    )
-                    if recall_attempted:
-                        await self._save_fn(session_id, generation)
-                except asyncio.CancelledError:
-                    raise
-                except SessionGenerationError:
-                    raise
-                if automatic_memory_context:
-                    bind_automatic_memory_context = getattr(
-                        assembler, "bind_automatic_memory_context", None
-                    )
-                    if callable(bind_automatic_memory_context):
-                        bind_automatic_memory_context(automatic_memory_context)
-                bind_automatic_recalled_memories = getattr(
-                    assembler, "bind_automatic_recalled_memories", None
-                )
-                if callable(bind_automatic_recalled_memories):
-                    bind_automatic_recalled_memories(automatic_recalled_memories)
                 run_context = RunContext(
                     session_id=session_id,
                     run_id=run_id,
@@ -249,7 +215,6 @@ class RunDriver:
                     event_sink=run_event_sink,
                     deps={
                         "task_state_store": task_state_store,
-                        "automatic_recalled_memories": automatic_recalled_memories,
                         "recalled_memories_by_tool_call_id": {},
                         "memory_feedback_context_by_tool_call_id": {},
                         "provider_attempt_context_binder": bind_feedback_contexts,
@@ -302,37 +267,6 @@ class RunDriver:
                     model_api_format=getattr(provider, "api_format", ""),
                 )
 
-                async def rearm_recall_after_compaction(_metrics: Any) -> None:
-                    # C+ (design-phase3 review): re-arm the generation-fenced
-                    # flag, then recall + bind INLINE so the post-compaction
-                    # continuation sees fresh memories on the next prepare —
-                    # identical semantics on both engines. The bound context
-                    # lands on the next ``prepare``, not the triggering call.
-                    runtime.require_recall_after_compaction(generation)
-                    (
-                        recall_attempted,
-                        post_memory_context,
-                        post_recalled,
-                    ) = await self._recall.recall(
-                        request=request,
-                        runtime=runtime,
-                        generation=generation,
-                        run_id=run_id,
-                        task_state_store=task_state_store,
-                        event_sink=run_event_sink,
-                        deadline=executor.deadline,
-                    )
-                    if post_memory_context:
-                        rebind_context = getattr(assembler, "bind_automatic_memory_context", None)
-                        if callable(rebind_context):
-                            rebind_context(post_memory_context)
-                    rebind_recalled = getattr(assembler, "bind_automatic_recalled_memories", None)
-                    if callable(rebind_recalled):
-                        rebind_recalled(post_recalled)
-                    run_context.deps["automatic_recalled_memories"] = post_recalled
-                    if recall_attempted:
-                        await self._save_fn(session_id, generation)
-
                 try:
                     generic = await agent.run(
                         fenced_session,
@@ -347,16 +281,12 @@ class RunDriver:
                         tool_registry=run_registry,
                         cancellation_token=runtime.cancellation,
                         deadline=executor.deadline,
-                        on_compaction=rearm_recall_after_compaction,
+                        on_compaction=None,
                         engine_state=runtime.engine_state,
                         scope=scope,
-                        # Keep the session fence and recall deadline
-                        # surfacing raw (stale_generation → CANCELLED; recall
-                        # deadline raises to the caller).
-                        propagate_exceptions=(
-                            SessionGenerationError,
-                            AutomaticRecallRunDeadlineExceeded,
-                        ),
+                        # Keep the session fence surfacing raw
+                        # (stale_generation → CANCELLED).
+                        propagate_exceptions=(SessionGenerationError,),
                     )
                 except asyncio.CancelledError:
                     # Same rationale as the ``generic.status == "cancelled"``

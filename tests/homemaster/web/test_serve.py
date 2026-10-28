@@ -42,13 +42,71 @@ def test_validate_port_available_rejects_an_existing_listener() -> None:
         listener.close()
 
 
+def _stub_config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Fake ``load_config`` so serve tests stay hermetic — the repo's real
+    ``config/homemaster.yaml`` is validated against the running MindMemOS
+    deployment and must not gate serve-wiring unit tests."""
+
+    class _Copyable:
+        def model_copy(self, update: object = None) -> _Copyable:
+            return self
+
+    config = SimpleNamespace(
+        runtime=_Copyable(),
+        observability=_Copyable(),
+    )
+    config.model_copy = lambda update=None: config
+    monkeypatch.setattr(serve, "load_config", lambda *args, **kwargs: config)
+    return config
+
+
+@pytest.mark.asyncio
+async def test_memory_graph_reader_uses_verifier_bound_project_scope() -> None:
+    """Regression: the graph reader must NOT re-bind the HomeMaster tenant id
+    as the Neo4j ``project_id`` — the verifier already carries the MindMemOS
+    project scope, and mixing the two once joined SDK nodes with edges from
+    a different project."""
+    calls: list[tuple[int, str | None]] = []
+
+    async def graph_edges(limit: int, *, project_id: str | None = None):
+        calls.append((limit, project_id))
+        return []
+
+    verifier = SimpleNamespace(graph_edges=graph_edges)
+    bundle = SimpleNamespace(
+        application=SimpleNamespace(
+            settings=SimpleNamespace(
+                application_services={"memory_verifier": verifier}
+            )
+        ),
+        mindmemos_client=SimpleNamespace(scope=SimpleNamespace(tenant_id="local")),
+    )
+
+    reader = serve._memory_graph_reader(bundle)
+
+    assert reader is graph_edges
+    await reader(7)
+    assert calls == [(7, None)]
+
+
+def test_memory_graph_reader_none_without_verifier() -> None:
+    bundle = SimpleNamespace(
+        application=SimpleNamespace(
+            settings=SimpleNamespace(application_services={})
+        ),
+        mindmemos_client=None,
+    )
+    assert serve._memory_graph_reader(bundle) is None
+
+
 def test_create_home_web_app_uses_full_auto_permission_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
     session_manager = object()
-    mindmemos = object()
+    mindmemos_client = object()
     application = SimpleNamespace(session_manager=session_manager)
-    bundle = SimpleNamespace(application=application, mindmemos=mindmemos)
+    bundle = SimpleNamespace(application=application, mindmemos_client=mindmemos_client)
     expected_app = SimpleNamespace(state=SimpleNamespace())
+    _stub_config(monkeypatch)
 
     def fake_compose_application(**kwargs):
         captured.update(kwargs)
@@ -73,7 +131,7 @@ def test_create_home_web_app_uses_full_auto_permission_mode(monkeypatch) -> None
     assert captured["web_confirmation_handler"] is captured["confirmation_handler"]
     memory_service = captured["web_memory_management_service"]
     assert isinstance(memory_service, MemoryManagementService)
-    assert memory_service._mindmemos is mindmemos
+    assert memory_service._client is mindmemos_client
     assert memory_service._sessions is session_manager
     assert expected_app.state.home_bundle is bundle
 
@@ -83,7 +141,7 @@ def test_create_browser_web_app_uses_full_auto_permission_mode(monkeypatch, tmp_
     config_path = tmp_path / "homemaster.browser.yaml"
     config = SimpleNamespace()
     application = SimpleNamespace(session_manager=object())
-    bundle = SimpleNamespace(application=application, mindmemos=None)
+    bundle = SimpleNamespace(application=application, mindmemos_client=None)
     expected_app = SimpleNamespace(state=SimpleNamespace())
 
     monkeypatch.setattr(serve, "load_config", lambda config_path: config)
@@ -225,7 +283,7 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
     captured: dict[str, object] = {}
     close_base = AsyncMock()
     session_manager = object()
-    mindmemos = object()
+    mindmemos_client = object()
     replaced: list[object] = []
     registry = SimpleNamespace(replace=replaced.append)
     base_application = SimpleNamespace(
@@ -239,8 +297,9 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
         application=base_application,
         config=config,
         run_dir=object(),
-        mindmemos=mindmemos,
+        mindmemos_client=mindmemos_client,
     )
+    _stub_config(monkeypatch)
     binding = SimpleNamespace(adapter=object(), dependencies={})
     owner = SimpleNamespace(claim=AsyncMock(return_value=True), seal=AsyncMock())
     expected_app = SimpleNamespace(state=SimpleNamespace())
@@ -283,7 +342,7 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
     assert wrapped._owner is owner
     memory_service = captured["web_memory_management_service"]
     assert isinstance(memory_service, MemoryManagementService)
-    assert memory_service._mindmemos is mindmemos
+    assert memory_service._client is mindmemos_client
     assert memory_service._sessions is session_manager
     assert expected_app.state.home_bundle is bundle
     close_base.assert_not_awaited()
@@ -307,7 +366,7 @@ async def test_create_alfworld_web_app_forwards_config_path(monkeypatch, tmp_pat
         application=base_application,
         config=config,
         run_dir=object(),
-        mindmemos=None,
+        mindmemos_client=None,
     )
     binding = SimpleNamespace(adapter=object(), dependencies={})
     owner = SimpleNamespace(claim=AsyncMock(return_value=True), seal=AsyncMock())
@@ -343,8 +402,9 @@ async def test_create_alfworld_web_app_closes_base_when_binding_fails(monkeypatc
         application=base_application,
         config=SimpleNamespace(alfworld_gateway=object()),
         run_dir=object(),
-        mindmemos=object(),
+        mindmemos_client=object(),
     )
+    _stub_config(monkeypatch)
 
     monkeypatch.setattr(serve, "compose_application", lambda **_kwargs: bundle)
 

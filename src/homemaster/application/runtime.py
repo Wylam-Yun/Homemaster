@@ -5,8 +5,9 @@ generation fence, the cancel/status/compact control plane, application
 resource ownership and the final commit+save policy. Per-run assembly and
 execution live in :mod:`homemaster.application.run_driver` (``RunDriver``),
 extension hooks in :mod:`homemaster.application.extension_lifecycle`
-(``ExtensionLifecycle``), and the automatic recall path in
-:mod:`homemaster.application.memory_recall` (``AutomaticRecallService``).
+(``ExtensionLifecycle``), and the durable memory lifecycle in
+:mod:`homemaster.memory.session_trace_store` (``SessionTraceStore``) plus
+:mod:`homemaster.memory.memory_workers` (``MemoryWorkerPool``).
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ from homemaster.application.contracts import (
     RunStatus,
 )
 from homemaster.application.extension_lifecycle import ExtensionLifecycle
-from homemaster.application.memory_recall import AutomaticRecallRunDeadlineExceeded
 from homemaster.application.resources import ResourceCleanupError, RunResourceScope
 from homemaster.application.run_driver import (
     ContextAssemblerFactory,
@@ -42,6 +42,7 @@ from homemaster.application.run_driver import (
     _FencedAgentSession as _FencedAgentSession,
 )
 from homemaster.application.session import (
+    SessionGenerationError,
     SessionManager,
     SessionRuntime,
 )
@@ -180,6 +181,8 @@ class ApplicationRuntime:
         artifact_publisher: ArtifactPublisher | None = None,
         tool_executor: ToolExecutor | None = None,
         session_end_handler: SessionEndHandler | None = None,
+        session_trace: Any = None,
+        skill_tracker: Any = None,
     ) -> None:
         if not isinstance(registry, ToolRegistry):
             raise TypeError("registry must be a ToolRegistry")
@@ -199,6 +202,13 @@ class ApplicationRuntime:
         self._extensions = ExtensionLifecycle(extension_runner, event_bus)
         self.artifact_publisher = artifact_publisher
         self.session_end_handler = session_end_handler
+        # V3.8: durable per-session canonical trace; ``None`` when the
+        # MindMemOS tier is not composed (files-only mode).
+        self._session_trace = session_trace
+        # Dedicated skill-trace entry point; invocations ride in on
+        # ``RunRequest.dependencies["skill_invocation"]``.
+        self._skill_tracker = skill_tracker
+        self._pending_skill_invocations: dict[tuple[str, str], tuple[str, str]] = {}
         self._working_directory = resolve_working_directory(
             getattr(self.settings, "working_directory", Path.cwd())
         )
@@ -294,7 +304,52 @@ class ApplicationRuntime:
             request=request,
             run_id=run_id,
         ) as (runtime, generation, _, hook_blocked_reason):
+            turn_index = runtime.agent_state.turn_index
+            turn_id = f"turn-{turn_index}"
+            if self._session_trace is not None:
+                try:
+                    self._session_trace.begin_turn(
+                        session_id,
+                        turn_index,
+                        run_id,
+                        message_start_index=len(runtime.session.messages),
+                    )
+                except Exception as exc:
+                    # Trace admission is required by contract: without the
+                    # durable begin row a crash would silently lose the turn.
+                    return RunResult(
+                        run_id=run_id,
+                        session_id=session_id,
+                        status=RunStatus.FAILED,
+                        error_code="memory_trace_unavailable",
+                        metadata={"reason": str(exc)[:500]},
+                    )
+            skill_invocation = request.dependencies.get("skill_invocation")
+            if skill_invocation is not None and self._skill_tracker is not None:
+                try:
+                    invocation_id = self._skill_tracker.begin(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        identity=skill_invocation.identity,
+                    )
+                    self._pending_skill_invocations[(session_id, turn_id)] = (
+                        invocation_id,
+                        skill_invocation.task_input,
+                    )
+                except Exception:
+                    # Trace admission failures never fail the user turn — the
+                    # canonical turn trace is already durable, so startup
+                    # recovery can re-evaluate the skill side independently.
+                    import logging
+
+                    logging.getLogger(__name__).exception(
+                        "skill invocation open failed for %s/%s", session_id, turn_id
+                    )
             if hook_blocked_reason:
+                self._commit_turn_terminal(
+                    runtime, session_id, turn_id, "failed",
+                    terminal_reason="extension_run_start_blocked",
+                )
                 return RunResult(
                     run_id=run_id,
                     session_id=session_id,
@@ -334,15 +389,41 @@ class ApplicationRuntime:
                 commit_fn=self._commit_and_save,
                 browser_run_scopes=self._browser_run_scopes,
             )
-            return await driver.execute(
-                request=request,
-                runtime=runtime,
-                generation=generation,
-                run_id=run_id,
-                session_id=session_id,
-                backend=backend,
-                run_event_sink=run_event_sink,
-            )
+            try:
+                result = await driver.execute(
+                    request=request,
+                    runtime=runtime,
+                    generation=generation,
+                    run_id=run_id,
+                    session_id=session_id,
+                    backend=backend,
+                    run_event_sink=run_event_sink,
+                )
+            except SessionGenerationError:
+                # A newer turn already owns the canonical message slice; the
+                # stale generation must not commit terminal state.
+                raise
+            except asyncio.CancelledError:
+                self._commit_turn_terminal(
+                    runtime, session_id, turn_id, "cancelled",
+                    terminal_reason="cancelled",
+                )
+                raise
+            except BaseException:
+                self._commit_turn_terminal(
+                    runtime, session_id, turn_id, "failed",
+                    terminal_reason="run_exception",
+                )
+                raise
+            else:
+                self._commit_turn_terminal(
+                    runtime,
+                    session_id,
+                    turn_id,
+                    _terminal_status_for(result),
+                    terminal_reason=str(getattr(result.status, "value", result.status)),
+                )
+                return result
 
     async def compact(self, session_id: str) -> CompactionResult:
         await self.start()
@@ -374,8 +455,6 @@ class ApplicationRuntime:
                         force_compact=runtime.consume_compaction(generation),
                     )
                 )
-                if composed.metrics.compaction_triggered:
-                    runtime.require_recall_after_compaction(generation)
                 revision = await self._save_if_configured(session_id, generation)
                 return CompactionResult(
                     session_id=session_id,
@@ -387,6 +466,63 @@ class ApplicationRuntime:
 
     def cancel(self, session_id: str) -> bool:
         return self.session_manager.cancel(session_id)
+
+    def _commit_turn_terminal(
+        self,
+        runtime: SessionRuntime,
+        session_id: str,
+        turn_id: str,
+        status: str,
+        *,
+        terminal_reason: str,
+    ) -> None:
+        """Commit terminal state + canonical events + Add intent atomically.
+
+        A commit failure is logged and left for startup recovery — the run's
+        own result is already decided and must not be rewritten by an
+        observability-path failure; ``audit_and_recover`` will interrupt the
+        orphaned active turn and rebuild the Add intent.
+        """
+        trace = self._session_trace
+        if trace is None:
+            return
+        messages: list[Any] = []
+        try:
+            turn = trace.turn(session_id, turn_id)
+            start = turn.message_start_index if turn is not None else 0
+            messages = list(runtime.session.messages[start:])
+            trace.commit_terminal(
+                session_id,
+                turn_id,
+                status=status,
+                messages=messages,
+                terminal_reason=terminal_reason,
+                message_end_index=len(runtime.session.messages),
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "terminal trace commit failed for %s/%s", session_id, turn_id
+            )
+        pending = self._pending_skill_invocations.pop((session_id, turn_id), None)
+        if pending is not None and self._skill_tracker is not None:
+            invocation_id, task_input = pending
+            try:
+                self._skill_tracker.seal(
+                    invocation_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    terminal_status=status,
+                    task_input=task_input,
+                    agent_completion=_last_assistant_text(messages),
+                )
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "skill invocation seal failed for %s/%s", session_id, turn_id
+                )
 
     def status(self, session_id: str) -> SessionStatus:
         runtime = self.session_manager.get(session_id)
@@ -522,10 +658,38 @@ def _control_request(request: RunRequest, session_id: str) -> RunRequest:
     )
 
 
+def _terminal_status_for(result: RunResult) -> str:
+    """Map a terminal ``RunResult`` onto the canonical trace terminal set."""
+    status = getattr(result, "status", None)
+    value = getattr(status, "value", status)
+    if value == "cancelled":
+        return "cancelled"
+    if value == "failed":
+        error_code = str(getattr(result, "error_code", "") or "")
+        if "budget" in error_code:
+            return "budget_exhausted"
+        return "failed"
+    return "completed"
+
+
+def _last_assistant_text(messages: list[Any]) -> str:
+    """Last assistant message's text — the agent completion for skill traces."""
+    for message in reversed(messages):
+        if getattr(message, "role", None) != "assistant":
+            continue
+        parts = [
+            getattr(block, "text", "")
+            for block in getattr(message, "content", ()) or ()
+            if getattr(block, "text", "")
+        ]
+        if parts:
+            return "\n".join(parts)
+    return ""
+
+
 __all__ = [
     "ApplicationRuntime",
     "ApplicationStarter",
-    "AutomaticRecallRunDeadlineExceeded",
     "CompactionResult",
     "ContextAssemblerFactory",
     "ProviderFactory",

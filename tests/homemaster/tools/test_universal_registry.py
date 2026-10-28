@@ -128,11 +128,15 @@ def test_alfworld_registry_uses_alfworld_robot_contract() -> None:
 def test_alfworld_structured_memory_surface_is_controlled_only_by_memory_enabled() -> None:
     from homemaster.adapters.profiles import build_tool_registry
 
+    # V3.8 client surface: terminal-turn Add is an outbox worker concern, so
+    # ``mindmemos_add`` no longer exists as a model-facing tool.
     structured = {
-        "mindmemos_add",
+        "context_memory",
         "mindmemos_search",
+        "mindmemos_history",
         "mindmemos_update",
         "mindmemos_delete",
+        "mindmemos_feedback",
     }
     legacy = {"memory_retriever", "memory_writer"}
 

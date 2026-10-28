@@ -106,7 +106,6 @@ class SessionRuntime:
     generation: int = 0
     revision: int = 0
     application_control: object | None = None
-    require_recall: bool = True
     # Schema-v2 engine state (AgentScope ``AgentState``) restored from the
     # snapshot; ``None`` on v1 snapshots / fresh sessions — the AS runtime
     # seeds a fresh engine context from the session mirror in that case.
@@ -136,18 +135,6 @@ class SessionRuntime:
                 raise SessionGenerationError(
                     f"stale session generation {generation}; current={self.generation}"
                 )
-
-    def consume_recall(self, generation: int) -> bool:
-        with self.state_lock:
-            self.assert_generation(generation)
-            required = self.require_recall
-            self.require_recall = False
-            return required
-
-    def require_recall_after_compaction(self, generation: int) -> None:
-        with self.state_lock:
-            self.assert_generation(generation)
-            self.require_recall = True
 
     @contextlib.contextmanager
     def generation_guard(self, generation: int) -> Iterator[None]:
@@ -859,7 +846,6 @@ class SessionManager:
             ),
             generation=snapshot.generation,
             revision=snapshot.revision,
-            require_recall=bool(snapshot.payload.get("require_recall", False)),
             engine_state=engine_state,
         )
         return runtime
@@ -894,7 +880,6 @@ def _snapshot_payload(
             "environment_ref": runtime.environment_ref,
             "canonical_evidence_refs": list(runtime.canonical_evidence_refs),
             "session_status": runtime.agent_state.status,
-            "require_recall": runtime.require_recall,
         }
     )
     return payload

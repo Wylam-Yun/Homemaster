@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import sys
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
 from homemaster.application import (
@@ -31,27 +33,26 @@ from homemaster.config import HomeMasterConfig, load_config
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import FanoutEventSink
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
-from homemaster.experience import (
-    AlfworldCompileJobService,
-    DreamingCoordinator,
-    DreamingStateStore,
-    SessionFinalizationController,
-    SessionFinalizer,
-)
 from homemaster.extensions.contracts import ExtensionApproval
 from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
-from homemaster.memory.add_queue import MemoryAddQueue
+from homemaster.memory.archive_service import ArchiveService
 from homemaster.memory.context_service import FrozenMemoryContextService
-from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.feedback_scheduler import ImplicitFeedbackConfig, ImplicitFeedbackScheduler
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
 from homemaster.memory.managed_qdrant import ManagedQdrantRuntime
+from homemaster.memory.memory_jobs import default_executors
+from homemaster.memory.memory_verifier import NullVerifier, QdrantNeo4jVerifier, RawMemoryVerifier
+from homemaster.memory.memory_work_store import SQLiteMemoryWorkStore
+from homemaster.memory.memory_workers import MemoryWorkerPool
 from homemaster.memory.migration import MemoryMigrationCoordinator
-from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+from homemaster.memory.mindmemos_client import MemoryScope, MindMemOSClient
+from homemaster.memory.session_trace_store import SessionTraceStore
+from homemaster.memory.skill_invocations import SkillInvocationTracker
 from homemaster.permissions import PermissionMode, PermissionSettingsConfig
 from homemaster.prompts.loader import PromptId
 from homemaster.skills.registry import SkillRegistry
@@ -60,7 +61,6 @@ from homemaster.tools.base import ToolRegistry
 from homemaster.tools.runtime_services import HomeToolServices
 
 if TYPE_CHECKING:
-    from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
     from homemaster.extensions.reloader import ExtensionReloader
 
 logger = logging.getLogger(__name__)
@@ -79,14 +79,12 @@ class HomeApplicationBundle:
     extension_reloader: ExtensionReloader | None = None
     live_rendered: bool = False
     tool_services: HomeToolServices | None = None
-    mindmemos: EmbeddedMindMemOS | None = None
-    memory_add_queue: MemoryAddQueue | None = None
-    trajectory_writer: AlfworldTrajectoryWriter | None = None
-    robocasa_trajectory_writer: Any | None = None
-    alfworld_compile_jobs: AlfworldCompileJobService | None = None
-    memory_enrichment_queue: MemoryEnrichmentQueue | None = None
-    dreaming_coordinator: DreamingCoordinator | None = None
-    session_finalization: SessionFinalizationController | None = None
+    mindmemos_client: MindMemOSClient | None = None
+    memory_work_store: SQLiteMemoryWorkStore | None = None
+    session_trace: SessionTraceStore | None = None
+    memory_worker_pool: MemoryWorkerPool | None = None
+    archive_service: ArchiveService | None = None
+    skill_tracker: SkillInvocationTracker | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +122,6 @@ class ApplicationCompositionRequest:
     quiet: bool = False
     console_show_replies: bool = True
     feishu_group_operations: FeishuGroupOperations | None = None
-    session_finalizer_trace_path: Path | None = None
 
 
 class HomeCliBackend:
@@ -186,7 +183,6 @@ def compose_application(
     runtime_root: Path | None = None,
     session_root: Path | None = None,
     memory_tenant_id: str = "local",
-    session_finalizer_trace_path: Path | None = None,
     permission_mode: PermissionMode | None = None,
     confirmation_handler: Any | None = None,
     publish_artifacts: bool = False,
@@ -210,7 +206,6 @@ def compose_application(
         runtime_root = request.runtime_root
         session_root = request.session_root
         memory_tenant_id = request.memory_tenant_id
-        session_finalizer_trace_path = request.session_finalizer_trace_path
         permission_mode = request.permission_mode
         confirmation_handler = request.confirmation_handler
         publish_artifacts = request.publish_artifacts
@@ -291,7 +286,6 @@ def compose_application(
             run_dir=run_dir,
             session_root=session_root,
             memory_tenant_id=memory_tenant_id,
-            session_finalizer_trace_path=session_finalizer_trace_path,
             permission_settings=permission_settings,
             confirmation_handler=confirmation_handler,
             publish_artifacts=publish_artifacts,
@@ -332,7 +326,6 @@ def _finish_home_application(
     run_dir: Path,
     session_root: Path | None,
     memory_tenant_id: str,
-    session_finalizer_trace_path: Path | None,
     permission_settings: PermissionSettingsConfig,
     confirmation_handler: Any | None,
     publish_artifacts: bool,
@@ -434,13 +427,14 @@ def _finish_home_application(
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
     managed_neo4j: ManagedNeo4jRuntime | None = None
     managed_qdrant: ManagedQdrantRuntime | None = None
-    mindmemos: EmbeddedMindMemOS | None = None
-    memory_add_queue: MemoryAddQueue | None = None
-    trajectory_writer: AlfworldTrajectoryWriter | None = None
-    robocasa_trajectory_writer: Any | None = None
-    alfworld_compile_jobs: AlfworldCompileJobService | None = None
-    memory_enrichment_queue: MemoryEnrichmentQueue | None = None
-    dreaming_coordinator: DreamingCoordinator | None = None
+    memory_work_store: SQLiteMemoryWorkStore | None = None
+    session_trace: SessionTraceStore | None = None
+    mindmemos_client: MindMemOSClient | None = None
+    memory_verifier: RawMemoryVerifier | None = None
+    memory_worker_pool: MemoryWorkerPool | None = None
+    archive_service: ArchiveService | None = None
+    skill_tracker: SkillInvocationTracker | None = None
+    feedback_scheduler: ImplicitFeedbackScheduler | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
     # W1 memory tiers: the files tier (mode="files") runs purely on local file
     # memory — store, frozen prompt context, and the dependency-free evidence
@@ -476,64 +470,67 @@ def _finish_home_application(
         )
         if memory_full_tier:
             memory_migration = MemoryMigrationCoordinator(resolved.memory)
-            managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
+            managed_neo4j = (
+                ManagedNeo4jRuntime(resolved.memory)
+                if resolved.memory.neo4j.mode == "managed_local"
+                else None
+            )
             managed_qdrant = (
                 ManagedQdrantRuntime(resolved.memory)
                 if resolved.memory.qdrant.mode == "managed_local"
                 else None
             )
-            mindmemos = EmbeddedMindMemOS(resolved)
-            memory_add_queue = MemoryAddQueue(
-                mindmemos,
-                audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
+            mm_cfg = resolved.memory.mindmemos
+            worker_cfg = resolved.memory.worker
+            memory_work_store = SQLiteMemoryWorkStore(
+                Path(resolved.memory.data_root) / "memory_work.db"
             )
-            # Lazy: trajectory writers belong to per-profile optional domains
-            # (alfworld/robocasa). Name-level deferral only for alfworld —
-            # homemaster.experience (imported above) already pulls
-            # alfworld.trajectory_memory transitively via its package exports;
-            # full decoupling needs an experience __init__ split. The robocasa
-            # half does stay genuinely deferred.
-            from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
-            from homemaster.robocasa.trajectory_memory import RoboCasaTrajectoryWriter
-
-            trajectory_writer = AlfworldTrajectoryWriter(
-                mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
+            session_trace = SessionTraceStore(memory_work_store)
+            mindmemos_client = MindMemOSClient(
+                base_url=mm_cfg.base_url,
+                api_key=mm_cfg.api_key.get_secret_value(),
+                scope=MemoryScope(tenant_id=memory_tenant_id),
+                timeout_seconds=mm_cfg.timeout_seconds,
             )
-            robocasa_trajectory_writer = RoboCasaTrajectoryWriter(
-                mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
-            )
-            alfworld_compile_jobs = AlfworldCompileJobService(
-                mindmemos,
-                memory_add_queue,
-                jobs_root=resolved.memory.data_root / "alfworld-compilations",
-                event_sink=bus,
-                tenant_id=memory_tenant_id,
-            )
-            trajectory_writer.bind_auto_compile(alfworld_compile_jobs)
-            memory_enrichment_queue = MemoryEnrichmentQueue(
-                mindmemos,
-                audit_path=resolved.memory.data_root / "mindmemos" / "enrichment_jobs.jsonl",
-                concurrency=2,
-            )
-            dreaming_coordinator = DreamingCoordinator(
-                store=DreamingStateStore(
-                    resolved.memory.data_root,
-                    threshold=resolved.memory.dreaming_memory_threshold,
+            memory_verifier = _build_memory_verifier(resolved)
+            skill_tracker = SkillInvocationTracker(memory_work_store)
+            archive_service = ArchiveService(memory_work_store)
+            fb_cfg = resolved.memory.implicit_feedback
+            feedback_scheduler = ImplicitFeedbackScheduler(
+                memory_work_store,
+                ImplicitFeedbackConfig(
+                    enabled=fb_cfg.enabled,
+                    hour=fb_cfg.hour,
+                    minute=fb_cfg.minute,
+                    timezone_name=fb_cfg.timezone_name,
+                    scope_key=memory_tenant_id,
                 ),
-                mindmemos=mindmemos,
-                event_sink=bus,
             )
-            mindmemos._third_party_logs = third_party_logs
-            scope.bind(
-                ResourceBinding.owned(
-                    "managed-neo4j",
-                    managed_neo4j,
-                    lifetime=ResourceLifetime.APPLICATION,
+            memory_worker_pool = MemoryWorkerPool(
+                store=memory_work_store,
+                client=mindmemos_client,
+                executors=default_executors(
+                    store=memory_work_store,
+                    trace=session_trace,
+                    client=mindmemos_client,
+                    verifier=memory_verifier,
+                ),
+                audit_path=Path(resolved.observability.trace_dir).expanduser()
+                / "memory_work.jsonl",
+                on_tick=feedback_scheduler.tick if fb_cfg.enabled else None,
+                poll_interval_seconds=worker_cfg.poll_interval_seconds,
+                lease_seconds=worker_cfg.lease_seconds,
+                max_concurrent=worker_cfg.max_concurrent,
+            )
+            if managed_neo4j is not None:
+                scope.bind(
+                    ResourceBinding.owned(
+                        "managed-neo4j",
+                        managed_neo4j,
+                        lifetime=ResourceLifetime.APPLICATION,
+                    )
                 )
-            )
             if managed_qdrant is not None:
-                # Bound before embedded-mindmemos so scope teardown (LIFO)
-                # closes MindMemOS first and stops the Qdrant service last.
                 scope.bind(
                     ResourceBinding.owned(
                         "managed-qdrant",
@@ -543,22 +540,15 @@ def _finish_home_application(
                 )
             scope.bind(
                 ResourceBinding.owned(
-                    "embedded-mindmemos",
-                    mindmemos,
+                    "mindmemos-client",
+                    mindmemos_client,
                     lifetime=ResourceLifetime.APPLICATION,
                 )
             )
             scope.bind(
                 ResourceBinding.owned(
-                    "memory-add-queue",
-                    memory_add_queue,
-                    lifetime=ResourceLifetime.APPLICATION,
-                )
-            )
-            scope.bind(
-                ResourceBinding.owned(
-                    "memory-enrichment-queue",
-                    memory_enrichment_queue,
+                    "memory-worker-pool",
+                    memory_worker_pool,
                     lifetime=ResourceLifetime.APPLICATION,
                 )
             )
@@ -572,33 +562,31 @@ def _finish_home_application(
             file_memory_store.start()
             memory_evidence_ledger.start()
             if memory_full_tier:
-                assert managed_neo4j is not None
-                assert mindmemos is not None
-                assert memory_add_queue is not None
-                await managed_neo4j.start()
+                assert memory_worker_pool is not None
+                assert memory_work_store is not None
+                # Open the durable store before the optional managed stores so
+                # a managed-runtime failure still leaves an open store for
+                # session close (archive) and later worker recovery.
+                await asyncio.to_thread(memory_work_store.open)
+                if managed_neo4j is not None:
+                    await managed_neo4j.start()
                 if managed_qdrant is not None:
                     await managed_qdrant.start()
-                await mindmemos.start()
-                if not mindmemos.available:
-                    cause = mindmemos.unavailable_cause or "unknown startup failure"
-                    raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
-                await memory_add_queue.start()
-                assert memory_enrichment_queue is not None
-                await memory_enrichment_queue.start()
-                from homemaster.memory.automatic_recall import (
-                    build_mindmemos_request_context,
-                )
-
-                assert dreaming_coordinator is not None
-                await dreaming_coordinator.retry_pending(
-                    project_id="local",
-                    user_id="local",
-                    context_template=build_mindmemos_request_context(
-                        request_id="startup-dreaming-recovery",
-                        tenant_id="local",
-                        session_id=None,
-                    ),
-                )
+                readiness = await memory_worker_pool.start()
+                if not readiness.client_ready:
+                    logger.warning(
+                        "MindMemOS service at %s is not reachable; memory work is"
+                        " queued durably and will be retried (lease_seconds=%s)",
+                        resolved.memory.mindmemos.base_url,
+                        resolved.memory.worker.lease_seconds,
+                    )
+                stale = _inventory_stale_finalizer_jobs(resolved.memory.data_root)
+                if stale:
+                    logger.info(
+                        "inventoried %s stale pre-V3.8 finalizer jobs under"
+                        " experience_jobs/ (preserved, not resumed)",
+                        len(stale),
+                    )
 
         starter_steps.append(start_memory_services)
     if resolved.mcp.servers:
@@ -643,63 +631,21 @@ def _finish_home_application(
 
         starter_steps.append(start_mcp)
 
-    # Session finalization and trajectory finalization exist only on the full
-    # MindMemOS tier; files mode leaves them as None (runner.py guards on the
-    # trajectory writer being present before enqueueing).
-    finalizer = (
-        SessionFinalizer(
-            trace_path=session_finalizer_trace_path or run_dir / "runtime_events.jsonl",
-            data_root=resolved.memory.data_root,
-            mindmemos=mindmemos,
-            memory_tenant_id=memory_tenant_id,
-            dreaming_coordinator=dreaming_coordinator,
-            event_sink=bus,
-        )
-        if resolved.memory.mode == "full" and mindmemos is not None and memory_add_queue is not None
-        else None
-    )
+    # V3.8: session end (user /archive, formal close, /new rotation, process
+    # exit) freezes an immutable Archive Snapshot over the canonical trace and
+    # enqueues the bound Dreaming intent in one store transaction. Turn
+    # completion alone never triggers this. The handler stays synchronous for
+    # the ApplicationSession.close() contract — all work is durable-store I/O.
+    def _archive_session_end(session_id: str, exit_reason: str) -> Any | None:
+        del exit_reason  # every admitted close freezes the same boundary kind
+        if archive_service is None:
+            return None
+        result = archive_service.archive_session(session_id)
+        if result.archive_id is None:
+            return None
+        return SimpleNamespace(job_id=result.archive_id, status=result.status)
 
-    session_finalization = (
-        SessionFinalizationController(
-            finalizer,
-            memory_add_queue,
-            ready=lambda: mindmemos.available,
-            event_sink=bus,
-        )
-        if finalizer is not None and memory_add_queue is not None
-        else None
-    )
-    session_end_handler = session_finalization.enqueue if session_finalization is not None else None
-
-    # Queued finalization jobs are in-memory, but every accepted job persists a
-    # durable job.json + episode.json under experience_jobs/. On startup, sweep
-    # for unfinished jobs and re-queue them so a crash or a killed drain cannot
-    # silently drop a session's archival.
-    if finalizer is not None and memory_add_queue is not None:
-
-        async def resume_finalization_jobs(_application: ApplicationRuntime) -> None:
-            scan = getattr(finalizer, "incomplete_jobs", None)
-            resume = getattr(finalizer, "resume_job", None)
-            if not callable(scan) or not callable(resume):
-                return
-            pending = await asyncio.to_thread(scan)
-            for job_dir, session_id in pending:
-
-                async def resume_work(job_dir: Path = job_dir) -> None:
-                    await resume(job_dir)
-
-                memory_add_queue.enqueue_work(
-                    job_type="session_finalization_resume",
-                    session_id=session_id,
-                    work=resume_work,
-                )
-                logger.info(
-                    "re-queued incomplete session finalization %s (session=%s)",
-                    job_dir.name,
-                    session_id,
-                )
-
-        starter_steps.append(resume_finalization_jobs)
+    session_end_handler = _archive_session_end if archive_service is not None else None
 
     async def start_application_services(application: ApplicationRuntime) -> None:
         for starter in starter_steps:
@@ -736,23 +682,23 @@ def _finish_home_application(
                     "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
                     / "memory_operations.jsonl",
                     # The full MindMemOS tier is gated on the configured mode,
-                    # not on MindMemOS being present: files mode exposes the
-                    # file-memory services above without MindMemOS.
+                    # not on the service being reachable: files mode exposes the
+                    # file-memory services above without any MindMemOS wiring.
                     **(
                         {
-                            "mindmemos": mindmemos,
-                            "memory_add_queue": memory_add_queue,
-                            "trajectory_writer": trajectory_writer,
-                            "robocasa_trajectory_writer": robocasa_trajectory_writer,
-                            "alfworld_compile_jobs": alfworld_compile_jobs,
-                            "memory_enrichment_queue": memory_enrichment_queue,
-                            "dreaming_coordinator": dreaming_coordinator,
+                            "mindmemos_client": mindmemos_client,
+                            "memory_work_store": memory_work_store,
+                            "session_trace": session_trace,
+                            "memory_worker_pool": memory_worker_pool,
+                            "feedback_scheduler": feedback_scheduler,
+                            "archive_service": archive_service,
+                            "skill_tracker": skill_tracker,
+                            "memory_verifier": memory_verifier,
                             "memory_migration": memory_migration,
                             "managed_neo4j": managed_neo4j,
                             "managed_qdrant": managed_qdrant,
-                            "session_finalization": session_finalization,
                         }
-                        if resolved.memory.mode == "full" and mindmemos is not None
+                        if memory_full_tier
                         else {}
                     ),
                 }
@@ -765,6 +711,8 @@ def _finish_home_application(
             **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
         },
         session_end_handler=session_end_handler,
+        session_trace=session_trace,
+        skill_tracker=skill_tracker,
         permission_settings=permission_settings,
         confirmation_handler=confirmation_handler,
     )
@@ -780,14 +728,12 @@ def _finish_home_application(
         extension_reloader=extension_reloader,
         live_rendered=live_rendered,
         tool_services=tool_services,
-        mindmemos=mindmemos,
-        memory_add_queue=memory_add_queue,
-        trajectory_writer=trajectory_writer,
-        robocasa_trajectory_writer=robocasa_trajectory_writer,
-        alfworld_compile_jobs=alfworld_compile_jobs,
-        memory_enrichment_queue=memory_enrichment_queue,
-        dreaming_coordinator=dreaming_coordinator,
-        session_finalization=session_finalization,
+        mindmemos_client=mindmemos_client,
+        memory_work_store=memory_work_store,
+        session_trace=session_trace,
+        memory_worker_pool=memory_worker_pool,
+        archive_service=archive_service,
+        skill_tracker=skill_tracker,
     )
 
 
@@ -809,6 +755,85 @@ def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, .
             )
         )
     return tuple(approvals)
+
+
+def _build_memory_verifier(resolved: HomeMasterConfig) -> RawMemoryVerifier:
+    """Build the raw-readback verifier from the configured store endpoints.
+
+    ``server``/``managed_local`` Qdrant gives an HTTP endpoint; ``embedded``
+    Qdrant holds an exclusive directory lock owned by the MindMemOS server,
+    so only Neo4j readback is possible there. With no reachable store at all
+    the pool runs with ``NullVerifier`` — jobs still execute but settle as
+    ``no_action``/unverified rather than claiming success they cannot prove.
+    """
+
+    qdrant = resolved.memory.qdrant
+    qdrant_url: str | None = None
+    if qdrant.mode == "server":
+        qdrant_url = qdrant.url
+    elif qdrant.mode == "managed_local":
+        qdrant_url = f"http://127.0.0.1:{qdrant.rest_port}"
+    neo4j = resolved.memory.neo4j
+    if qdrant_url is None and not neo4j.uri:
+        return NullVerifier()
+    try:
+        return QdrantNeo4jVerifier(
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant.api_key.get_secret_value() or None,
+            neo4j_uri=neo4j.uri or None,
+            neo4j_username=neo4j.username,
+            neo4j_password=neo4j.password.get_secret_value() or None,
+            neo4j_database=neo4j.database,
+            # Graph nodes live under the MindMemOS project's tenant scope —
+            # the partition the api_key resolves to, not the HomeMaster
+            # tenant id.
+            project_id=resolved.memory.mindmemos.project_id or None,
+        )
+    except ImportError:
+        logger.warning(
+            "memory readback verifier disabled: qdrant-client/neo4j drivers"
+            " not installed in this environment"
+        )
+        return NullVerifier()
+
+
+def _inventory_stale_finalizer_jobs(data_root: Path) -> list[Path]:
+    """Mark pre-V3.8 finalizer job dirs as stale without deleting evidence.
+
+    The removed SessionFinalizer left durable ``job.json`` files under
+    ``experience_jobs/``. V3.8 never resumes them (the archive snapshot is
+    the new boundary), but the directories must be preserved for audit —
+    each incomplete job gets a ``STALE`` marker so the inventory is
+    idempotent and auditable.
+    """
+
+    jobs_root = Path(data_root) / "experience_jobs"
+    if not jobs_root.is_dir():
+        return []
+    stale: list[Path] = []
+    for job_dir in sorted(jobs_root.iterdir()):
+        job_json = job_dir / "job.json"
+        if not job_dir.is_dir() or not job_json.is_file():
+            continue
+        marker = job_dir / "STALE"
+        if marker.exists():
+            continue
+        try:
+            payload = json.loads(job_json.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+        status = str(payload.get("status", "")).strip().lower()
+        if status in {"completed", "failed", "cancelled"}:
+            continue
+        try:
+            marker.write_text(
+                "stale: superseded by V3.8 archive snapshots\n", encoding="utf-8"
+            )
+        except OSError:
+            logger.warning("could not mark stale finalizer job %s", job_dir)
+            continue
+        stale.append(job_dir)
+    return stale
 
 
 load_home_skills = compose_skill_registry

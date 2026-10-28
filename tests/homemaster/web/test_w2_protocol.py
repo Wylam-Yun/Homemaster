@@ -165,7 +165,7 @@ class _W2Application:
             return SimpleNamespace(status="unreachable", run_id="run-01")
         if request.text.startswith("boom:"):
             # A bound run that dies mid-flight with a propagated exception
-            # (e.g. AutomaticRecallRunDeadlineExceeded): fail_before_start
+            # (e.g. a backend mid-run exception): fail_before_start
             # refuses once run_id is bound, so the adapter's finish marker
             # must produce the honest terminal instead of wedging busy.
             raise RuntimeError("propagated mid-run failure")
@@ -1163,6 +1163,25 @@ def test_archive_rejects_unknown_session() -> None:
         assert response.json()["code"] == "session_not_found"
 
 
+def test_archive_no_trace_reports_nothing_to_archive() -> None:
+    """A session with no durable terminal turns must report 'nothing to
+    archive' — not the misleading backend-readiness error."""
+    application = _W2Application()
+    application.session_end_handler = lambda sid, reason: None
+    application.settings.application_services["archive_service"] = SimpleNamespace(
+        archive_session=lambda sid: SimpleNamespace(archive_id=None, status="no_trace")
+    )
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions", json={}).json()["session_id"]
+        archived = client.post(f"/api/sessions/{session_id}/archive")
+        assert archived.status_code == 409
+        body = archived.json()
+        assert body["code"] == "archive_no_trace"
+        assert body["retryable"] is False
+
+
 def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     """A raising ``session_end_handler`` must not prevent application
     teardown — one bad session cannot veto the rest of the shutdown."""
@@ -1181,20 +1200,35 @@ def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     assert application.closed
 
 
-def test_archive_status_reports_controller_view() -> None:
-    """GET /archive-status surfaces the latest finalization job for a session."""
+def test_archive_status_reports_snapshot_view() -> None:
+    """GET /archive-status surfaces the latest ArchiveSnapshot for a session.
+
+    The public state vocabulary is the frontend's (queued/processing/
+    completed/failed); internal lifecycle states (pending/dreamed) must be
+    mapped or the badge silently disappears while work is still in flight.
+    """
+    from types import SimpleNamespace
+
     application = _W2Application()
 
-    class _Finalization:
-        def status_for(self, session_id):
-            if session_id == "known":
-                return {"state": "processing", "job_id": "job-1"}
-            return None
+    class _ArchiveService:
+        def __init__(self) -> None:
+            self.snapshots: dict[str, list[object]] = {}
 
-        def statuses(self):
-            return {"known": {"state": "processing", "job_id": "job-1"}}
+        def snapshots_for_session(self, session_id):
+            return list(self.snapshots.get(session_id, []))
 
-    application.settings.application_services["session_finalization"] = _Finalization()
+    class _WorkStore:
+        def __init__(self) -> None:
+            self.jobs: dict[str, object] = {}
+
+        def job(self, job_id):
+            return self.jobs.get(job_id)
+
+    service = _ArchiveService()
+    store = _WorkStore()
+    application.settings.application_services["archive_service"] = service
+    application.settings.application_services["memory_work_store"] = store
     app = _app(application, config=_config())
 
     with TestClient(app) as client:
@@ -1204,11 +1238,81 @@ def test_archive_status_reports_controller_view() -> None:
             "session_id": session_id,
             "state": "none",
         }
-        # The fake session manager does not know "known" — exercise the merge
-        # path through the bulk endpoint instead.
+        job_id = f"job-dreaming:archive:{session_id}:3"
+        service.snapshots[session_id] = [
+            SimpleNamespace(
+                status="pending",
+                archive_id=f"archive:{session_id}:3",
+                dreaming_job_id=job_id,
+                max_event_seq=3,
+                turn_range_start=1,
+                turn_range_end=2,
+            )
+        ]
+        store.jobs[job_id] = SimpleNamespace(status="processing", result=None, last_error=None)
+        assert client.get(f"/api/sessions/{session_id}/archive-status").json() == {
+            "session_id": session_id,
+            "state": "processing",
+            "archive_id": f"archive:{session_id}:3",
+            "job_id": job_id,
+            "max_event_seq": 3,
+            "turn_range": [1, 2],
+            "extracted_count": None,
+            "error": None,
+        }
         bulk = client.get("/api/archive-status")
         assert bulk.status_code == 200
-        assert bulk.json() == {"sessions": {"known": {"state": "processing", "job_id": "job-1"}}}
+        assert bulk.json() == {
+            "sessions": {
+                session_id: {
+                    "state": "processing",
+                    "archive_id": f"archive:{session_id}:3",
+                    "job_id": job_id,
+                    "max_event_seq": 3,
+                    "turn_range": [1, 2],
+                    "extracted_count": None,
+                    "error": None,
+                }
+            }
+        }
+        # Terminal success: internal ``dreamed`` → public ``completed`` with
+        # the produced-memory count lifted from the job result.
+        service.snapshots[session_id] = [
+            SimpleNamespace(
+                status="dreamed",
+                archive_id=f"archive:{session_id}:3",
+                dreaming_job_id=job_id,
+                max_event_seq=3,
+                turn_range_start=1,
+                turn_range_end=2,
+            )
+        ]
+        store.jobs[job_id] = SimpleNamespace(
+            status="completed",
+            result={"produced_memory_ids": ["m1", "m2", "m3"]},
+            last_error=None,
+        )
+        view = client.get(f"/api/sessions/{session_id}/archive-status").json()
+        assert view["state"] == "completed"
+        assert view["extracted_count"] == 3
+        # Terminal failure carries the job's error for the badge/toast.
+        service.snapshots[session_id] = [
+            SimpleNamespace(
+                status="failed",
+                archive_id=f"archive:{session_id}:3",
+                dreaming_job_id=job_id,
+                max_event_seq=3,
+                turn_range_start=1,
+                turn_range_end=2,
+            )
+        ]
+        store.jobs[job_id] = SimpleNamespace(
+            status="failed", result=None, last_error="seed operation missing"
+        )
+        view = client.get(f"/api/sessions/{session_id}/archive-status").json()
+        assert view["state"] == "failed"
+        assert view["error"] == "seed operation missing"
+        assert view["extracted_count"] is None
 
 
 def test_archive_status_unavailable_without_full_tier() -> None:

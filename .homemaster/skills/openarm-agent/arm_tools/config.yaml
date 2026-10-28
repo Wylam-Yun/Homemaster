@@ -1,0 +1,115 @@
+# arm_tools 全局配置
+# 说明：
+# - task_frame 是可选的桌面原点记录。当前 agent 动作直接使用 world 坐标，
+#   不做 table -> world 换算，也不会因为 task_frame 未标定而拒绝移动。
+# - 其他话题/帧名与 RBM_openarm 仓库现状一致，一般不用改。
+
+frames:
+  world: world
+  tcp_left: openarm_left_hand_tcp
+  tcp_right: openarm_right_hand_tcp
+  link_left: openarm_left_link7
+  link_right: openarm_right_link7
+
+topics:
+  joint_states: /joint_states
+  controller_state_left: /left_joint_trajectory_controller/controller_state
+  controller_state_right: /right_joint_trajectory_controller/controller_state
+  cmd_left: /left_forward_position_controller/commands
+  cmd_right: /right_forward_position_controller/commands
+  gripper_left: left_gripper_controller/gripper_cmd
+  gripper_right: right_gripper_controller/gripper_cmd
+  cam_head: /camera/camera_h/color/image_rect_raw/compressed
+  cam_wrist_left: /camera/camera_l/color/image_rect_raw/compressed
+  cam_wrist_right: /camera/camera_r/color/image_rect_raw/compressed
+  # 深度流：需驱动 enable_depth:=true（realsense.sh 默认 false，记得改）
+  cam_head_depth: /camera/camera_h/depth/image_rect_raw
+  cam_head_info: /camera/camera_h/depth/camera_info
+  cam_wrist_l_depth: /camera/camera_l/depth/image_rect_raw
+  cam_wrist_l_info: /camera/camera_l/depth/camera_info
+  cam_wrist_r_depth: /camera/camera_r/depth/image_rect_raw
+  cam_wrist_r_info: /camera/camera_r/depth/camera_info
+
+# 相机外参：光心系 -> world。臂 URDF 里没有相机，world->相机 TF 不存在，
+# 所以外参放这里静态标定。xyz 为光心在 world 下的位置（米），
+# quat 为光心系到 world 的旋转（w,x,y,z）。
+# 标定方法见 README；未标定（calibrated:false）时感知 tool 直接拒绝。
+camera_extrinsics:
+  agentview: # camera_h
+    calibrated: false
+    xyz: [0.0, 0.0, 0.0]
+    quat: [1.0, 0.0, 0.0, 0.0]
+  wrist_left: # camera_l
+    calibrated: false
+    xyz: [0.0, 0.0, 0.0]
+    quat: [1.0, 0.0, 0.0, 0.0]
+  wrist_right: # camera_r
+    calibrated: false
+    xyz: [0.0, 0.0, 0.0]
+    quat: [1.0, 0.0, 0.0, 0.0]
+
+task_frame:
+  # 可选记录；动作工具当前不读取它做坐标换算。
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  calibrated: false
+
+gripper:
+  open_m: 0.044
+  closed_m: 0.0
+  max_effort: 0.0
+
+servo:
+  rate_hz: 50.0
+  loop_gain: 1.0
+  max_joint_step: 0.03
+  solver_dt: 0.02
+  # VR 节点同款：收紧 joint4 下限，防 IK 跳变
+  joint4_lower: 0.15
+  joint4_upper: 2.443461
+
+# MoveIt is the single motion executor for agent tools. The offset is the
+# fixed link7 -> hand_tcp translation in the OpenArm v10 URDF.
+moveit:
+  action: /move_action
+  planning_service: /plan_kinematic_path
+  model_parameters_service: /move_group/get_parameters
+  trajectory_action_left: /left_joint_trajectory_controller/follow_joint_trajectory
+  trajectory_action_right: /right_joint_trajectory_controller/follow_joint_trajectory
+  ik_service: /compute_ik
+  fk_service: /compute_fk
+  joint_tracking:
+    max_bias_rad: 0.40
+    min_duration_s: 4.0
+    tracking_allowance_rad: 0.10
+    max_start_drop_m: 0.005
+    max_correction_step_rad: 0.08
+    max_target_delta_rad: 0.45
+    max_iters: 3
+    correction_gain: 0.5
+    tolerance_rad: 0.006
+  group_left: left_arm
+  group_right: right_arm
+  planning_time_s: 5.0
+  default_timeout_s: 15.0
+  converge_enabled: true
+  converge_max_iters: 3
+  converge_max_compensation_m: 0.08
+  converge_retry_timeout_s: 8.0
+  position_tolerance_m: 0.005
+  orientation_tolerance_rad: 0.02
+  rotation_position_tolerance_m: 0.012
+  rotation_orientation_tolerance_rad: 0.10
+  joint_tolerance_rad: 0.03
+  safe_states:
+    hands_up:
+      left: [0.0, 0.0, 0.0, 1.640609, 0.0, 0.0, 0.0]
+      right: [0.0, 0.0, 0.0, 1.640609, 0.0, 0.0, 0.0]
+  tcp_offset_in_link7_m: [0.0, 0.0, 0.1801]
+
+limits:
+  max_single_move_m: 0.30
+  min_z_m: 0.0
+  tf_miss_abort: 10
+  ik_fail_abort: 20

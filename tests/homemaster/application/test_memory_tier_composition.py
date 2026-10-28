@@ -28,13 +28,33 @@ from tests.homemaster.as_testkit import as_provider
 from tests.homemaster.tools.test_support import ToolExecutionContext
 
 MINDMEMOS_TOOL_NAMES = {
-    "mindmemos_add",
     "mindmemos_search",
     "mindmemos_history",
     "mindmemos_update",
     "mindmemos_delete",
     "mindmemos_feedback",
 }
+# V3.8 full-tier surfaces that must stay absent on the files tier.
+FULL_TIER_BUNDLE_FIELDS = (
+    "mindmemos_client",
+    "memory_work_store",
+    "session_trace",
+    "memory_worker_pool",
+    "archive_service",
+    "skill_tracker",
+)
+FULL_TIER_SERVICE_NAMES = (
+    "mindmemos_client",
+    "memory_work_store",
+    "session_trace",
+    "memory_worker_pool",
+    "archive_service",
+    "skill_tracker",
+    "memory_verifier",
+    "memory_migration",
+    "managed_neo4j",
+    "managed_qdrant",
+)
 HEAVY_MODULES = ("mindmemos", "qdrant_client", "neo4j", "spacy")
 
 
@@ -73,14 +93,11 @@ def test_files_tier_composes_only_file_memory_services(tmp_path: Path) -> None:
         tool_environment="local_robot",
     )
     try:
-        # Full-tier objects are absent from the bundle.
-        assert bundle.mindmemos is None
-        assert bundle.memory_add_queue is None
-        assert bundle.memory_enrichment_queue is None
-        assert bundle.trajectory_writer is None
-        assert bundle.alfworld_compile_jobs is None
-        assert bundle.dreaming_coordinator is None
-        assert bundle.session_finalization is None
+        # V3.8 full-tier objects are absent from the bundle.
+        for field_name in FULL_TIER_BUNDLE_FIELDS:
+            assert getattr(bundle, field_name) is None, field_name
+        # No archive/session-end boundary exists on the files tier.
+        assert bundle.application.session_end_handler is None
 
         services = bundle.application.settings.application_services
         assert set(services) >= {
@@ -89,16 +106,7 @@ def test_files_tier_composes_only_file_memory_services(tmp_path: Path) -> None:
             "memory_evidence_ledger",
             "memory_audit_path",
         }
-        for name in (
-            "mindmemos",
-            "memory_add_queue",
-            "trajectory_writer",
-            "alfworld_compile_jobs",
-            "memory_enrichment_queue",
-            "dreaming_coordinator",
-            "memory_migration",
-            "managed_neo4j",
-        ):
+        for name in FULL_TIER_SERVICE_NAMES:
             assert name not in services
 
         names = set(bundle.application.registry.all_names())
@@ -284,6 +292,51 @@ print(json.dumps(payload))
     assert {"SOUL.md", "USER.md", "MEMORY.md"} <= set(payload["files"])
 
 
+def test_full_tier_verifier_binds_mindmemos_project_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The verifier's graph scope is the MindMemOS project the api_key
+    resolves to — NOT the HomeMaster tenant id. Mixing the two once joined
+    SDK memory nodes with Neo4j edges from a different project."""
+    from homemaster.application.composition import base as composition_base
+
+    captured: dict[str, object] = {}
+
+    class _Verifier:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(composition_base, "QdrantNeo4jVerifier", _Verifier)
+
+    def _config(project_id: str | None) -> HomeMasterConfig:
+        mindmemos: dict[str, object] = {"base_url": "http://127.0.0.1:19999"}
+        if project_id is not None:
+            mindmemos["project_id"] = project_id
+        return HomeMasterConfig(
+            memory={
+                "mode": "full",
+                "data_root": tmp_path / "memory-data",
+                "mindmemos": mindmemos,
+                "neo4j": {"uri": "bolt://127.0.0.1:7687"},
+            },
+            runtime={"runtime_root": tmp_path / "runs"},
+            observability={
+                "session_dir": str(tmp_path / "sessions"),
+                "trace_dir": str(tmp_path / "traces"),
+            },
+        )
+
+    verifier = composition_base._build_memory_verifier(_config("proj-dev-vanilla-memory"))
+    assert isinstance(verifier, _Verifier)
+    assert captured["project_id"] == "proj-dev-vanilla-memory"
+
+    # Unset project_id → no bound scope → graph reads fail closed.
+    captured.clear()
+    verifier = composition_base._build_memory_verifier(_config(None))
+    assert isinstance(verifier, _Verifier)
+    assert captured["project_id"] is None
+
+
 def test_memory_off_composes_no_memory_surface_on_files_tier(tmp_path: Path) -> None:
     """``memory_off`` is the real kill-switch: a files-tier config must compose
     zero memory services and zero memory tools when the benchmark disables
@@ -306,13 +359,12 @@ def test_memory_off_composes_no_memory_surface_on_files_tier(tmp_path: Path) -> 
             "frozen_memory_context",
             "memory_evidence_ledger",
             "memory_audit_path",
-            "mindmemos",
-            "memory_add_queue",
-            "trajectory_writer",
+            *FULL_TIER_SERVICE_NAMES,
         ):
             assert name not in services
-        assert bundle.mindmemos is None
-        assert bundle.memory_add_queue is None
+        for field_name in FULL_TIER_BUNDLE_FIELDS:
+            assert getattr(bundle, field_name) is None, field_name
+        assert bundle.application.session_end_handler is None
     finally:
         asyncio.run(bundle.application.aclose())
 
@@ -322,7 +374,13 @@ def test_memory_off_composes_no_memory_surface_on_full_tier(tmp_path: Path) -> N
     full-tier config without mutating the config object."""
 
     config = HomeMasterConfig(
-        memory={"mode": "full", "data_root": tmp_path / "memory-data"},
+        memory={
+            "mode": "full",
+            "data_root": tmp_path / "memory-data",
+            # V3.8 requires a standalone MindMemOS endpoint for the full tier;
+            # composition only builds the client, it never connects.
+            "mindmemos": {"base_url": "http://127.0.0.1:19999"},
+        },
         runtime={"runtime_root": tmp_path / "runs"},
         observability={
             "session_dir": str(tmp_path / "sessions"),
@@ -342,7 +400,11 @@ def test_memory_off_composes_no_memory_surface_on_full_tier(tmp_path: Path) -> N
         services = bundle.application.settings.application_services
         assert "frozen_memory_context" not in services
         assert "file_memory_store" not in services
-        assert bundle.mindmemos is None
+        for name in FULL_TIER_SERVICE_NAMES:
+            assert name not in services
+        for field_name in FULL_TIER_BUNDLE_FIELDS:
+            assert getattr(bundle, field_name) is None, field_name
+        assert bundle.application.session_end_handler is None
     finally:
         asyncio.run(bundle.application.aclose())
     # The caller's config object is untouched by the kill-switch.
@@ -430,7 +492,10 @@ def test_benchmark_memory_mode_full_gate_allows_full_and_other_modes(
     files_config = tmp_path / "files.yaml"
     files_config.write_text("memory:\n  mode: files\n", encoding="utf-8")
     full_config = tmp_path / "full.yaml"
-    full_config.write_text("memory:\n  mode: full\n", encoding="utf-8")
+    full_config.write_text(
+        "memory:\n  mode: full\n  mindmemos:\n    base_url: http://127.0.0.1:19999\n",
+        encoding="utf-8",
+    )
 
     base = dict(
         alfworld_root=tmp_path / "alfworld",

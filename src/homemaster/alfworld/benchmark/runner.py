@@ -27,7 +27,7 @@ from homemaster.alfworld.tracing import (
     split_trace_bucket,
     write_readable_trajectories,
 )
-from homemaster.alfworld.trajectory_memory import (
+from homemaster.alfworld.trajectory_records import (
     AlfworldFinalEnvironmentState,
     AlfworldTrajectoryRecord,
     AlfworldTrajectoryStep,
@@ -429,8 +429,6 @@ class AlfworldBenchmarkRunner:
             trace.write_summary(episode_summary)
             trace.write_trajectory(episode_summary)
             trace.write_trajectory_memory(trajectory_record.model_dump(mode="json"))
-            if entry.bundle.trajectory_writer is not None:
-                entry.bundle.trajectory_writer.enqueue(trajectory_record)
         finally:
             entry.end_session(episode_run_id)
             entry.close()

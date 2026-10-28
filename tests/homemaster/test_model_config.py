@@ -53,7 +53,9 @@ def test_runtime_guard_defaults_allow_unbounded_tool_iterations() -> None:
     assert guards.max_no_progress_iterations == 20
 
 
-def test_example_config_is_typed_complete_and_contains_only_placeholders() -> None:
+def test_example_config_is_typed_complete_and_contains_only_placeholders(
+    tmp_path: Path,
+) -> None:
     path = Path(__file__).resolve().parents[2] / "config" / "homemaster.example.yaml"
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     config = load_config(path)

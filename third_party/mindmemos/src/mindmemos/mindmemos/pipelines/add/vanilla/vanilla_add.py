@@ -1,0 +1,358 @@
+"""Vanilla add pipeline: 6-phase orchestration with LLM extraction, recall, and safety gate."""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from ....components.extractor.vanilla import (
+    AddCoreBuilder,
+    AddSafetyGate,
+    CandidateDeduplicator,
+    RelatedMemoryRecall,
+    VanillaMemoryExtractor,
+)
+from ....components.kafka import memory_add_dispatch_key
+from ....components.text import MemoryVectorizer, SparseVectorEncoder, TextPreprocessor, get_text_preprocessor
+from ....config import TextProcessingConfig, VanillaAddConfig, get_config
+from ....errors import ConfigNotInitializedError
+from ....llm import (
+    get_embed_client,
+    get_llm_client,
+    provider_binding_runtime_enabled,
+    require_model_endpoint,
+)
+from ....logging import get_logger, traced
+from ....mappers import to_add_write_plan
+from ....typing import (
+    AddPipelineAsyncResult,
+    AddPipelineInput,
+    AddPipelineSyncResult,
+    MemoryAddEventItem,
+    MemoryDbMutationPlan,
+    MemoryDbWritePlan,
+    MemoryRequestContext,
+)
+from ...base import MemoryDbPipelineMixin
+from ...memory_db import suppress_recording_errors
+from ...registry import register
+
+Consistency = Literal["fast", "strong"]
+MEMORY_ADD_TOPIC = "memory.add"
+logger = get_logger(__name__)
+_CLIENT_UNSET = object()
+
+
+def _try_get_llm():
+    """Try to resolve the global LLM client; return None if unavailable."""
+    try:
+        return get_llm_client()
+    except Exception:
+        logger.debug("llm_client_not_available", exc_info=True)
+        return None
+
+
+def _try_get_embed():
+    """Try to resolve the global embedding client; return None if unavailable."""
+    try:
+        return get_embed_client()
+    except Exception:
+        logger.debug("embed_client_not_available", exc_info=True)
+        return None
+
+
+def _has_writes(plan: MemoryDbWritePlan) -> bool:
+    return bool(
+        plan.memories or plan.entities or plan.sources or plan.vectors or plan.entity_vectors or plan.relationships
+    )
+
+
+def _default_consistency() -> Consistency:
+    value = get_config().database.default_consistency
+    return value if value in {"fast", "strong"} else "fast"
+
+
+def _default_vanilla_add_config() -> VanillaAddConfig:
+    try:
+        return get_config().algo_config.add.vanilla
+    except ConfigNotInitializedError:
+        return VanillaAddConfig()
+
+
+@register(type="add", name="vanilla_add")
+class VanillaAddPipeline(MemoryDbPipelineMixin):
+    """Vanilla add pipeline with 6-phase orchestration.
+
+    Phases: segment → preprocess → recall → extract → plan → vectorize.
+    Supports ADD, REINFORCE, UPDATE, MERGE, and SKIP actions.
+    """
+
+    def __init__(
+        self,
+        *,
+        text_config: TextProcessingConfig | None = None,
+        text_preprocessor: TextPreprocessor | None = None,
+        sparse_encoder: SparseVectorEncoder | None = None,
+        memory_extractor=None,
+        candidate_deduplicator: CandidateDeduplicator | None = None,
+        related_memory_recall: RelatedMemoryRecall | None = None,
+        safety_gate: AddSafetyGate | None = None,
+        consistency: Consistency | None = None,
+        vanilla_add_config: VanillaAddConfig | None = None,
+        llm_client=_CLIENT_UNSET,
+        embed_client=_CLIENT_UNSET,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        cfg = text_config or get_config().algo_config.text_processing
+        self._text_preprocessor = text_preprocessor or get_text_preprocessor(cfg)
+        self._sparse_encoder = sparse_encoder or SparseVectorEncoder(cfg)
+
+        self._explicit_llm_client = llm_client
+        self._explicit_embed_client = embed_client
+        self._explicit_memory_extractor = memory_extractor
+        self._candidate_deduplicator = candidate_deduplicator or CandidateDeduplicator()
+        self._related_memory_recall = related_memory_recall or RelatedMemoryRecall(
+            db_reader=self.db_reader,
+            sparse_encoder=self._sparse_encoder,
+        )
+        self._safety_gate = safety_gate or AddSafetyGate()
+        self._explicit_consistency = consistency
+        self._explicit_vanilla_add_config = vanilla_add_config
+        self._builder = None
+        if llm_client is not _CLIENT_UNSET and embed_client is not _CLIENT_UNSET:
+            self._builder = self._build_runtime(llm_client, embed_client)
+
+    def _build_runtime(self, llm_client, embed_client) -> AddCoreBuilder:
+        memory_extractor = self._explicit_memory_extractor or VanillaMemoryExtractor(llm_client=llm_client)
+        vectorizer = MemoryVectorizer(
+            sparse_encoder=self._sparse_encoder,
+            embed_client=embed_client,
+            text_preprocessor=self._text_preprocessor,
+        )
+        return AddCoreBuilder(
+            text_preprocessor=self._text_preprocessor,
+            memory_extractor=memory_extractor,
+            candidate_deduplicator=self._candidate_deduplicator,
+            related_memory_recall=self._related_memory_recall,
+            safety_gate=self._safety_gate,
+            vectorizer=vectorizer,
+            llm_client=llm_client,
+        )
+
+    def _resolve_builder(self) -> AddCoreBuilder:
+        """Build model-dependent components from the active request config.
+
+        The pipeline itself is cached across requests. Dynamic provider clients
+        therefore remain local to this invocation and are never assigned to the
+        shared pipeline instance.
+        """
+
+        if self._builder is not None:
+            return self._builder
+
+        dynamic_provider_routing = provider_binding_runtime_enabled()
+        if dynamic_provider_routing:
+            if self._explicit_llm_client is _CLIENT_UNSET:
+                require_model_endpoint("chat")
+            if self._explicit_embed_client is _CLIENT_UNSET:
+                require_model_endpoint("embedding")
+
+        if self._explicit_llm_client is _CLIENT_UNSET:
+            llm_client = get_llm_client() if dynamic_provider_routing else _try_get_llm()
+        else:
+            llm_client = self._explicit_llm_client
+        if self._explicit_embed_client is _CLIENT_UNSET:
+            embed_client = get_embed_client() if dynamic_provider_routing else _try_get_embed()
+        else:
+            embed_client = self._explicit_embed_client
+        builder = self._build_runtime(llm_client, embed_client)
+        if not dynamic_provider_routing:
+            self._builder = builder
+        return builder
+
+    def _get_consistency(self) -> Consistency:
+        if self._explicit_consistency is not None:
+            return self._explicit_consistency
+        return _default_consistency()
+
+    def _get_vanilla_add_config(self) -> VanillaAddConfig:
+        if self._explicit_vanilla_add_config is not None:
+            return self._explicit_vanilla_add_config
+        return _default_vanilla_add_config()
+
+    @traced("add.vanilla_add.sync")
+    async def add_sync(
+        self,
+        inp: AddPipelineInput,
+        context: MemoryRequestContext,
+        *,
+        add_record_id: str | None = None,
+    ) -> AddPipelineSyncResult:
+        """Synchronously write normalized text memories and their mentioned entities.
+
+        V3.8: when ``add_record_id`` already carries a persisted
+        ``mutation_plan`` (a prior attempt crashed between extraction and write
+        completion), extraction is skipped and the stored plan + minted target
+        ids are replayed; writes remain idempotent upserts keyed by target id.
+        """
+
+        resumed = (
+            await suppress_recording_errors(
+                self._load_stored_plan(context, add_record_id),
+                operation="add.vanilla_add.sync",
+            )
+            if add_record_id is not None
+            else None
+        )
+        if resumed is not None:
+            mutation_plan, events = resumed
+            logger.info(
+                "add_resuming_from_stored_write_plan",
+                request_id=context.request_id,
+                add_record_id=add_record_id,
+            )
+        else:
+            builder = self._resolve_builder()
+            plan, events, update_commands = await builder.build(
+                inp,
+                context,
+                consistency=self._get_consistency(),
+                config=self._get_vanilla_add_config(),
+            )
+            mutation_plan = MemoryDbMutationPlan.from_write_plan(plan)
+            mutation_plan.memory_updates.extend(update_commands)
+            if add_record_id is not None:
+                # Persist the deterministic write plan BEFORE any DB write so a
+                # retry of the same operation reuses these exact target ids.
+                await suppress_recording_errors(
+                    self.recorder.record_add_plan(
+                        context,
+                        add_record_id,
+                        write_plan=to_add_write_plan(add_record_id, mutation_plan),
+                        events=events,
+                    ),
+                    operation="add.vanilla_add.sync",
+                )
+        has_mutations = mutation_plan.has_writes() or mutation_plan.has_updates_or_deletes()
+        write_result = None
+        if has_mutations:
+            write_result = await self.db_writer.apply_mutation_plan(
+                context,
+                mutation_plan,
+                consistency=self._get_consistency(),
+            )
+            if write_result.graph_pending:
+                logger.warning(
+                    "graph_write_pending",
+                    request_id=context.request_id,
+                    memory_ids=write_result.memory_ids,
+                    errors=write_result.errors,
+                )
+        result = AddPipelineSyncResult(
+            status="ok",
+            memories=events,
+            memory_ids=list(write_result.memory_ids) if write_result is not None else [],
+            data_status="completed" if has_mutations else "no_action",
+        )
+        if add_record_id is not None:
+            await suppress_recording_errors(
+                self.recorder.mark_add_completed(
+                    context,
+                    add_record_id,
+                    result,
+                    status_override=None if has_mutations else "no_action",
+                ),
+                operation="add.vanilla_add.sync",
+            )
+        return result
+
+    async def _load_stored_plan(
+        self,
+        context: MemoryRequestContext,
+        add_record_id: str,
+    ) -> tuple[MemoryDbMutationPlan, list[MemoryAddEventItem]] | None:
+        """Return the persisted write plan + events for ``add_record_id``, if any."""
+
+        record = await self.recorder.get_add_record(context, add_record_id)
+        if record is None:
+            return None
+        payload = record.payload or {}
+        write_plan = payload.get("write_plan")
+        plan_payload = write_plan.get("mutation") if isinstance(write_plan, dict) else payload.get("mutation_plan")
+        if not isinstance(plan_payload, dict) or not plan_payload:
+            return None
+        try:
+            mutation_plan = MemoryDbMutationPlan.model_validate(plan_payload)
+            events = [
+                MemoryAddEventItem.model_validate(event)
+                for event in (payload.get("planned_events") or [])
+                if isinstance(event, dict)
+            ]
+        except Exception:
+            logger.warning(
+                "add_stored_write_plan_invalid",
+                request_id=context.request_id,
+                add_record_id=add_record_id,
+                exc_info=True,
+            )
+            return None
+        return mutation_plan, events
+
+    @traced("add.vanilla_add.async")
+    async def add_async(
+        self,
+        inp: AddPipelineInput,
+        context: MemoryRequestContext,
+        *,
+        add_record_id: str | None = None,
+        record_metadata: dict[str, Any] | None = None,
+    ) -> AddPipelineAsyncResult:
+        """Queue a vanilla add request for background processing.
+
+        Args:
+            inp: Add request payload to serialize into the worker message.
+            context: Tenant and project context used for storage isolation.
+            add_record_id: Optional preallocated add-record identifier.
+
+        Returns:
+            A queued status result.
+
+        Raises:
+            RuntimeError: If Kafka is disabled for asynchronous add processing.
+        """
+        from ....infra.kafka import get_producer
+
+        cfg = get_config()
+        if not cfg.kafka.enabled:
+            raise RuntimeError(
+                "add_async requires Kafka to be enabled (kafka.enabled=true). "
+                "Use mode='sync' or enable Kafka in config."
+            )
+
+        message = {
+            "context": context.model_dump(),
+            "input": inp.model_dump(by_alias=True),
+        }
+        if add_record_id is not None:
+            message["add_record_id"] = add_record_id
+        if record_metadata is not None:
+            message["record_metadata"] = record_metadata
+
+        await get_producer().send(
+            MEMORY_ADD_TOPIC,
+            value=message,
+            dispatch_key=memory_add_dispatch_key(context),
+        )
+
+        return AddPipelineAsyncResult(status="queued")
+
+    async def has_pending(self, context: MemoryRequestContext) -> bool:
+        """Return whether the vanilla add pipeline has queued work.
+
+        Args:
+            context: Tenant, project, and actor context for hard isolation.
+
+        Returns:
+            False because this pipeline only publishes async add messages.
+        """
+        return False
