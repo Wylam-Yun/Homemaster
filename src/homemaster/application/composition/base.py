@@ -690,6 +690,7 @@ def _finish_home_application(
                             "memory_work_store": memory_work_store,
                             "session_trace": session_trace,
                             "memory_worker_pool": memory_worker_pool,
+                            "feedback_scheduler": feedback_scheduler,
                             "archive_service": archive_service,
                             "skill_tracker": skill_tracker,
                             "memory_verifier": memory_verifier,

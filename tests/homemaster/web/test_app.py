@@ -566,6 +566,96 @@ def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
         }
 
 
+def test_implicit_feedback_routes_enqueue_and_report_status() -> None:
+    """POST admits one implicit-feedback outbox job; GET reflects the
+    work-store row; both fail closed when memory services are absent."""
+    window = {
+        "window_start": "2026-10-25T12:00:00+00:00",
+        "window_end": "2026-10-28T12:00:00+00:00",
+    }
+    done_job = SimpleNamespace(
+        job_id="job-1",
+        kind="implicit_feedback",
+        status="completed",
+        last_error=None,
+        result={
+            "actions": [
+                {"action_id": "r:0", "action": "update", "memory_id": "m1"},
+                {"action_id": "r:1", "action": "noop", "memory_id": None},
+            ],
+            "raw_verified": True,
+        },
+        payload={"window": window},
+    )
+    accepted_job = SimpleNamespace(
+        **{**vars(done_job), "status": "accepted", "result": None}
+    )
+    other_kind_job = SimpleNamespace(**{**vars(done_job), "kind": "turn_add"})
+    enqueued: list[bool] = []
+
+    def _enqueue() -> object:
+        enqueued.append(True)
+        return accepted_job
+
+    store = SimpleNamespace(
+        job=lambda job_id: {"job-1": done_job, "job-2": other_kind_job}.get(job_id)
+    )
+    application = _FakeApplication()
+    application.settings = SimpleNamespace(
+        application_services={
+            "feedback_scheduler": SimpleNamespace(enqueue_manual=_enqueue),
+            "memory_work_store": store,
+        }
+    )
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+
+    with TestClient(app) as client:
+        accepted = client.post("/api/memories/implicit-feedback")
+        assert accepted.status_code == 201
+        assert accepted.json() == {
+            "job_id": "job-1",
+            "status": "accepted",
+            "window": window,
+        }
+
+        status = client.get("/api/memories/implicit-feedback/job-1")
+        assert status.status_code == 200
+        assert status.json() == {
+            "job_id": "job-1",
+            "status": "completed",
+            "error": None,
+            "actions_count": 1,
+            "raw_verified": True,
+        }
+
+        missing = client.get("/api/memories/implicit-feedback/nope")
+        assert missing.status_code == 404
+        assert missing.json()["code"] == "feedback_job_not_found"
+
+        # A job id that belongs to a different outbox kind is not a
+        # feedback job — don't leak it through this surface.
+        wrong_kind = client.get("/api/memories/implicit-feedback/job-2")
+        assert wrong_kind.status_code == 404
+
+    assert enqueued == [True]
+
+    files_app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+    with TestClient(files_app) as client:
+        for response in (
+            client.post("/api/memories/implicit-feedback"),
+            client.get("/api/memories/implicit-feedback/job-1"),
+        ):
+            assert response.status_code == 503
+            assert response.json()["code"] == "memory_unavailable"
+
+
 def test_session_attachment_upload_and_message_delivery(tmp_path: Path) -> None:
     import base64
 
@@ -626,6 +716,8 @@ def test_web_route_table_is_stable() -> None:
         ("/api/memories", ("GET",)),
         ("/api/memories", ("POST",)),
         ("/api/memories/graph", ("GET",)),
+        ("/api/memories/implicit-feedback", ("POST",)),
+        ("/api/memories/implicit-feedback/{job_id}", ("GET",)),
         ("/api/memories/search", ("GET",)),
         ("/api/memories/{memory_id}", ("DELETE",)),
         ("/api/memories/{memory_id}", ("GET",)),

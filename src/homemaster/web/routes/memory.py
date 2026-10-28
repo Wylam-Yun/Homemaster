@@ -8,11 +8,13 @@ branch; all remaining reads/mutations flow through ``MindMemOSClient`` via
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import FastAPI
 
-from homemaster.web._shared import _WEB_PERMISSION_SUBJECT, _error
+from homemaster.memory.memory_work_store import JOB_IMPLICIT_FEEDBACK
+from homemaster.web._shared import _WEB_PERMISSION_SUBJECT, _application_services, _error
 from homemaster.web.context import WebAppContext
 from homemaster.web.memory_views import MemoryNotFoundError, MemoryUnavailableError
 from homemaster.web.schemas import (
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def register(app: FastAPI, ctx: WebAppContext) -> None:
-    del ctx  # Services are optional and stay lazy reads off ``app.state``.
+    application = ctx.application
 
     @app.get("/api/memories")
     async def memories() -> object:
@@ -149,6 +151,90 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=True,
             )
         return MemorySearchResponse.from_domain(result).model_dump(mode="json")
+
+    # ``/api/memories/implicit-feedback`` is a literal segment like ``graph`` /
+    # ``search`` — registered before ``/{memory_id}`` for the same reason.
+
+    @app.post("/api/memories/implicit-feedback", status_code=201)
+    async def trigger_implicit_feedback() -> object:
+        """User-triggered implicit feedback: enqueue one background job.
+
+        The shared worker pool claims and executes it (server analysis +
+        per-action raw readback); this route only admits the work.
+        """
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        scheduler = _application_services(application).get("feedback_scheduler")
+        enqueue = getattr(scheduler, "enqueue_manual", None)
+        if not callable(enqueue):
+            return _error(
+                503,
+                "implicit_feedback_unavailable",
+                "Implicit feedback scheduling is unavailable.",
+                retryable=True,
+            )
+        try:
+            job = await asyncio.to_thread(enqueue)
+        except Exception:
+            logger.exception("web_implicit_feedback_enqueue_failed")
+            return _error(
+                503,
+                "implicit_feedback_enqueue_failed",
+                "The implicit-feedback job could not be queued.",
+                retryable=True,
+            )
+        return {
+            "job_id": job.job_id,
+            "status": job.status,
+            "window": (job.payload or {}).get("window"),
+        }
+
+    @app.get("/api/memories/implicit-feedback/{job_id}")
+    async def implicit_feedback_status(job_id: str) -> object:
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        store = _application_services(application).get("memory_work_store")
+        job_fn = getattr(store, "job", None)
+        if not callable(job_fn):
+            return _error(
+                503,
+                "implicit_feedback_unavailable",
+                "Implicit feedback status is unavailable.",
+                retryable=True,
+            )
+        job = await asyncio.to_thread(job_fn, job_id)
+        if job is None or job.kind != JOB_IMPLICIT_FEEDBACK:
+            return _error(
+                404,
+                "feedback_job_not_found",
+                "The implicit-feedback job does not exist.",
+                retryable=False,
+            )
+        result = job.result if isinstance(job.result, dict) else {}
+        actions = result.get("actions") or []
+        return {
+            "job_id": job.job_id,
+            "status": job.status,
+            "error": job.last_error,
+            "actions_count": sum(
+                1
+                for action in actions
+                if isinstance(action, dict) and action.get("action") not in (None, "noop")
+            ),
+            "raw_verified": result.get("raw_verified"),
+        }
 
     @app.get("/api/memories/{memory_id}")
     async def memory_detail(memory_id: str) -> object:

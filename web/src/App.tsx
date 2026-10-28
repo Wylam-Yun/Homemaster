@@ -1241,6 +1241,10 @@ function AppShell() {
               await api.deleteMemory(id)
               toast.show({ title: '已删除（归档）该记忆' })
             } : undefined}
+            runImplicitFeedback={typeof api.runImplicitFeedback === 'function'
+              ? () => api.runImplicitFeedback() : undefined}
+            implicitFeedbackStatus={typeof api.implicitFeedbackStatus === 'function'
+              ? jobId => api.implicitFeedbackStatus(jobId) : undefined}
           />
         ) : route.kind === 'skills' ? (
           <SkillsPage

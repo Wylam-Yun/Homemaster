@@ -287,4 +287,55 @@ describe('MemoryPage', () => {
       expect(deleteMemory).toHaveBeenCalledWith('memory-active')
     })
   })
+
+  it('runs implicit feedback and reports completion', async () => {
+    const runImplicitFeedback = vi.fn().mockResolvedValue({ job_id: 'job-1', status: 'accepted' })
+    const implicitFeedbackStatus = vi
+      .fn()
+      .mockResolvedValueOnce({ job_id: 'job-1', status: 'processing' })
+      .mockResolvedValue({ job_id: 'job-1', status: 'completed', actions_count: 2, raw_verified: true })
+    const onRefresh = vi.fn()
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={onRefresh}
+        loadHistory={vi.fn()}
+        runImplicitFeedback={runImplicitFeedback}
+        implicitFeedbackStatus={implicitFeedbackStatus}
+        feedbackPollMs={0}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '隐性整理' }))
+
+    expect(await screen.findByText('整理完成，已更新 2 条记忆。')).toBeInTheDocument()
+    expect(runImplicitFeedback).toHaveBeenCalledOnce()
+    expect(implicitFeedbackStatus).toHaveBeenCalledWith('job-1')
+    expect(onRefresh).toHaveBeenCalled()
+  })
+
+  it('reports a no_action result when nothing needs updating', async () => {
+    const runImplicitFeedback = vi.fn().mockResolvedValue({ job_id: 'job-2', status: 'accepted' })
+    const implicitFeedbackStatus = vi
+      .fn()
+      .mockResolvedValue({ job_id: 'job-2', status: 'no_action', actions_count: 0, raw_verified: true })
+    render(
+      <MemoryPage
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        loadHistory={vi.fn()}
+        runImplicitFeedback={runImplicitFeedback}
+        implicitFeedbackStatus={implicitFeedbackStatus}
+        feedbackPollMs={0}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '隐性整理' }))
+
+    expect(await screen.findByText('整理完成，没有需要更新的记忆。')).toBeInTheDocument()
+  })
 })

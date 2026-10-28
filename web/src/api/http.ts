@@ -155,6 +155,25 @@ export type MemorySnapshot = { stats: MemoryStats; groups: MemoryGroup[] }
 export type MemoryHistory = { memory_id: string; versions: ManagedMemory[] }
 export type CompileJob = { job_id: string; status: string; memory_id?: string; derived_memory_id?: string; error?: string }
 
+/** POST /api/memories/implicit-feedback — admission receipt for one
+ * user-triggered implicit-feedback outbox job. */
+export type ImplicitFeedbackRun = {
+  job_id: string
+  status: string
+  window?: { window_start: string; window_end: string } | null
+}
+
+/** GET /api/memories/implicit-feedback/{job_id} — live job status.
+ * ``status`` is the outbox job state (accepted/processing/deferred/
+ * outcome_unknown while running; completed/no_action/failed/stale terminal). */
+export type ImplicitFeedbackStatus = {
+  job_id: string
+  status: string
+  error?: string | null
+  actions_count?: number | null
+  raw_verified?: boolean | null
+}
+
 /** GET /api/memories/graph — nodes carry Qdrant payload fields, edges are the
  * Neo4j relationships actually stored between them. */
 export type MemoryGraphNode = {
@@ -461,6 +480,14 @@ export class HomeMasterApi {
 
   compileStatus(jobId: string): Promise<CompileJob> {
     return this.request(`/api/memory-compilations/${encodeURIComponent(jobId)}`)
+  }
+
+  runImplicitFeedback(): Promise<ImplicitFeedbackRun> {
+    return this.request('/api/memories/implicit-feedback', { method: 'POST' })
+  }
+
+  implicitFeedbackStatus(jobId: string): Promise<ImplicitFeedbackStatus> {
+    return this.request(`/api/memories/implicit-feedback/${encodeURIComponent(jobId)}`)
   }
 
   providers(): Promise<{ providers: ProviderProfile[] }> {

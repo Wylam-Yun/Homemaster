@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 from homemaster.memory.memory_work_store import (
     JOB_IMPLICIT_FEEDBACK,
     MemoryWorkStore,
+    OutboxJob,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,11 @@ logger = logging.getLogger(__name__)
 # Catch-up lookback guard: never schedule windows older than this even if
 # the watermark trail is missing entirely (fresh installs).
 _CATCH_UP_LOOKBACK_DAYS = 7
+
+# Manual (user-triggered) runs analyze the same lookback the upstream
+# collector uses by default. Server-side ``feedback_processed`` marks make
+# a wide window safe: already-consumed records are skipped, not re-analyzed.
+_MANUAL_LOOKBACK_DAYS = 3
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,31 @@ class ImplicitFeedbackScheduler:
                     status=existing.status,
                 )
         return created
+
+    def enqueue_manual(self, *, now: datetime | None = None) -> OutboxJob:
+        """Enqueue one user-triggered implicit-feedback run; returns the job.
+
+        Uses a ``manual:`` operation key so it never collides with the daily
+        ``implicitcheck:{scope}:{window_start}`` jobs, and writes no
+        watermark — the catch-up anchor stays owned by scheduled windows.
+        ``config.enabled`` gates the *schedule* only; a manual click is
+        explicit user intent and still goes through the shared executor and
+        raw-readback gate. Same-second re-clicks dedupe on the operation key.
+        """
+        now = now or datetime.now(tz=UTC)
+        window_start = now - timedelta(days=_MANUAL_LOOKBACK_DAYS)
+        op_key = f"implicitcheck:{self._config.scope_key}:manual:{int(now.timestamp())}"
+        return self._store.enqueue_job(
+            JOB_IMPLICIT_FEEDBACK,
+            op_key,
+            {
+                "scope_key": self._config.scope_key,
+                "window": {
+                    "window_start": window_start.isoformat(),
+                    "window_end": now.isoformat(),
+                },
+            },
+        )
 
     def mark_window_result(self, window_start: float, *, status: str) -> None:
         row = self._store.feedback_watermark(self._config.scope_key, window_start)
