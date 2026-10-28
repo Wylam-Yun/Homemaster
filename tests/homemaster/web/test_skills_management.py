@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
+from homemaster.memory.mindmemos_client import MindMemOSClientError
 
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillProvenance, SkillRegistry
@@ -294,3 +297,182 @@ def test_delete_reports_resurrection_when_shadowed_copy_remains(tmp_path) -> Non
         remaining = [root for root in (root_a, root_b) if (root / "housekeeping").exists()]
         assert len(remaining) == 1
         assert registry.get("housekeeping") is not None
+
+
+# ---------------------------------------------------------------------------
+# Skill evolution observability routes
+# ---------------------------------------------------------------------------
+
+
+def _evolution_store() -> MagicMock:
+    store = MagicMock()
+    store.skills_with_invocations.return_value = [
+        {"cloud_skill_id": "cs-1", "skill_id": "housekeeping", "invocation_count": 9}
+    ]
+    store.unconsumed_trace_count.return_value = 1
+    store.skill_evolution_batches_for_skill.return_value = [
+        SimpleNamespace(
+            batch_id="b-1",
+            job_id="j-1",
+            status="succeeded",
+            created_at="2026-10-28T10:00:00Z",
+            trace_ids=["t-1"],
+        )
+    ]
+    store.job.return_value = SimpleNamespace(
+        job_id="j-1",
+        status="succeeded",
+        attempts=1,
+        last_error=None,
+        result={"draft_version_id": "v2"},
+    )
+    store.skill_invocations_for_skill.return_value = [
+        SimpleNamespace(
+            invocation_id="inv-1",
+            skill_id="housekeeping",
+            status="consumed",
+            score=0.9,
+            outcome="success",
+            task_input="tidy",
+            sealed_at="2026-10-28T09:00:00Z",
+            evolution_batch_id="b-1",
+            skill_version_id="v1",
+        )
+    ]
+    store.invocation_steps.return_value = [
+        SimpleNamespace(
+            tool_call_id="call-1",
+            tool_name="load_skill",
+            arguments={"name": "housekeeping"},
+            status="succeeded",
+        )
+    ]
+    return store
+
+
+def _evolution_client() -> MagicMock:
+    client = MagicMock()
+    client.list_skill_versions = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                version_id="v2",
+                parent_version_id="v1",
+                status="draft",
+                version_label="evo-1",
+                content_hash="h2",
+            ),
+            SimpleNamespace(
+                version_id="v1",
+                parent_version_id=None,
+                status="observed",
+                version_label=None,
+                content_hash="h1",
+            ),
+        ]
+    )
+    client.get_skill_version_content = AsyncMock(
+        side_effect=lambda *, cloud_skill_id, version_id: SimpleNamespace(
+            version=SimpleNamespace(
+                version_id=version_id,
+                parent_version_id="v1" if version_id == "v2" else None,
+                status="draft" if version_id == "v2" else "observed",
+            ),
+            content=f"---\nname: sk-{version_id}\n---\nbody-{version_id}",
+        )
+    )
+    return client
+
+
+def _evolution_app(store, client):
+    application = _P03Application(
+        services={"memory_work_store": store, "mindmemos_client": client}
+    )
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    return create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+
+
+def test_skill_evolution_overview_lists_skills() -> None:
+    store = _evolution_store()
+    with TestClient(_evolution_app(store, _evolution_client())) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 200
+        [skill] = response.json()["skills"]
+        assert skill["cloud_skill_id"] == "cs-1"
+        assert skill["skill_id"] == "housekeeping"
+        assert skill["invocation_count"] == 9
+        assert skill["unconsumed_count"] == 1
+        assert skill["batches_count"] == 1
+        assert skill["last_draft_version_id"] == "v2"
+
+
+def test_skill_evolution_detail_shapes_invocations_batches_versions() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1")
+        assert response.status_code == 200
+        body = response.json()
+        [invocation] = body["invocations"]
+        assert invocation["invocation_id"] == "inv-1"
+        assert invocation["evolution_batch_id"] == "b-1"
+        [step] = invocation["steps"]
+        assert step["tool_name"] == "load_skill"
+        [batch] = body["batches"]
+        assert batch["batch_id"] == "b-1"
+        assert batch["draft_version_id"] == "v2"
+        assert batch["job"]["status"] == "succeeded"
+        assert body["versions"][0]["version_id"] == "v2"
+        assert body["versions_unavailable"] is False
+
+
+def test_skill_evolution_detail_marks_versions_unavailable() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    remote.list_skill_versions.side_effect = MindMemOSClientError("down")
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["versions"] is None
+        assert body["versions_unavailable"] is True
+
+
+def test_skill_evolution_version_content_returns_draft_and_parent() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1/versions/v2/content")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["version_id"] == "v2"
+        assert body["content"].endswith("body-v2")
+        assert body["parent"]["version_id"] == "v1"
+        assert body["parent"]["content"].endswith("body-v1")
+
+
+def test_skill_evolution_version_content_404_for_foreign_version() -> None:
+    store = _evolution_store()
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/cs-1/versions/v999/content")
+        assert response.status_code == 404
+        assert response.json()["code"] == "skill_version_not_found"
+        remote.get_skill_version_content.assert_not_called()
+
+
+def test_skill_evolution_unavailable_without_store() -> None:
+    application = _P03Application(services={})
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 503
+        assert response.json()["code"] == "skill_evolution_unavailable"
