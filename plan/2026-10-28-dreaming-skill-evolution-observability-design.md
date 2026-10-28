@@ -27,7 +27,7 @@ V3.8 的记忆后台管线由同一张 `outbox_jobs` 驱动五种 job kind；其
 | 归档 turn 范围/种子 | `archives.turn_range_start/end` + 本地 `turns_for_session`/`events_for_turn`（会话节选不依赖服务端） |
 | skill 级 trace/批次 | `skill_invocations`（含 `skill_id` 本地名、`cloud_skill_id`、status/score/outcome/task_input、`evolution_batch_id` 血缘）+ `skill_invocation_steps` + `skill_evolution_batches`（`trace_ids_json`/`job_id`/status） |
 | 批次进度 | `unconsumed_trace_count(cloud_skill_id)`（攒批阈值 8 已固化于 executor 校验） |
-| draft 内容及父版本 diff | **服务端已有读口**：`GET /v1/skills/{id}/versions`（`SkillVersion` 含 `status`/`parent_version_id`/`content_hash`/`version_label`）、`GET /v1/skills/{id}/versions/{vid}/content`（整份 SKILL.md 文本）。`MindMemOSClient` 尚无对应封装——新增两个薄 `_get` 方法。**UNVERIFIED**：端点在 vendored `api/skill_routes.py` 确认存在，但真实部署行为（版本列表是否含 draft、content 是否含 frontmatter）须真机核对 |
+| draft 内容及父版本 diff | **服务端已有读口**：`GET /v1/skills/{id}/versions`（`SkillVersion` 含 `status`/`parent_version_id`/`content_hash`/`version_label`）、`GET /v1/skills/{id}/versions/{vid}/content`。**已真机核对**：versions 列表包含 `draft` 候选与 `observed` 注册版本（各带 `version_id`/`parent_version_id`/`status`/`content_hash`）；content 返回 canonical JSON bundle（`[{path, content}]`），路由层用 `deserialize_bundle` 解出 `SKILL.md` 再做 diff |
 
 拿不到（与 feedback 页同级的诚实边界）：per-action 结构化理由文本、
 draft 的语义化"变更说明"（只能给原文 diff，理由在服务端进程内）。

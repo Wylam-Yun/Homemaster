@@ -1,3 +1,29 @@
+## 2026-10-28 - 技能进化观测评审挖出两处"单测绿、生产必断"的坑
+
+- 症状①：`/api/skill-evolution` 批次卡片永远无「草稿 diff」按钮、job 恒
+  null；症状②：versions/content 拉取在生产永远 `skill.not_found`（页面
+  只能优雅降级）。
+- 根因①：`SkillInvocationTracker.maybe_evolve` 先 `create_evolution_batch
+  (job_id=None)` 入行，enqueue 后再调一次带真 `job_id`；而 store 的
+  `INSERT ... ON CONFLICT (batch_id) DO NOTHING` 把第二次调用静默丢弃
+  → `job_id` 恒 NULL，batch→job join 全链路失效（`batches[].status` 也
+  恒 `created`，真实状态在 outbox job）。修法：`ON CONFLICT DO UPDATE
+  SET job_id WHERE job_id IS NULL` + 路由侧按确定性
+  `skillevolve:{batch_id}` operation_key 兜底存量行。
+- 根因②：`SkillIdentity.for_local_skill`/`from_resolved` 把
+  `cloud_skill_id` 设成**本地名**，但服务端 register 只收 `name`、自己
+  铸 uuid4 做 cloud_skill_id——而 homemaster 全仓**没有任何
+  `/v1/skills/register` 调用**。真机实测（`GET/POST /v1/skills/{name}/…`）
+  全部 404 `skill.not_found`：本地 trace/evolution 管线从来没真正能打
+  通云端。这是观测层之外的上游缺口（需要 register 桥接 + 真
+  cloud_skill_id 回写 invocation 行），观测页靠 `versions_unavailable`
+  诚实降级。
+- 教训：①`INSERT ON CONFLICT DO NOTHING` 做"占位再回填"模式时，回填那
+  步必须是 UPDATE，别指望第二次 INSERT 生效——写路径单测要按真实调用
+  序列（先 None 后真值）断言终态。②"本地名当云端 ID"这类身份猜测在单
+  测桩里永远绿；凡是把本地标识发进外部寻址路径，先真机问一次"这个名字
+  能解析吗"。
+
 ## 2026-10-28 - 归档"整理中"消失 + 所有 Add 被服务端校验拒：一个投影 bug 一个契约 bug
 
 - 症状：新会话归档徽章显示"整理中…"几秒后消失；后台 turnadd job 全部
