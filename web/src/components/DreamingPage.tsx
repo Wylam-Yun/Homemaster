@@ -12,9 +12,10 @@ const STATE_LABEL: Record<string, string> = {
   processing: '正在归档',
   completed: '已归档',
   failed: '失败',
+  unknown: '未知状态',
 }
 
-const STATE_ORDER = ['processing', 'failed', 'completed', 'unarchived'] as const
+const STATE_ORDER = ['processing', 'failed', 'unknown', 'completed', 'unarchived'] as const
 
 function stateVariant(state: string): BadgeVariant {
   if (state === 'completed') return 'success'
@@ -178,6 +179,7 @@ export function DreamingPage({ loadSessions, loadDetail, unavailable = false, po
                   <Badge variant={stateVariant(detail.archive_state)}>
                     {STATE_LABEL[detail.archive_state] ?? detail.archive_state}
                   </Badge>
+                  {detail.title !== null && <strong>{detail.title}</strong>}
                   <span className={styles.detailMeta}>{detail.session_id}</span>
                 </div>
 

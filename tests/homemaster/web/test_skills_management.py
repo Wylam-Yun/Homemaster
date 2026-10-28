@@ -314,19 +314,23 @@ def _evolution_store() -> MagicMock:
     store.skill_evolution_batches_for_skill.return_value = [
         SimpleNamespace(
             batch_id="b-1",
-            job_id="j-1",
-            status="succeeded",
-            created_at="2026-10-28T10:00:00Z",
+            # Rows written before the job_id upsert have NULL — the route must
+            # fall back to the deterministic ``skillevolve:{batch_id}`` key.
+            job_id=None,
+            status="created",
+            created_at=1793170086.0,
             trace_ids=["t-1"],
         )
     ]
-    store.job.return_value = SimpleNamespace(
-        job_id="j-1",
-        status="succeeded",
+    job = SimpleNamespace(
+        job_id="job-skillevolve:b-1",
+        status="completed",
         attempts=1,
         last_error=None,
         result={"draft_version_id": "v2"},
     )
+    store.job.return_value = None
+    store.job_by_operation_key.return_value = job
     store.skill_invocations_for_skill.return_value = [
         SimpleNamespace(
             invocation_id="inv-1",
@@ -335,7 +339,7 @@ def _evolution_store() -> MagicMock:
             score=0.9,
             outcome="success",
             task_input="tidy",
-            sealed_at="2026-10-28T09:00:00Z",
+            sealed_at=1793169486.0,
             evolution_batch_id="b-1",
             skill_version_id="v1",
         )
@@ -345,7 +349,9 @@ def _evolution_store() -> MagicMock:
             tool_call_id="call-1",
             tool_name="load_skill",
             arguments={"name": "housekeeping"},
-            status="succeeded",
+            tool_result_tail="loaded housekeeping",
+            tool_result_truncated=False,
+            status="success",
         )
     ]
     return store
@@ -424,10 +430,15 @@ def test_skill_evolution_detail_shapes_invocations_batches_versions() -> None:
         assert invocation["evolution_batch_id"] == "b-1"
         [step] = invocation["steps"]
         assert step["tool_name"] == "load_skill"
+        assert step["result_tail"] == "loaded housekeeping"
         [batch] = body["batches"]
         assert batch["batch_id"] == "b-1"
+        # job resolved via the skillevolve: fallback makes status authoritative.
+        assert batch["status"] == "completed"
         assert batch["draft_version_id"] == "v2"
-        assert batch["job"]["status"] == "succeeded"
+        assert batch["job"]["status"] == "completed"
+        store.job_by_operation_key.assert_called_with("skillevolve:b-1")
+        assert body["batch_size"] == 8
         assert body["versions"][0]["version_id"] == "v2"
         assert body["versions_unavailable"] is False
 

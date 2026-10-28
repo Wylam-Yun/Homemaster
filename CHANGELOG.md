@@ -1,5 +1,27 @@
 # Unreleased
 
+- New `Dreaming` and `Skill Evolution` sidebar pages complete the
+  memory-pipeline observability trio next to `记忆整理`:
+  - `Dreaming` lists every session — including active, never-archived
+    ones — with aggregate state badges (`unarchived` / `processing` /
+    `completed` / `failed`) and a `×N` marker for sessions archived more
+    than once. Per-archive detail cards show the exact seed turns
+    (resolved via `add_operation_ids` → outbox `turn_id`, not turn-range
+    approximation) and one-to-one before/after memory diffs reusing the
+    shared `ActionDiffCard`, backed by `GET
+    /api/memories/dreaming-sessions[/{session_id}]`.
+  - `Skill Evolution` lists cloud-registered skills with `n/8` trace
+    progress, expandable sealed invocations (tool steps, score, outcome),
+    batch history with job status, the server-side version lineage, and a
+    read-only draft-vs-parent SKILL.md line diff, backed by `GET
+    /api/skill-evolution[/{cloud_skill_id}[/versions/{version_id}/
+    content]]`. Draft versions stay display-only — no activation control.
+  - `MindMemOSClient` gained `list_skill_versions` and
+    `get_skill_version_content`; the contract is verified against a live
+    server (draft versions surface in the list with parent lineage, and
+    content arrives as the canonical JSON bundle, which the route unwraps
+    to SKILL.md before rendering).
+
 - RoboCasa benchmark episodes now advertise the installed
   `robocasa-benchmark` skill under `# Available Skills` and instruct the
   worker to call `load_skill(name="robocasa-benchmark")` at episode

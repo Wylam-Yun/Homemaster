@@ -411,6 +411,23 @@ class TestSkillInvocations:
         assert batch.status == "created"
         assert store.skill_evolution_batches_for_skill("nope") == []
 
+    def test_evolution_batch_job_id_backfilled_on_second_insert(self, store):
+        """``maybe_evolve`` inserts the row before the job exists, then calls
+        again with the real ``job_id`` — the second call must backfill it."""
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id=None
+        )
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id="job-9"
+        )
+        [batch] = store.skill_evolution_batches_for_skill("cloud-a")
+        assert batch.job_id == "job-9"
+        # A later call with job_id=None must not clobber the backfilled value.
+        store.create_evolution_batch(
+            "b2", cloud_skill_id="cloud-a", trace_ids=["t1"], job_id=None
+        )
+        assert store.skill_evolution_batches_for_skill("cloud-a")[0].job_id == "job-9"
+
 
 class TestAudit:
     def test_terminal_without_intent_rebuilt(self, store):

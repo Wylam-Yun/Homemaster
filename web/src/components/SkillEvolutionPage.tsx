@@ -1,64 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type {
   SkillEvolutionDetail,
   SkillEvolutionRow,
   SkillVersionContent,
 } from '../api/http'
+import { diffLines } from '../utils/lineDiff'
 import { Badge, type BadgeVariant } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
 import styles from './SkillEvolutionPage.module.css'
 
+const SUCCESS_STATES = new Set([
+  'completed', 'no_action', 'success', 'sealed', 'consumed', 'observed', 'active',
+])
+const DANGER_STATES = new Set(['failed', 'error', 'outcome_unknown', 'canceled'])
+const WARNING_STATES = new Set([
+  'draft', 'pending', 'accepted', 'processing', 'running', 'open', 'created', 'missing_result',
+])
+
 function statusVariant(status: string | null): BadgeVariant {
-  if (status === 'succeeded' || status === 'consumed' || status === 'active') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'draft' || status === 'pending' || status === 'running') return 'warning'
+  if (status !== null && SUCCESS_STATES.has(status)) return 'success'
+  if (status !== null && DANGER_STATES.has(status)) return 'danger'
+  if (status !== null && WARNING_STATES.has(status)) return 'warning'
   return 'muted'
 }
 
-function formatTime(value: string | null): string {
-  if (value === null) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+function formatEpoch(epoch: number | null): string {
+  if (epoch === null) return ''
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(date)
-}
-
-type DiffLine = { kind: 'same' | 'added' | 'removed'; text: string }
-
-/** LCS line diff — SKILL.md drafts are small enough for O(n·m). */
-function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split('\n')
-  const b = after.split('\n')
-  const rows = a.length + 1
-  const cols = b.length + 1
-  const table: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0))
-  for (let i = a.length - 1; i >= 0; i -= 1) {
-    for (let j = b.length - 1; j >= 0; j -= 1) {
-      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1])
-    }
-  }
-  const out: DiffLine[] = []
-  let i = 0
-  let j = 0
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      out.push({ kind: 'same', text: a[i] })
-      i += 1
-      j += 1
-    } else if (table[i + 1][j] >= table[i][j + 1]) {
-      out.push({ kind: 'removed', text: a[i] })
-      i += 1
-    } else {
-      out.push({ kind: 'added', text: b[j] })
-      j += 1
-    }
-  }
-  while (i < a.length) { out.push({ kind: 'removed', text: a[i] }); i += 1 }
-  while (j < b.length) { out.push({ kind: 'added', text: b[j] }); j += 1 }
-  return out
+  }).format(new Date(epoch * 1000))
 }
 
 type Props = {
@@ -122,14 +94,14 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
   )
 
   const showContent = useCallback(
-    (versionId: string) => {
+    (key: string, versionId: string) => {
       if (selectedId === null) return
-      if (contentFor === versionId) {
+      if (contentFor === key) {
         setContentFor(null)
         setContent(null)
         return
       }
-      setContentFor(versionId)
+      setContentFor(key)
       setContent(null)
       setContentError(null)
       void (async () => {
@@ -147,6 +119,38 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
   const diff = content !== null && content.parent !== null
     ? diffLines(content.parent.content, content.content)
     : null
+
+  const renderDiffPanel = (): ReactNode => (
+    <div className={styles.diffPanel}>
+      {contentError !== null ? (
+        <div className={styles.error} role="alert"><div><strong>草稿读取失败</strong><span>{contentError}</span></div></div>
+      ) : content === null ? (
+        <div className={styles.empty}>加载草稿…</div>
+      ) : (
+        <>
+          <div className={styles.diffMeta}>
+            <Badge variant={statusVariant(content.status)}>{content.status ?? 'draft'}</Badge>
+            <span>候选版本 {content.version_id}（只读，不会自动激活）</span>
+          </div>
+          {content.parent === null ? (
+            <div className={styles.empty}>无父版本可对照——草稿全文如下。</div>
+          ) : null}
+          {diff === null ? (
+            <pre className={styles.diffText}>{content.content}</pre>
+          ) : (
+            <pre className={styles.diffText}>
+              {diff.map((line, index) => (
+                <span key={index} className={styles[`diff_${line.kind}`]}>
+                  {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
+                  {line.text}{'\n'}
+                </span>
+              ))}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  )
 
   return (
     <section className={styles.page} aria-labelledby="skill-evolution-title">
@@ -193,7 +197,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                 <span className={styles.skillMeta}>
                   <span>{row.unconsumed_count ?? 0}/{row.batch_size} 轨迹</span>
                   <span>{row.batches_count} 批次</span>
-                  {row.last_batch_at !== null && <time>{formatTime(row.last_batch_at)}</time>}
+                  {row.last_batch_at !== null && <time>{formatEpoch(row.last_batch_at)}</time>}
                 </span>
               </button>
             ))}
@@ -211,7 +215,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                 <div className={styles.detailHeader}>
                   <strong>{detail.skill_id ?? detail.cloud_skill_id}</strong>
                   <span className={styles.detailMeta}>{detail.cloud_skill_id}</span>
-                  <Badge variant="muted">{detail.unconsumed_count ?? 0}/8 待消费</Badge>
+                  <Badge variant="muted">{detail.unconsumed_count ?? 0}/{detail.batch_size} 待消费</Badge>
                 </div>
 
                 <h2 className={styles.sectionTitle}>进化批次</h2>
@@ -224,14 +228,14 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                         <div className={styles.batchHeader}>
                           <Badge variant={statusVariant(batch.status)}>{batch.status}</Badge>
                           <span className={styles.detailMeta}>
-                            {batch.trace_ids.length} 条轨迹 · {formatTime(batch.created_at)}
+                            {batch.trace_ids.length} 条轨迹 · {formatEpoch(batch.created_at)}
                           </span>
                           {batch.draft_version_id !== null && (
                             <button
                               type="button"
                               className={styles.diffToggle}
-                              data-active={contentFor === batch.draft_version_id || undefined}
-                              onClick={() => { showContent(batch.draft_version_id as string) }}
+                              data-active={contentFor === `batch:${batch.draft_version_id}` || undefined}
+                              onClick={() => { showContent(`batch:${batch.draft_version_id}`, batch.draft_version_id as string) }}
                             >
                               草稿 diff
                             </button>
@@ -240,37 +244,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                         {batch.job !== null && batch.job.error !== null && (
                           <div className={styles.error} role="alert"><div><strong>任务错误</strong><span>{batch.job.error}</span></div></div>
                         )}
-                        {batch.draft_version_id !== null && contentFor === batch.draft_version_id && (
-                          <div className={styles.diffPanel}>
-                            {contentError !== null ? (
-                              <div className={styles.error} role="alert"><div><strong>草稿读取失败</strong><span>{contentError}</span></div></div>
-                            ) : content === null ? (
-                              <div className={styles.empty}>加载草稿…</div>
-                            ) : (
-                              <>
-                                <div className={styles.diffMeta}>
-                                  <Badge variant={statusVariant(content.status)}>{content.status ?? 'draft'}</Badge>
-                                  <span>候选版本 {content.version_id}（只读，不会自动激活）</span>
-                                </div>
-                                {content.parent === null ? (
-                                  <div className={styles.empty}>无父版本可对照——草稿全文如下。</div>
-                                ) : null}
-                                {diff === null ? (
-                                  <pre className={styles.diffText}>{content.content}</pre>
-                                ) : (
-                                  <pre className={styles.diffText}>
-                                    {diff.map((line, index) => (
-                                      <span key={index} className={styles[`diff_${line.kind}`]}>
-                                        {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-                                        {line.text}{'\n'}
-                                      </span>
-                                    ))}
-                                  </pre>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
+                        {batch.draft_version_id !== null && contentFor === `batch:${batch.draft_version_id}` && renderDiffPanel()}
                       </div>
                     ))}
                   </div>
@@ -293,7 +267,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                           <Badge variant={statusVariant(invocation.status)}>{invocation.status}</Badge>
                           {invocation.score !== null && <span>score {invocation.score}</span>}
                           {invocation.outcome !== null && <span>{invocation.outcome}</span>}
-                          <span className={styles.detailMeta}>{formatTime(invocation.sealed_at)}</span>
+                          <span className={styles.detailMeta}>{formatEpoch(invocation.sealed_at)}</span>
                           <span className={styles.detailMeta}>{invocation.steps.length} 步</span>
                         </button>
                         {invocation.task_input !== null && (
@@ -308,6 +282,11 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                                   <code className={styles.stepArgs}>{JSON.stringify(step.arguments)}</code>
                                 )}
                                 <Badge variant={statusVariant(step.status)}>{step.status ?? 'unknown'}</Badge>
+                                {step.result_tail !== null && (
+                                  <code className={styles.stepTail}>
+                                    {step.result_tail}{step.result_truncated ? '…' : ''}
+                                  </code>
+                                )}
                               </li>
                             ))}
                           </ol>
@@ -323,12 +302,20 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                 ) : (
                   <ul className={styles.versionList}>
                     {(detail.versions ?? []).map(version => (
-                      <li key={version.version_id} className={styles.versionRow}>
-                        <Badge variant={statusVariant(version.status)}>{version.status ?? 'unknown'}</Badge>
-                        <code>{version.version_id}</code>
-                        {version.parent_version_id !== null && (
-                          <span className={styles.detailMeta}>parent {version.parent_version_id}</span>
-                        )}
+                      <li key={version.version_id} className={styles.versionItem}>
+                        <button
+                          type="button"
+                          className={styles.versionRow}
+                          data-active={contentFor === `version:${version.version_id}` || undefined}
+                          onClick={() => { showContent(`version:${version.version_id}`, version.version_id) }}
+                        >
+                          <Badge variant={statusVariant(version.status)}>{version.status ?? 'unknown'}</Badge>
+                          <code>{version.version_id}</code>
+                          {version.parent_version_id !== null && (
+                            <span className={styles.detailMeta}>parent {version.parent_version_id}</span>
+                          )}
+                        </button>
+                        {contentFor === `version:${version.version_id}` && renderDiffPanel()}
                       </li>
                     ))}
                   </ul>

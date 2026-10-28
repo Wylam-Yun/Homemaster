@@ -13,6 +13,7 @@ import logging
 
 from fastapi import FastAPI
 
+from homemaster.memory.feedback_runs import NullFeedbackRunInspector
 from homemaster.memory.memory_work_store import JOB_IMPLICIT_FEEDBACK
 from homemaster.web._shared import (
     _ARCHIVE_STATE_MAP,
@@ -83,6 +84,8 @@ def _aggregate_archive_state(archives: list[object]) -> str:
         return "processing"
     if "failed" in states:
         return "failed"
+    if "unknown" in states:
+        return "unknown"
     return "completed"
 
 
@@ -528,7 +531,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                                 "missing": False,
                             }
                         )
-            if inspector is None:
+            if inspector is None or isinstance(inspector, NullFeedbackRunInspector):
                 actions: object = None
                 diffs_unavailable = True
             elif job is None:
@@ -568,8 +571,17 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                     "diffs_unavailable": diffs_unavailable,
                 }
             )
+        title = next(
+            (
+                summary.title
+                for summary in application.session_manager.session_summaries()
+                if summary.session_id == session_id
+            ),
+            None,
+        )
         return {
             "session_id": session_id,
+            "title": title,
             "archive_state": _aggregate_archive_state(archives),
             "session_excerpts": session_excerpts,
             "archives": archive_views,

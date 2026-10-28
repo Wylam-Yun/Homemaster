@@ -261,6 +261,7 @@ export type DreamingArchive = {
 /** GET /api/memories/dreaming-sessions/{session_id} — per-archive runs. */
 export type DreamingSessionDetail = {
   session_id: string
+  title: string | null
   archive_state: string
   session_excerpts: { turn_id: string; preview: string | null }[]
   archives: DreamingArchive[]
@@ -275,7 +276,7 @@ export type SkillEvolutionRow = {
   unconsumed_count: number | null
   batch_size: number
   batches_count: number
-  last_batch_at: string | null
+  last_batch_at: number | null
   last_draft_version_id: string | null
 }
 
@@ -283,6 +284,8 @@ export type SkillInvocationStep = {
   tool_call_id: string | null
   tool_name: string | null
   arguments: Record<string, unknown> | null
+  result_tail: string | null
+  result_truncated: boolean | null
   status: string | null
 }
 
@@ -292,7 +295,7 @@ export type SkillInvocationView = {
   score: number | null
   outcome: string | null
   task_input: string | null
-  sealed_at: string | null
+  sealed_at: number | null
   evolution_batch_id: string | null
   skill_version_id: string | null
   steps: SkillInvocationStep[]
@@ -301,7 +304,7 @@ export type SkillInvocationView = {
 export type SkillEvolutionBatchView = {
   batch_id: string
   status: string
-  created_at: string | null
+  created_at: number | null
   trace_ids: string[]
   job: { job_id: string; status: string; attempts: number; error: string | null } | null
   draft_version_id: string | null
@@ -321,6 +324,7 @@ export type SkillEvolutionDetail = {
   cloud_skill_id: string
   skill_id: string | null
   unconsumed_count: number | null
+  batch_size: number
   invocations: SkillInvocationView[]
   batches: SkillEvolutionBatchView[]
   versions: SkillVersionView[] | null

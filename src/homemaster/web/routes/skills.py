@@ -11,10 +11,8 @@ from pathlib import Path, PurePosixPath
 from fastapi import FastAPI, Response
 
 from homemaster.config.config import _default_skill_user_dirs
-from homemaster.memory.mindmemos_client import (
-    MindMemOSClientError,
-    OperationNotFoundError,
-)
+from homemaster.memory.mindmemos_client import MindMemOSClientError
+from homemaster.memory.skill_invocations import EVOLUTION_MIN_TRACES
 from homemaster.skills._frontmatter import parse_skill_metadata
 from homemaster.skills.commands import resolve_skill_command
 from homemaster.web._shared import (
@@ -62,6 +60,25 @@ def _skill_md_from_bundle(content: str) -> str:
     if text is None:
         raise ValueError("bundle has no SKILL.md entry")
     return text
+
+
+async def _evolution_job(store: object, batch: object) -> object:
+    """Resolve the outbox job for one evolution batch.
+
+    Rows written before the ``job_id`` upsert fix have ``job_id IS NULL`` —
+    fall back to the deterministic ``skillevolve:{batch_id}`` operation key.
+    """
+    job_fn = getattr(store, "job", None)
+    job_id = getattr(batch, "job_id", None)
+    if job_id and callable(job_fn):
+        job = await asyncio.to_thread(job_fn, job_id)
+        if job is not None:
+            return job
+    op_fn = getattr(store, "job_by_operation_key", None)
+    batch_id = getattr(batch, "batch_id", None)
+    if batch_id and callable(op_fn):
+        return await asyncio.to_thread(op_fn, f"skillevolve:{batch_id}")
+    return None
 
 
 def _user_skill_dirs(ctx: WebAppContext) -> tuple[Path, ...]:
@@ -437,7 +454,6 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         unconsumed_fn = getattr(store, "unconsumed_trace_count", None)
         batches_fn = getattr(store, "skill_evolution_batches_for_skill", None)
-        job_fn = getattr(store, "job", None)
         rows = await asyncio.to_thread(skills_fn)
         skills: list[dict[str, object]] = []
         for row in rows:
@@ -454,11 +470,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
             last_draft: str | None = None
             for batch in batches:
-                job = (
-                    await asyncio.to_thread(job_fn, batch.job_id)
-                    if batch.job_id and callable(job_fn)
-                    else None
-                )
+                job = await _evolution_job(store, batch)
                 result = getattr(job, "result", None) or {}
                 if result.get("draft_version_id"):
                     last_draft = str(result["draft_version_id"])
@@ -469,7 +481,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                     "skill_id": row.get("skill_id"),
                     "invocation_count": row.get("invocation_count"),
                     "unconsumed_count": unconsumed,
-                    "batch_size": 8,
+                    "batch_size": EVOLUTION_MIN_TRACES,
                     "batches_count": len(batches),
                     "last_batch_at": batches[0].created_at if batches else None,
                     "last_draft_version_id": last_draft,
@@ -493,7 +505,6 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         unconsumed_fn = getattr(store, "unconsumed_trace_count", None)
         steps_fn = getattr(store, "invocation_steps", None)
-        job_fn = getattr(store, "job", None)
         client = services.get("mindmemos_client")
 
         invocations = await asyncio.to_thread(invocations_fn, cloud_skill_id)
@@ -519,6 +530,8 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                             "tool_call_id": step.tool_call_id,
                             "tool_name": step.tool_name,
                             "arguments": step.arguments,
+                            "result_tail": step.tool_result_tail,
+                            "result_truncated": step.tool_result_truncated,
                             "status": step.status,
                         }
                         for step in steps
@@ -529,16 +542,14 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         batches = await asyncio.to_thread(batches_fn, cloud_skill_id)
         batch_views: list[dict[str, object]] = []
         for batch in batches:
-            job = (
-                await asyncio.to_thread(job_fn, batch.job_id)
-                if batch.job_id and callable(job_fn)
-                else None
-            )
+            job = await _evolution_job(store, batch)
             result = getattr(job, "result", None) or {}
             batch_views.append(
                 {
                     "batch_id": batch.batch_id,
-                    "status": batch.status,
+                    # The row's own status is written once at INSERT ('created')
+                    # and never transitions — the outbox job is authoritative.
+                    "status": job.status if job is not None else batch.status,
                     "created_at": batch.created_at,
                     "trace_ids": list(batch.trace_ids),
                     "job": (
@@ -584,6 +595,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             "cloud_skill_id": cloud_skill_id,
             "skill_id": invocations[0].skill_id if invocations else None,
             "unconsumed_count": unconsumed,
+            "batch_size": EVOLUTION_MIN_TRACES,
             "invocations": invocation_views,
             "batches": batch_views,
             "versions": versions,
@@ -627,13 +639,6 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         try:
             target = await get_content(
                 cloud_skill_id=cloud_skill_id, version_id=version_id
-            )
-        except OperationNotFoundError:
-            return _error(
-                404,
-                "skill_version_not_found",
-                "The skill version does not exist for this skill.",
-                retryable=False,
             )
         except MindMemOSClientError:
             logger.exception("skill_version_content_fetch_failed")

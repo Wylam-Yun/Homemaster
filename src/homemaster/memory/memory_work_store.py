@@ -1368,7 +1368,10 @@ class SQLiteMemoryWorkStore:
                 """INSERT INTO skill_evolution_batches (
                     batch_id, cloud_skill_id, trace_ids_json, job_id, status, created_at
                 ) VALUES (?, ?, ?, ?, 'created', ?)
-                ON CONFLICT (batch_id) DO NOTHING""",
+                ON CONFLICT (batch_id) DO UPDATE SET
+                    job_id = excluded.job_id
+                WHERE skill_evolution_batches.job_id IS NULL
+                    AND excluded.job_id IS NOT NULL""",
                 (batch_id, cloud_skill_id, _dump(list(trace_ids)), job_id, _now()),
             )
 

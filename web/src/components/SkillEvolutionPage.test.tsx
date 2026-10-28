@@ -15,7 +15,7 @@ const row = (over: Partial<SkillEvolutionRow>): SkillEvolutionRow => ({
   unconsumed_count: 1,
   batch_size: 8,
   batches_count: 1,
-  last_batch_at: '2026-10-28T10:00:00Z',
+  last_batch_at: 1793170086,
   last_draft_version_id: 'v2',
   ...over,
 })
@@ -24,6 +24,7 @@ const detail: SkillEvolutionDetail = {
   cloud_skill_id: 'cs-1',
   skill_id: 'housekeeping',
   unconsumed_count: 1,
+  batch_size: 8,
   invocations: [
     {
       invocation_id: 'inv-1',
@@ -31,21 +32,24 @@ const detail: SkillEvolutionDetail = {
       score: 0.9,
       outcome: 'success',
       task_input: '整理客厅',
-      sealed_at: '2026-10-28T09:00:00Z',
+      sealed_at: 1793169486,
       evolution_batch_id: 'b-1',
       skill_version_id: 'v1',
       steps: [
-        { tool_call_id: 'call-1', tool_name: 'load_skill', arguments: { name: 'housekeeping' }, status: 'succeeded' },
+        {
+          tool_call_id: 'call-1', tool_name: 'load_skill', arguments: { name: 'housekeeping' },
+          result_tail: 'loaded housekeeping', result_truncated: false, status: 'success',
+        },
       ],
     },
   ],
   batches: [
     {
       batch_id: 'b-1',
-      status: 'succeeded',
-      created_at: '2026-10-28T10:00:00Z',
+      status: 'completed',
+      created_at: 1793170086,
       trace_ids: ['t-1'],
-      job: { job_id: 'j-1', status: 'succeeded', attempts: 1, error: null },
+      job: { job_id: 'j-1', status: 'completed', attempts: 1, error: null },
       draft_version_id: 'v2',
     },
   ],
@@ -98,6 +102,7 @@ describe('SkillEvolutionPage', () => {
 
     fireEvent.click(screen.getByText('consumed'))
     expect(await screen.findByText('load_skill')).toBeInTheDocument()
+    expect(screen.getByText('loaded housekeeping')).toBeInTheDocument()
     expect(screen.getByText('parent v1')).toBeInTheDocument()
   })
 

@@ -16,6 +16,7 @@ const row = (over: Partial<DreamingSessionRow>): DreamingSessionRow => ({
 
 const detail: DreamingSessionDetail = {
   session_id: 's-1',
+  title: '爬山计划',
   archive_state: 'completed',
   session_excerpts: [{ turn_id: 'turn-3', preview: '我下周去爬山' }],
   archives: [
@@ -93,6 +94,7 @@ describe('DreamingPage', () => {
   it('renders the unarchived empty state with session excerpts', async () => {
     const unarchived: DreamingSessionDetail = {
       session_id: 's-2',
+      title: '活跃会话',
       archive_state: 'unarchived',
       session_excerpts: [{ turn_id: 'turn-1', preview: '你好' }],
       archives: [],
