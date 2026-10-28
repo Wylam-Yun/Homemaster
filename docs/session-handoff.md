@@ -1,5 +1,50 @@
 # Session Handoff
 
+## RoboCasa × MindMemOS skill-evolution experiment - 2026-10-28
+
+### Current state
+
+- Goal: exercise MindMemOS framework-level skill evolution (`skill_invocations` →
+  8 sealed traces → `JOB_SKILL_EVOLUTION` → draft SKILL.md) through real RoboCasa
+  cells. Counting rule agreed with user: a cell counts only when the model itself
+  calls `load_skill("robocasa-benchmark")` — no unconditional labels.
+- Code change (uncommitted, local + scp'd to server):
+  `src/homemaster/robocasa/benchmark/runner.py` `_record_skill_invocations` —
+  after each cell finishes, scans `application/runtime_events.jsonl` for
+  `tool.call_started` events named `load_skill`, resolves the name via
+  `registry.get_model_visible`, then `tracker.begin`/`tracker.seal` with
+  session=`{run_id}-{cell:04d}`, turn_id=`turn-1`, env success → score.
+  Bookkeeping is best-effort and never changes cell outcome; invoked skill names
+  land in `summary.json`/`episode_finished` as `skill_invocations`.
+- Server configs pinned skill source (both files updated earlier):
+  `robocasa-runs/v38-r20.homemaster.yaml`, `v38-full.homemaster.yaml`, and the new
+  `v39-skill8.homemaster.yaml` carry `skills.explicit_dirs=[/data1/haodong2/
+  weilin/red_bird/Homemaster/.homemaster/skills]` + `allow_project: false`.
+- Verified on server (venv python): `compose_skill_registry(load_config(
+  v39-skill8.homemaster.yaml))` lists 26 skills incl. `robocasa-benchmark`;
+  `load_skill` tool resolves via `application_services["skill_registry"]`
+  (tool_executor merges services into deps); `# Available Skills` prelude goes
+  into the provider system prompt but is NOT persisted to local trace files.
+- Run launched: `v39-skill8-001`, PID (launch shell) 4076338, nohup log
+  `robocasa-runs/v39-skill8-001.log`, fresh memory root
+  `robocasa-runs/v39-skill8-memory` (migration completed), same manifest
+  `target50_v2.json` seed 1, provider `Mimo`, `--episodes 8`, `--cuda-device 2`,
+  trace root `robocasa-runs/robocasa/v39-skill8-001/`.
+- Note: `# Available Skills` was likely already in the v38 system prompt (v38
+  launched from repo root → project-dir discovery), yet 18 cells produced zero
+  `load_skill` calls — model non-discovery is a live risk for this experiment.
+
+### Acceptance ladder for this run
+
+1. Per cell: `load_skill(robocasa-benchmark)` present in runtime_events (or not —
+  both are informative); 2. `skill_invocations`/`skill_invocation_steps` rows in
+  `v39-skill8-memory/memory_work.db`; 3. at 8 sealed: `skill_evolution_batches`
+  row + `JOB_SKILL_EVOLUTION` job; 4. MindMemOS external receipts
+  (`/v1/skills/robocasa-benchmark/traces`, `/evolution-batches`,
+  `/v1/operations/{id}`); 5. draft content diff vs local SKILL.md — review only,
+  never auto-activate. stderr tracebacks or `job owned by None` settle errors
+  invalidate the run per live-run rules.
+
 ## Local standalone runtime topology - 2026-10-28
 
 ### Current state
