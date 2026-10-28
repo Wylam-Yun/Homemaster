@@ -428,6 +428,92 @@ class TestSkillInvocations:
         )
         assert store.skill_evolution_batches_for_skill("cloud-a")[0].job_id == "job-9"
 
+    def test_release_skill_traces_restores_sealed(self, store):
+        """A partial claim that never forms a batch must hand its traces back
+        so a later seal can still reach the threshold."""
+        for i in range(8):
+            self._seal(store, f"inv-{i}", "cloud-a")
+        claimed = store.claim_skill_traces("cloud-a", batch_id="ghost", count=8)
+        assert len(claimed) == 8
+        assert store.unconsumed_trace_count("cloud-a") == 0
+        store.release_skill_traces(claimed)
+        assert store.unconsumed_trace_count("cloud-a") == 8
+        # And they are claimable again under a new batch id.
+        assert len(store.claim_skill_traces("cloud-a", batch_id="real", count=8)) == 8
+
+
+class TestSkillEvolutionFlags:
+    """The per-skill toggle: missing/disabled rows gate ``maybe_evolve``; the
+    stored ``cloud_skill_id`` is the server-minted uuid the executor submits
+    under."""
+
+    def _seal_n(self, store, cloud_skill_id, n, prefix="inv"):
+        for i in range(n):
+            store.open_skill_invocation(
+                f"{prefix}-{i}", session_id="s", turn_id=f"t{i}", skill_id="sk",
+                cloud_skill_id=cloud_skill_id, skill_version_id="v",
+                skill_content_hash="h",
+            )
+            store.seal_skill_invocation(
+                f"{prefix}-{i}", task_input="i", agent_completion="c",
+                outcome="success", score=0.9,
+            )
+
+    def test_flag_roundtrip_and_disable_preserves_uuid(self, store):
+        assert store.skill_evolution_flag("sk-1") is None
+        assert store.skill_evolution_enabled("sk-1") is False
+        store.set_skill_evolution_flag("sk-1", enabled=True, cloud_skill_id="uuid-1")
+        flag = store.skill_evolution_flag("sk-1")
+        assert flag["enabled"] is True and flag["cloud_skill_id"] == "uuid-1"
+        # Disable: enabled flips off but the server id survives re-enable.
+        store.set_skill_evolution_flag("sk-1", enabled=False)
+        flag = store.skill_evolution_flag("sk-1")
+        assert flag["enabled"] is False and flag["cloud_skill_id"] == "uuid-1"
+        store.set_skill_evolution_flag("sk-1", enabled=True, cloud_skill_id="uuid-1")
+        assert store.skill_evolution_enabled("sk-1") is True
+        # List view keys rows by skill_id.
+        flags = store.skill_evolution_flags()
+        assert flags["sk-1"]["enabled"] is True
+
+    def test_maybe_evolve_gated_by_flag(self, store):
+        from homemaster.memory.skill_invocations import (
+            EVOLUTION_MIN_TRACES,
+            SkillInvocationTracker,
+        )
+
+        tracker = SkillInvocationTracker(store)
+        self._seal_n(store, "cloud-off", EVOLUTION_MIN_TRACES)
+        # No flag row → no claim, no batch, no job; traces stay sealed.
+        assert tracker.maybe_evolve("cloud-off") is None
+        assert store.unconsumed_trace_count("cloud-off") == EVOLUTION_MIN_TRACES
+        assert store.skill_evolution_batches_for_skill("cloud-off") == []
+        # Explicitly disabled is the same.
+        store.set_skill_evolution_flag("cloud-off", enabled=False)
+        assert tracker.maybe_evolve("cloud-off") is None
+        assert store.unconsumed_trace_count("cloud-off") == EVOLUTION_MIN_TRACES
+        # Toggling on unlocks the already-accumulated backlog.
+        store.set_skill_evolution_flag("cloud-off", enabled=True, cloud_skill_id="uuid-9")
+        batch_id = tracker.maybe_evolve("cloud-off")
+        assert batch_id is not None
+        [batch] = store.skill_evolution_batches_for_skill("cloud-off")
+        assert len(batch.trace_ids) == EVOLUTION_MIN_TRACES
+        assert store.unconsumed_trace_count("cloud-off") == 0
+        assert store.job(batch.job_id) is not None
+
+    def test_recover_pending_respects_flag(self, store):
+        from homemaster.memory.skill_invocations import (
+            EVOLUTION_MIN_TRACES,
+            SkillInvocationTracker,
+        )
+
+        tracker = SkillInvocationTracker(store)
+        self._seal_n(store, "cloud-on", EVOLUTION_MIN_TRACES)
+        self._seal_n(store, "cloud-off", EVOLUTION_MIN_TRACES)
+        store.set_skill_evolution_flag("cloud-on", enabled=True, cloud_skill_id="uuid-2")
+        created = tracker.recover_pending_evolutions()
+        assert len(created) == 1
+        assert store.skill_evolution_batches_for_skill("cloud-off") == []
+
 
 class TestAudit:
     def test_terminal_without_intent_rebuilt(self, store):

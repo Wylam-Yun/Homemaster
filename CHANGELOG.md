@@ -1,5 +1,23 @@
 # Unreleased
 
+- The Skills page gained an `进化` toggle per skill (`POST
+  /api/skills/{name}/evolution`). Enabling registers the skill with
+  MindMemOS (`POST /v1/skills/register`) and stores the server-issued
+  `cloud_skill_id` in a new `skill_evolution_flags` table; disabling
+  clears the flag. `memory_jobs` now resolves the real cloud id through
+  the flag when submitting traces and evolution batches — previously it
+  sent the local skill name, which the server never recognises
+  (`skill.not_found`). `/api/skill-evolution` lists the union of
+  flagged skills and invocation-backed skills, and detail routes split
+  local-id (traces/batches) from remote-id (versions/content) lookups,
+  so an enabled skill is observable immediately at `0/8` traces.
+
+- RoboCasa benchmark episodes no longer register the `image_to_text`
+  tool bridge: it hardcodes the OpenAI chat-completions SDK while the
+  benchmark provider serves an Anthropic-format endpoint, so every call
+  404'd with an HTML error page. The model already sees observation
+  images inline, so the bridge added nothing but stderr noise.
+
 - New `Dreaming` and `Skill Evolution` sidebar pages complete the
   memory-pipeline observability trio next to `记忆整理`:
   - `Dreaming` lists every session — including active, never-archived

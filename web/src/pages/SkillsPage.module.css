@@ -33,6 +33,12 @@
 .danger, .confirm button { border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); padding: 5px 11px; font: inherit; font-size: var(--text-xs); font-weight: 600; cursor: pointer; }
 .danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); color: var(--danger); }
 .danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.evolveOn, .evolveOff { border-radius: 8px; padding: 5px 11px; font: inherit; font-size: var(--text-xs); font-weight: 600; cursor: pointer; transition: filter .12s ease; }
+.evolveOn { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-contrast, var(--surface)); }
+.evolveOn:hover { filter: brightness(1.05); }
+.evolveOff { border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-2); }
+.evolveOff:hover { color: var(--accent); border-color: var(--accent-soft); }
+.evolveBadge { padding: 2px 7px; border-radius: 999px; background: var(--accent-subtle); color: var(--accent); font-size: var(--text-xs); font-weight: 600; }
 .confirm { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--danger); border-radius: 10px; background: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); font-size: var(--text-xs); }
 .confirm span { flex: 1; }
 .empty { grid-column: 1 / -1; padding: 48px 20px; border: 1px dashed var(--border-strong); border-radius: 14px; color: var(--muted); font-size: var(--text-md); text-align: center; background: var(--surface); }

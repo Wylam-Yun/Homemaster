@@ -299,6 +299,18 @@ class SkillEvolutionExecutor:
         trace_ids = job.payload.get("trace_ids") or []
         if not (batch_id and cloud_skill_id and len(trace_ids) == 8):
             return JobOutcome(status="failed", error="evolution job needs batch_id/skill/8 traces")
+        # The payload's cloud_skill_id is the LOCAL skill name — the server
+        # mints its own uuid at registration (captured into the evolution
+        # flag when the skill was toggled on). Resolve once here and submit
+        # under the server id; an unregistered/disabled skill fails closed.
+        flag = self._store.skill_evolution_flag(cloud_skill_id)
+        resolved_skill_id = flag.get("cloud_skill_id") if flag else None
+        if not (flag and flag["enabled"] and resolved_skill_id):
+            return JobOutcome(
+                status="failed",
+                error=f"skill {cloud_skill_id!r} is not enabled for evolution "
+                "(toggle it on in the skills page to register it upstream)",
+            )
         if job.status == "outcome_unknown":
             try:
                 status = await self._client.operation_status(job.operation_key)
@@ -333,7 +345,7 @@ class SkillEvolutionExecutor:
             ]
             try:
                 await self._client.submit_skill_trace(
-                    cloud_skill_id=cloud_skill_id,
+                    cloud_skill_id=resolved_skill_id,
                     trace={
                         "invocation_id": invocation_id,
                         "skill_version_id": inv.skill_version_id,
@@ -356,7 +368,7 @@ class SkillEvolutionExecutor:
                 return JobOutcome(status="outcome_unknown", error=str(exc))
         try:
             receipt = await self._client.submit_evolution_batch(
-                cloud_skill_id=cloud_skill_id, batch_id=batch_id, trace_ids=trace_ids
+                cloud_skill_id=resolved_skill_id, batch_id=batch_id, trace_ids=trace_ids
             )
         except OperationStillProcessingError:
             return _dependency_wait(job, "evolution batch still processing")
@@ -368,7 +380,7 @@ class SkillEvolutionExecutor:
             status="no_action" if receipt.status == "no_action" else "completed",
             result={
                 "batch_id": batch_id,
-                "cloud_skill_id": cloud_skill_id,
+                "cloud_skill_id": resolved_skill_id,
                 "draft_version_id": receipt.draft_version_id,
                 "reason": receipt.reason,
             },

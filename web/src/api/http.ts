@@ -272,6 +272,7 @@ export type DreamingSessionDetail = {
 export type SkillEvolutionRow = {
   cloud_skill_id: string
   skill_id: string | null
+  evolution_enabled: boolean
   invocation_count: number | null
   unconsumed_count: number | null
   batch_size: number
@@ -323,6 +324,7 @@ export type SkillVersionView = {
 export type SkillEvolutionDetail = {
   cloud_skill_id: string
   skill_id: string | null
+  evolution_enabled: boolean
   unconsumed_count: number | null
   batch_size: number
   invocations: SkillInvocationView[]
@@ -473,6 +475,19 @@ export type SkillInfo = {
   enabled: boolean
   /** Server-side delete eligibility (raw provenance === 'user'). */
   deletable?: boolean
+  /** Evolution gate: on → registered upstream, sealed traces may evolve. */
+  evolution_enabled?: boolean
+  /** Server-minted cloud_skill_id captured at enable time. */
+  evolution_cloud_skill_id?: string | null
+}
+
+/** POST /api/skills/{name}/evolution — toggle the evolution gate. */
+export type SkillEvolutionToggleResult = {
+  name: string
+  evolution_enabled: boolean
+  evolution_cloud_skill_id: string | null
+  version_id?: string | null
+  content_hash?: string | null
 }
 
 /** One rejected skill source reported alongside the skill list. */
@@ -746,6 +761,14 @@ export class HomeMasterApi {
 
   deleteSkill(name: string): Promise<{ deleted?: boolean; resurrected?: boolean; message?: string }> {
     return this.request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  /** Enable registers the skill upstream; disable only flips the local gate. */
+  setSkillEvolution(name: string, enabled: boolean): Promise<SkillEvolutionToggleResult> {
+    return this.request(`/api/skills/${encodeURIComponent(name)}/evolution`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    })
   }
 
   resolveSkill(text: string): Promise<SkillResolveResult> {

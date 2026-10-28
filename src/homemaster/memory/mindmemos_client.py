@@ -560,6 +560,23 @@ class MindMemOSClient:
             reason=data.get("reason"),
         )
 
+    async def list_skills(self) -> list[dict[str, Any]]:
+        """``GET /v1/skills`` — project-managed skills (``skill_name`` ↔
+        server-minted ``cloud_skill_id``)."""
+        data = await self._get("/v1/skills")
+        return [item for item in data.get("skills") or [] if isinstance(item, dict)]
+
+    async def register_skill(self, *, name: str, content: str) -> dict[str, Any]:
+        """``POST /v1/skills/register`` — idempotent version registration.
+
+        Returns the ``data`` payload including the server-minted
+        ``cloud_skill_id`` (uuid — local skill names are NOT resolvable
+        upstream) and ``version_id``.
+        """
+        return await self._post(
+            "/v1/skills/register", {"name": name, "content": content}
+        )
+
     async def list_skill_versions(self, *, cloud_skill_id: str) -> list[SkillVersionInfo]:
         """All versions of one cloud skill with parent lineage (read-only).
 

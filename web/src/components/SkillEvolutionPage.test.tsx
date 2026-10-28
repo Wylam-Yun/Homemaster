@@ -11,6 +11,7 @@ import { SkillEvolutionPage } from './SkillEvolutionPage'
 const row = (over: Partial<SkillEvolutionRow>): SkillEvolutionRow => ({
   cloud_skill_id: 'cs-1',
   skill_id: 'housekeeping',
+  evolution_enabled: true,
   invocation_count: 9,
   unconsumed_count: 1,
   batch_size: 8,
@@ -23,6 +24,7 @@ const row = (over: Partial<SkillEvolutionRow>): SkillEvolutionRow => ({
 const detail: SkillEvolutionDetail = {
   cloud_skill_id: 'cs-1',
   skill_id: 'housekeeping',
+  evolution_enabled: true,
   unconsumed_count: 1,
   batch_size: 8,
   invocations: [

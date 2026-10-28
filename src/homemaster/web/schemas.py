@@ -123,6 +123,14 @@ class SkillImportRequest(BaseModel):
     overwrite: bool = False
 
 
+class SkillEvolutionToggleRequest(BaseModel):
+    """Toggle one skill's evolution gate (register-upstream-on-enable)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 class ItemChoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

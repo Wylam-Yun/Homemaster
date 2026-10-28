@@ -307,6 +307,7 @@ def test_delete_reports_resurrection_when_shadowed_copy_remains(tmp_path) -> Non
 
 def _evolution_store() -> MagicMock:
     store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
     store.skills_with_invocations.return_value = [
         {"cloud_skill_id": "cs-1", "skill_id": "housekeeping", "invocation_count": 9}
     ]
@@ -412,10 +413,84 @@ def test_skill_evolution_overview_lists_skills() -> None:
         [skill] = response.json()["skills"]
         assert skill["cloud_skill_id"] == "cs-1"
         assert skill["skill_id"] == "housekeeping"
+        assert skill["evolution_enabled"] is False
         assert skill["invocation_count"] == 9
         assert skill["unconsumed_count"] == 1
         assert skill["batches_count"] == 1
         assert skill["last_draft_version_id"] == "v2"
+
+
+def test_skill_evolution_overview_lists_flagged_skill_without_traces() -> None:
+    """An enabled flag with zero invocations must still appear — toggling the
+    switch on is supposed to be visible on the evolution page immediately."""
+    store = _evolution_store()
+    store.skills_with_invocations.return_value = []
+    store.skill_evolution_flags.return_value = {
+        "fresh-skill": {
+            "skill_id": "fresh-skill",
+            "cloud_skill_id": "uuid-fresh",
+            "enabled": True,
+        }
+    }
+    store.skill_evolution_batches_for_skill.return_value = []
+    store.unconsumed_trace_count.return_value = 0
+    with TestClient(_evolution_app(store, _evolution_client())) as client:
+        response = client.get("/api/skill-evolution")
+        assert response.status_code == 200
+        [skill] = response.json()["skills"]
+        assert skill["skill_id"] == "fresh-skill"
+        assert skill["cloud_skill_id"] == "uuid-fresh"
+        assert skill["evolution_enabled"] is True
+        assert skill["batches_count"] == 0
+
+
+def test_skill_evolution_detail_resolves_flag_ids() -> None:
+    """Detail called with the uuid must query local rows by LOCAL name and
+    remote versions by the server-minted uuid."""
+    store = _evolution_store()
+    store.skill_evolution_flags.return_value = {
+        "housekeeping": {
+            "skill_id": "housekeeping",
+            "cloud_skill_id": "uuid-hk",
+            "enabled": True,
+        }
+    }
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/uuid-hk")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["skill_id"] == "housekeeping"
+        assert body["cloud_skill_id"] == "uuid-hk"
+        assert body["evolution_enabled"] is True
+        # local queries used the local name, remote queries the uuid
+        store.skill_invocations_for_skill.assert_called_with("housekeeping")
+        store.skill_evolution_batches_for_skill.assert_called_with("housekeeping")
+        remote.list_skill_versions.assert_awaited_with(cloud_skill_id="uuid-hk")
+
+
+def test_skill_evolution_content_resolves_flag_uuid() -> None:
+    store = _evolution_store()
+    store.skill_evolution_flags.return_value = {
+        "housekeeping": {
+            "skill_id": "housekeeping",
+            "cloud_skill_id": "uuid-hk",
+            "enabled": True,
+        }
+    }
+    remote = _evolution_client()
+    with TestClient(_evolution_app(store, remote)) as client:
+        response = client.get("/api/skill-evolution/housekeeping/versions/v2/content")
+        assert response.status_code == 200
+        remote.list_skill_versions.assert_awaited_with(cloud_skill_id="uuid-hk")
+        from unittest.mock import call
+
+        remote.get_skill_version_content.assert_has_awaits(
+            [
+                call(cloud_skill_id="uuid-hk", version_id="v2"),
+                call(cloud_skill_id="uuid-hk", version_id="v1"),
+            ]
+        )
 
 
 def test_skill_evolution_detail_shapes_invocations_batches_versions() -> None:
@@ -490,3 +565,109 @@ def test_skill_evolution_unavailable_without_store() -> None:
         response = client.get("/api/skill-evolution")
         assert response.status_code == 503
         assert response.json()["code"] == "skill_evolution_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Per-skill evolution toggle (register-on-enable)
+# ---------------------------------------------------------------------------
+
+
+def _toggle_app(tmp_path, store, client) -> object:
+    skill = SkillDefinition(
+        name="evolveme",
+        description="d",
+        content="SKILL-CONTENT",
+        source="project",
+        user_invocable=False,
+    )
+    registry = _registry_with(tmp_path / "skills", skill)
+    application = _P03Application(
+        services={
+            "skill_registry": registry,
+            "memory_work_store": store,
+            "mindmemos_client": client,
+        }
+    )
+    config = SimpleNamespace(skills=SimpleNamespace(user_dirs=()))
+    return create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        config=config,
+    )
+
+
+def test_evolution_toggle_enable_registers_upstream_and_persists_flag(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    remote = MagicMock()
+    remote.register_skill = AsyncMock(
+        return_value={
+            "cloud_skill_id": "uuid-42",
+            "version_id": "ver-1",
+            "version_label": None,
+            "content_hash": "hash-1",
+            "status": "observed",
+        }
+    )
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["evolution_enabled"] is True
+        assert body["evolution_cloud_skill_id"] == "uuid-42"
+        assert body["version_id"] == "ver-1"
+        # Registered with the registry's canonical content, and the returned
+        # server id — not the local name — is what gets persisted.
+        remote.register_skill.assert_awaited_once_with(
+            name="evolveme", content="SKILL-CONTENT"
+        )
+        store.set_skill_evolution_flag.assert_called_once_with(
+            "evolveme", enabled=True, cloud_skill_id="uuid-42"
+        )
+
+
+def test_evolution_toggle_disable_keeps_upstream_registration(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    store.skill_evolution_flag.return_value = {
+        "skill_id": "evolveme",
+        "cloud_skill_id": "uuid-42",
+        "enabled": True,
+    }
+    remote = MagicMock()
+    remote.register_skill = AsyncMock()
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": False})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["evolution_enabled"] is False
+        # The stored server id is still reported (registration is not undone).
+        assert body["evolution_cloud_skill_id"] == "uuid-42"
+        remote.register_skill.assert_not_awaited()
+        store.set_skill_evolution_flag.assert_called_once_with("evolveme", enabled=False)
+
+
+def test_evolution_toggle_unknown_skill_404s(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    with TestClient(_toggle_app(tmp_path, store, MagicMock())) as client:
+        response = client.post("/api/skills/nosuch/evolution", json={"enabled": True})
+        assert response.status_code == 404
+        assert response.json()["code"] == "skill_not_found"
+
+
+def test_evolution_toggle_fails_closed_when_client_fails(tmp_path) -> None:
+    store = MagicMock()
+    store.skill_evolution_flags.return_value = {}
+    remote = MagicMock()
+    remote.register_skill = AsyncMock(
+        side_effect=MindMemOSClientError("upstream down")
+    )
+    with TestClient(_toggle_app(tmp_path, store, remote)) as client:
+        response = client.post("/api/skills/evolveme/evolution", json={"enabled": True})
+        assert response.status_code == 502
+        assert response.json()["code"] == "mindmemos_register_failed"
+        # A failed registration must not leave a half-enabled flag row.
+        store.set_skill_evolution_flag.assert_not_called()

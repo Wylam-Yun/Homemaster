@@ -192,6 +192,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
               >
                 <span className={styles.skillTop}>
                   <strong className={styles.skillName}>{row.skill_id ?? row.cloud_skill_id}</strong>
+                  {row.evolution_enabled && <Badge variant="success">进化：开</Badge>}
                   {row.last_draft_version_id !== null && <Badge variant="warning">draft</Badge>}
                 </span>
                 <span className={styles.skillMeta}>
@@ -215,6 +216,7 @@ export function SkillEvolutionPage({ loadOverview, loadDetail, loadContent, unav
                 <div className={styles.detailHeader}>
                   <strong>{detail.skill_id ?? detail.cloud_skill_id}</strong>
                   <span className={styles.detailMeta}>{detail.cloud_skill_id}</span>
+                  {detail.evolution_enabled && <Badge variant="success">进化：开</Badge>}
                   <Badge variant="muted">{detail.unconsumed_count ?? 0}/{detail.batch_size} 待消费</Badge>
                 </div>
 

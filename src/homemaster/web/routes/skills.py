@@ -7,6 +7,7 @@ import logging
 import re
 import shutil
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from fastapi import FastAPI, Response
 
@@ -21,7 +22,11 @@ from homemaster.web._shared import (
     _error,
 )
 from homemaster.web.context import WebAppContext
-from homemaster.web.schemas import SkillImportRequest, SkillResolveRequest
+from homemaster.web.schemas import (
+    SkillEvolutionToggleRequest,
+    SkillImportRequest,
+    SkillResolveRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +86,32 @@ async def _evolution_job(store: object, batch: object) -> object:
     return None
 
 
+async def _resolve_skill_ids(
+    store: object, key: str
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Map a page key to ``(local_id, remote_id, flag)``.
+
+    Local rows (invocations/batches) are keyed by the skill's LOCAL name;
+    remote reads (versions/content) need the server-minted uuid stored in the
+    evolution flag. ``key`` may be either — resolve through the flag table.
+    """
+    flags_fn = getattr(store, "skill_evolution_flags", None)
+    flags = await asyncio.to_thread(flags_fn) if callable(flags_fn) else {}
+    flag = next(
+        (
+            item
+            for item in flags.values()
+            if item.get("skill_id") == key or item.get("cloud_skill_id") == key
+        ),
+        None,
+    )
+    if flag is None:
+        return key, key, None
+    local_id = str(flag.get("skill_id") or key)
+    remote_id = str(flag.get("cloud_skill_id") or local_id)
+    return local_id, remote_id, flag
+
+
 def _user_skill_dirs(ctx: WebAppContext) -> tuple[Path, ...]:
     sources = getattr(ctx.config, "skills", None) if ctx.config is not None else None
     user_dirs = tuple(getattr(sources, "user_dirs", None) or ())
@@ -134,9 +165,15 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         skills: list[dict[str, object]] = []
         user_roots = [directory.resolve() for directory in _user_skill_dirs(ctx)]
+        store = _application_services(application).get("memory_work_store")
+        flags_fn = getattr(store, "skill_evolution_flags", None)
+        evolution_flags = (
+            await asyncio.to_thread(flags_fn) if callable(flags_fn) else {}
+        )
         for skill in registry.list_skills():
             provenance = registry.provenance_for(skill)
             raw_source = provenance[-1].source if provenance else getattr(skill, "source", "")
+            flag = evolution_flags.get(skill.name)
             skills.append(
                 {
                     "name": skill.name,
@@ -149,6 +186,8 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                     "enabled": True,
                     # Same predicate DELETE enforces — the flag must not lie.
                     "deletable": _is_deletable_skill(registry, skill, user_roots),
+                    "evolution_enabled": bool(flag and flag["enabled"]),
+                    "evolution_cloud_skill_id": flag["cloud_skill_id"] if flag else None,
                 }
             )
         return {
@@ -187,6 +226,83 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             "arguments": arguments.strip(),
             "prompt": resolved.prompt,
             "model_override": resolved.model_override,
+        }
+
+    @app.post("/api/skills/{name}/evolution")
+    async def toggle_skill_evolution(name: str, body: SkillEvolutionToggleRequest) -> object:
+        """Toggle one skill's evolution gate.
+
+        Enabling registers the skill upstream (``POST /v1/skills/register``)
+        and stores the server-minted ``cloud_skill_id`` in the local flag
+        row; disabling only flips the local gate — the upstream registration
+        stays (re-enable reuses it via the server's idempotent register).
+        """
+        services = _application_services(application)
+        registry = services.get("skill_registry")
+        if registry is None:
+            return _registry_error()
+        store = services.get("memory_work_store")
+        set_flag = getattr(store, "set_skill_evolution_flag", None)
+        get_flag = getattr(store, "skill_evolution_flag", None)
+        if not (callable(set_flag) and callable(get_flag)):
+            return _error(
+                503,
+                "skill_evolution_unavailable",
+                "Skill evolution flags require the memory work store.",
+                retryable=True,
+            )
+        skill = registry.get_model_visible(name)
+        if skill is None:
+            return _error(
+                404,
+                "skill_not_found",
+                f"No such skill: {name}",
+                retryable=False,
+            )
+        if body.enabled:
+            client = services.get("mindmemos_client")
+            register_fn = getattr(client, "register_skill", None)
+            if not callable(register_fn):
+                return _error(
+                    503,
+                    "mindmemos_unavailable",
+                    "MindMemOS is required to register the skill upstream.",
+                    retryable=True,
+                )
+            try:
+                receipt = await register_fn(name=skill.name, content=skill.content)
+            except MindMemOSClientError as exc:
+                logger.exception("skill_register_failed")
+                return _error(
+                    502,
+                    "mindmemos_register_failed",
+                    f"Upstream skill registration failed: {exc}",
+                    retryable=True,
+                )
+            cloud_skill_id = str(receipt.get("cloud_skill_id") or "")
+            if not cloud_skill_id:
+                return _error(
+                    502,
+                    "mindmemos_register_failed",
+                    "Registration returned no cloud_skill_id.",
+                    retryable=True,
+                )
+            await asyncio.to_thread(
+                set_flag, skill.name, enabled=True, cloud_skill_id=cloud_skill_id
+            )
+            return {
+                "name": skill.name,
+                "evolution_enabled": True,
+                "evolution_cloud_skill_id": cloud_skill_id,
+                "version_id": receipt.get("version_id"),
+                "content_hash": receipt.get("content_hash"),
+            }
+        await asyncio.to_thread(set_flag, skill.name, enabled=False)
+        flag = await asyncio.to_thread(get_flag, skill.name)
+        return {
+            "name": skill.name,
+            "evolution_enabled": False,
+            "evolution_cloud_skill_id": flag.get("cloud_skill_id") if flag else None,
         }
 
     @app.post("/api/skills/import")
@@ -454,17 +570,44 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         unconsumed_fn = getattr(store, "unconsumed_trace_count", None)
         batches_fn = getattr(store, "skill_evolution_batches_for_skill", None)
+        flags_fn = getattr(store, "skill_evolution_flags", None)
         rows = await asyncio.to_thread(skills_fn)
-        skills: list[dict[str, object]] = []
+        flags = await asyncio.to_thread(flags_fn) if callable(flags_fn) else {}
+        # Union: skills with invocations (keyed by local name) ∪ enabled flags
+        # (keyed by flag skill_id). A flag row means "registered upstream and
+        # gated on" — it belongs in the list even before any trace exists.
+        enabled_flags = {
+            flag.get("skill_id"): flag
+            for flag in flags.values()
+            if flag.get("enabled")
+        }
+        seen: set[str] = set()
+        merged: list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]] = []
         for row in rows:
-            cloud_skill_id = str(row.get("cloud_skill_id") or "")
+            local_id = str(row.get("cloud_skill_id") or "")
+            flag = enabled_flags.get(local_id) or next(
+                (
+                    item
+                    for item in enabled_flags.values()
+                    if item.get("cloud_skill_id") == local_id
+                ),
+                None,
+            )
+            merged.append((local_id, flag, row))
+            seen.add(local_id)
+        for skill_id, flag in enabled_flags.items():
+            if skill_id is not None and skill_id not in seen and flag.get("cloud_skill_id") not in seen:
+                merged.append((str(skill_id), flag, None))
+
+        skills: list[dict[str, object]] = []
+        for local_id, flag, row in merged:
             batches = (
-                await asyncio.to_thread(batches_fn, cloud_skill_id)
+                await asyncio.to_thread(batches_fn, local_id)
                 if callable(batches_fn)
                 else []
             )
             unconsumed = (
-                await asyncio.to_thread(unconsumed_fn, cloud_skill_id)
+                await asyncio.to_thread(unconsumed_fn, local_id)
                 if callable(unconsumed_fn)
                 else None
             )
@@ -475,11 +618,13 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 if result.get("draft_version_id"):
                     last_draft = str(result["draft_version_id"])
                     break
+            remote_id = str(flag.get("cloud_skill_id") or local_id) if flag else local_id
             skills.append(
                 {
-                    "cloud_skill_id": cloud_skill_id,
-                    "skill_id": row.get("skill_id"),
-                    "invocation_count": row.get("invocation_count"),
+                    "cloud_skill_id": remote_id,
+                    "skill_id": (row or {}).get("skill_id") or local_id,
+                    "evolution_enabled": bool(flag and flag.get("enabled")),
+                    "invocation_count": (row or {}).get("invocation_count"),
                     "unconsumed_count": unconsumed,
                     "batch_size": EVOLUTION_MIN_TRACES,
                     "batches_count": len(batches),
@@ -507,7 +652,8 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         steps_fn = getattr(store, "invocation_steps", None)
         client = services.get("mindmemos_client")
 
-        invocations = await asyncio.to_thread(invocations_fn, cloud_skill_id)
+        local_id, remote_id, flag = await _resolve_skill_ids(store, cloud_skill_id)
+        invocations = await asyncio.to_thread(invocations_fn, local_id)
         invocation_views: list[dict[str, object]] = []
         for invocation in invocations:
             steps = (
@@ -539,7 +685,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 }
             )
 
-        batches = await asyncio.to_thread(batches_fn, cloud_skill_id)
+        batches = await asyncio.to_thread(batches_fn, local_id)
         batch_views: list[dict[str, object]] = []
         for batch in batches:
             job = await _evolution_job(store, batch)
@@ -571,7 +717,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         list_versions = getattr(client, "list_skill_versions", None)
         if callable(list_versions):
             try:
-                remote_versions = await list_versions(cloud_skill_id=cloud_skill_id)
+                remote_versions = await list_versions(cloud_skill_id=remote_id)
             except MindMemOSClientError:
                 logger.exception("skill_versions_fetch_failed")
             else:
@@ -587,13 +733,14 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 ]
                 versions_unavailable = False
         unconsumed = (
-            await asyncio.to_thread(unconsumed_fn, cloud_skill_id)
+            await asyncio.to_thread(unconsumed_fn, local_id)
             if callable(unconsumed_fn)
             else None
         )
         return {
-            "cloud_skill_id": cloud_skill_id,
-            "skill_id": invocations[0].skill_id if invocations else None,
+            "cloud_skill_id": remote_id,
+            "skill_id": (invocations[0].skill_id if invocations else None) or local_id,
+            "evolution_enabled": bool(flag and flag.get("enabled")),
             "unconsumed_count": unconsumed,
             "batch_size": EVOLUTION_MIN_TRACES,
             "invocations": invocation_views,
@@ -618,8 +765,11 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 "Skill version content is unavailable.",
                 retryable=True,
             )
+        _, remote_id, _flag = await _resolve_skill_ids(
+            services.get("memory_work_store"), cloud_skill_id
+        )
         try:
-            versions = await list_versions(cloud_skill_id=cloud_skill_id)
+            versions = await list_versions(cloud_skill_id=remote_id)
         except MindMemOSClientError:
             logger.exception("skill_versions_fetch_failed")
             return _error(
@@ -638,7 +788,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
             )
         try:
             target = await get_content(
-                cloud_skill_id=cloud_skill_id, version_id=version_id
+                cloud_skill_id=remote_id, version_id=version_id
             )
         except MindMemOSClientError:
             logger.exception("skill_version_content_fetch_failed")
@@ -663,7 +813,7 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
         if parent_id:
             try:
                 parent_content = await get_content(
-                    cloud_skill_id=cloud_skill_id, version_id=parent_id
+                    cloud_skill_id=remote_id, version_id=parent_id
                 )
                 parent_text = _skill_md_from_bundle(parent_content.content)
             except (MindMemOSClientError, ValueError):

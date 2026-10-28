@@ -1155,5 +1155,6 @@ def test_web_route_table_is_stable() -> None:
         ("/api/skills/import", ("POST",)),
         ("/api/skills/resolve", ("POST",)),
         ("/api/skills/{name}", ("DELETE",)),
+        ("/api/skills/{name}/evolution", ("POST",)),
     ]
     assert actual == expected

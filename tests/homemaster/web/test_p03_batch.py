@@ -286,6 +286,8 @@ def test_list_skills_returns_readable_sources_and_enabled_flag() -> None:
         "user_invocable": True,
         "enabled": True,
         "deletable": False,
+        "evolution_enabled": False,
+        "evolution_cloud_skill_id": None,
     }
     assert skills["research"]["source"] == "user"
     assert skills["research"]["user_invocable"] is False
