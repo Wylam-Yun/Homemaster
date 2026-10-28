@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { FeedbackRun, FeedbackRunDetail, ImplicitFeedbackRun } from '../api/http'
+import { ActionDiffCard } from './ActionDiffCard'
 import { Badge, type BadgeVariant } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
@@ -19,19 +20,6 @@ const STATUS_LABEL: Record<string, string> = {
   no_action: '无更新',
   failed: '失败',
   stale: '已终止',
-}
-
-const ACTION_LABEL: Record<string, string> = {
-  add: '新增',
-  update: '更新',
-  delete: '删除',
-  noop: '无操作',
-}
-
-const ACTION_VARIANT: Record<string, BadgeVariant> = {
-  add: 'success',
-  update: 'accent',
-  delete: 'danger',
 }
 
 type Props = {
@@ -360,38 +348,17 @@ export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, runImplicitFe
                 ) : (
                   <div className={styles.groups}>
                     {detail.actions.map(action => (
-                      <div key={action.action_id} className={styles.actionCard}>
-                        <div className={styles.actionTop}>
-                          <Badge variant={ACTION_VARIANT[action.action] ?? 'muted'}>
-                            {ACTION_LABEL[action.action] ?? action.action}
-                          </Badge>
-                          {action.memory_id !== null && <code className={styles.memoryId}>{action.memory_id.slice(0, 8)}…</code>}
-                          {action.memory_session_id !== null && (
-                            <span className={styles.detailMeta}>记忆来自 {titles.get(action.memory_session_id) ?? action.memory_session_id}</span>
-                          )}
-                        </div>
-                        {action.missing ? (
-                          <p className={styles.missingText}>该记忆已无法在存储中读取。</p>
-                        ) : (
-                          <div className={styles.diff}>
-                            <div className={styles.diffSide}>
-                              <span className={styles.diffLabel}>整理前</span>
-                              <p>{action.before?.content ?? (action.action === 'add' ? '（新记忆）' : '（无旧版本）')}</p>
-                              {action.before !== null && action.before !== undefined && (
-                                <span className={styles.diffStatus}>{action.before.status}</span>
-                              )}
-                            </div>
-                            <div className={styles.diffArrow} aria-hidden="true">→</div>
-                            <div className={styles.diffSide}>
-                              <span className={styles.diffLabel}>整理后</span>
-                              <p>{action.after?.content ?? '—'}</p>
-                              {action.after !== null && action.after !== undefined && (
-                                <span className={styles.diffStatus}>{action.after.status}</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <ActionDiffCard
+                        key={action.action_id}
+                        action={action}
+                        beforeLabel="整理前"
+                        afterLabel="整理后"
+                        sessionLabel={
+                          action.memory_session_id !== null
+                            ? `记忆来自 ${titles.get(action.memory_session_id) ?? action.memory_session_id}`
+                            : undefined
+                        }
+                      />
                     ))}
                   </div>
                 )}
