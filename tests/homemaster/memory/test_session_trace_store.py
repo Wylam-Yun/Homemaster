@@ -91,6 +91,38 @@ class TestDialogue:
         blob = json.dumps(dialogue)
         assert "SECRET-CHAIN" not in blob
 
+    def test_whitespace_only_text_never_enters_dialogue(self, trace):
+        # Streaming assistants emit whitespace-only text blocks alongside tool
+        # calls. MindMemOS rejects any message whose content strips to empty,
+        # which would fail the entire Add batch — the projection must drop them.
+        call = ToolCall(id="c1", name="t", arguments={})
+        msgs = [
+            _user("u"),
+            _assistant("\n\n", [call]),
+            _tool("c1", "t", "ok"),
+            _assistant("  \n\t  "),
+            _assistant("answer"),
+        ]
+        trace.begin_turn("s1", 1, "run-1", message_start_index=0)
+        trace.commit_terminal("s1", "turn-1", status="completed", messages=msgs)
+        dialogue = trace.dialogue_for_turn("s1", "turn-1")
+
+        contents = [m["content"] for m in dialogue]
+        assert all(str(c).strip() for c in contents)
+        assert dialogue[-1] == {"role": "assistant", "content": "answer"}
+        assert sum(1 for m in dialogue if m["role"] == "assistant") == 2
+
+    def test_empty_user_message_is_dropped(self, trace):
+        # An empty/whitespace user message (e.g. attachment-only carry no text
+        # in the canonical event) would fail server validation just like
+        # whitespace assistant text.
+        msgs = [_user(""), _user("   "), _user("real question")]
+        trace.begin_turn("s1", 1, "run-1", message_start_index=0)
+        trace.commit_terminal("s1", "turn-1", status="completed", messages=msgs)
+        dialogue = trace.dialogue_for_turn("s1", "turn-1")
+
+        assert dialogue == [{"role": "user", "content": "real question"}]
+
     def test_error_tool_result_marks_status(self, trace):
         msgs = [
             _user("u"),

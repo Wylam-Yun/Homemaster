@@ -117,11 +117,18 @@ def trace_event_to_dialogue(event: TraceEventRecord) -> list[dict[str, Any]]:
     payload = event.payload
     role = payload.get("role")
     if role == "user":
-        return [{"role": "user", "content": str(payload.get("content") or "")}]
+        # MindMemOS validates every message has non-empty stripped content;
+        # an empty/whitespace user entry (e.g. attachment-only) must be
+        # dropped rather than fail the whole Add batch.
+        text = str(payload.get("content") or "")
+        return [{"role": "user", "content": text}] if text.strip() else []
     if role == "assistant":
         out: list[dict[str, Any]] = []
         text = str(payload.get("content") or "")
-        if text:
+        # Whitespace-only text (streaming assistants emit "\n\n" blocks next
+        # to tool calls) is truthy but fails the same server-side non-empty
+        # check — skip it, keep the tool-call envelopes.
+        if text.strip():
             out.append({"role": "assistant", "content": text})
         for call in payload.get("tool_calls") or []:
             out.append(

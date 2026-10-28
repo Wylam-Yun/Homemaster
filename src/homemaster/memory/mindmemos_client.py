@@ -460,8 +460,9 @@ class MindMemOSClient:
         return await self._post("/v1/memory/scroll", body)
 
     async def get_memory(self, *, filters: dict[str, Any]) -> dict[str, Any]:
-        body = {"filters": filters, **self._scope_fields(None)}
-        return await self._post("/v1/memory/get", body)
+        # GetRequest carries no actor identity and forbids extra fields —
+        # the partition comes from the api_key server-side.
+        return await self._post("/v1/memory/get", {"filters": filters})
 
     async def create_memory(
         self,
@@ -509,7 +510,8 @@ class MindMemOSClient:
         )
 
     async def delete_memory(self, *, memory_id: str, operation_id: str) -> MutationReceipt:
-        body = {"memory_id": memory_id, "operation_id": operation_id, **self._scope_fields(None)}
+        # DeleteRequest likewise forbids actor-identity extras.
+        body = {"memory_id": memory_id, "operation_id": operation_id}
         data = await self._post("/v1/memory/delete", body)
         return MutationReceipt(
             status=str(data.get("status") or "completed"),

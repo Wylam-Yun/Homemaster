@@ -44,6 +44,27 @@ def test_snapshot_deep_copies_messages_and_converts_text_only() -> None:
     assert [(item["role"], item["content"]) for item in dialogue] == [("user", "original")]
 
 
+def test_snapshot_dialogue_drops_whitespace_only_text() -> None:
+    """Streaming assistants emit whitespace-only text blocks; MindMemOS
+    validates ``content.strip()`` non-empty per message and would reject the
+    whole feedback batch."""
+    from homemaster.agent.messages import AssistantMessage
+
+    messages = [
+        UserMessage.from_text("not contacts, glasses"),
+        AssistantMessage(
+            content=[ContentBlock(text="\n\n")],
+            tool_calls=[ToolCall(id="c1", name="mindmemos_search", arguments={})],
+        ),
+        AssistantMessage(content=[ContentBlock(text="real answer")]),
+    ]
+    snapshot = build_feedback_context_snapshot(messages)
+    dialogue = snapshot_to_dialogue_messages(snapshot)
+
+    assert all(str(m["content"]).strip() for m in dialogue)
+    assert [m["role"] for m in dialogue] == ["user", "assistant"]
+
+
 def test_snapshot_deep_copies_non_pydantic_recalled_memory() -> None:
     recalled = _memory("raw-1")
 

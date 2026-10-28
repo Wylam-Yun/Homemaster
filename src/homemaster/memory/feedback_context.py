@@ -70,7 +70,10 @@ def snapshot_to_dialogue_messages(snapshot: FeedbackContextSnapshot) -> list[dic
         text = "\n".join(
             block.text for block in message.content if block.type == "text" and block.text
         )
-        if text:
+        # Whitespace-only text (streaming assistants emit "\n\n" blocks next
+        # to tool calls) is truthy but fails the server-side non-empty
+        # stripped-content check and would reject the whole feedback batch.
+        if text.strip():
             messages.append({"role": message.role, "content": text})
     return messages
 
