@@ -55,6 +55,11 @@ success does not count.
 BUDGETS: at most {max_tool_iterations} tool calls; \
 {max_invalid_actions} or more invalid actions ends the episode as a failure.
 
+SKILL: a `robocasa-benchmark` skill is installed for this benchmark (listed \
+under `# Available Skills`). Call `load_skill(name="robocasa-benchmark")` at \
+the start of the episode; it documents the worker architecture and prior \
+run experience.
+
 {memory_note}
 """
 
