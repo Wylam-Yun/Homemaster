@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { ImplicitFeedbackRun, ImplicitFeedbackStatus, ManagedMemory, MemoryGraph as MemoryGraphData, MemoryHistory, MemorySnapshot } from '../api/http'
+import type { ManagedMemory, MemoryGraph as MemoryGraphData, MemoryHistory, MemorySnapshot } from '../api/http'
 import { navigate } from '../router'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
@@ -34,11 +34,6 @@ type Props = {
   createMemory?: (payload: { content: string; memory_type: 'fact' | 'procedure' }) => Promise<unknown>
   updateMemory?: (memoryId: string, content: string) => Promise<ManagedMemory | void>
   deleteMemory?: (memoryId: string) => Promise<void>
-  /** 手动触发隐性整理（隐式 feedback）：入队后台任务后轮询到终态。 */
-  runImplicitFeedback?: () => Promise<ImplicitFeedbackRun>
-  implicitFeedbackStatus?: (jobId: string) => Promise<ImplicitFeedbackStatus>
-  /** 状态轮询间隔，测试可传 0。 */
-  feedbackPollMs?: number
 }
 
 type StatusTab = 'active' | 'archived'
@@ -48,9 +43,7 @@ type GroupMode = 'session' | 'type'
 type VisibleMemory = { memory: ManagedMemory; summary: MemorySummary }
 type ListGroup = { key: string; label: string; sessionId: string | null; items: VisibleMemory[] }
 
-const FEEDBACK_JOB_KEY = 'homemaster:implicit-feedback-job'
-
-export function MemoryPage({ snapshot, loading, error, unavailable = false, onRefresh, loadHistory, loadGraph, compileMemory, compileStatus, createMemory, updateMemory, deleteMemory, runImplicitFeedback, implicitFeedbackStatus, feedbackPollMs = 2000 }: Props) {
+export function MemoryPage({ snapshot, loading, error, unavailable = false, onRefresh, loadHistory, loadGraph, compileMemory, compileStatus, createMemory, updateMemory, deleteMemory }: Props) {
   const [tab, setTab] = useState<StatusTab>('active')
   const [view, setView] = useState<ViewMode>('list')
   const [groupMode, setGroupMode] = useState<GroupMode>('session')
@@ -66,9 +59,6 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
   const [newContent, setNewContent] = useState('')
   const [createBusy, setCreateBusy] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [feedbackRunning, setFeedbackRunning] = useState(false)
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const feedbackGeneration = useRef(0)
 
   const allMemories = useMemo(
     () => (snapshot?.groups ?? []).flatMap(group => group.memories),
@@ -247,78 +237,6 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
     }
   }
 
-  // Generation counter cancels a stale poll loop when the component unmounts
-  // or the user triggers a fresh run. The in-flight job id is kept in
-  // sessionStorage so remounting the page resumes tracking the same job.
-  const pollImplicitFeedback = async (jobId: string, generation: number) => {
-    const deadline = Date.now() + 600_000
-    try {
-      while (Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, feedbackPollMs))
-        if (feedbackGeneration.current !== generation) return
-        const status = await implicitFeedbackStatus?.(jobId)
-        if (status === undefined) return
-        if (status.status === 'completed') {
-          sessionStorage.removeItem(FEEDBACK_JOB_KEY)
-          const count = status.actions_count ?? 0
-          setFeedbackMessage(count > 0 ? `整理完成，已更新 ${count} 条记忆。` : '整理完成。')
-          void onRefresh()
-          return
-        }
-        if (status.status === 'no_action') {
-          sessionStorage.removeItem(FEEDBACK_JOB_KEY)
-          setFeedbackMessage('整理完成，没有需要更新的记忆。')
-          return
-        }
-        if (status.status === 'failed' || status.status === 'stale') {
-          sessionStorage.removeItem(FEEDBACK_JOB_KEY)
-          setFeedbackMessage(`隐性整理失败：${status.error ?? '未知错误'}`)
-          return
-        }
-      }
-      // Poll budget spent; keep the stored job id so a remount resumes tracking.
-      setFeedbackMessage('隐性整理仍在后台进行，稍后请刷新查看。')
-    } catch (cause) {
-      if (feedbackGeneration.current === generation) {
-        sessionStorage.removeItem(FEEDBACK_JOB_KEY)
-        setFeedbackMessage(cause instanceof Error ? cause.message : '隐性整理状态查询失败。')
-      }
-    } finally {
-      if (feedbackGeneration.current === generation) setFeedbackRunning(false)
-    }
-  }
-
-  const submitImplicitFeedback = async () => {
-    if (runImplicitFeedback === undefined || implicitFeedbackStatus === undefined) return
-    const generation = ++feedbackGeneration.current
-    setFeedbackRunning(true)
-    setFeedbackMessage('隐性整理中…')
-    try {
-      const run = await runImplicitFeedback()
-      sessionStorage.setItem(FEEDBACK_JOB_KEY, run.job_id)
-      await pollImplicitFeedback(run.job_id, generation)
-    } catch (cause) {
-      if (feedbackGeneration.current === generation) {
-        sessionStorage.removeItem(FEEDBACK_JOB_KEY)
-        setFeedbackMessage(cause instanceof Error ? cause.message : '隐性整理提交失败。')
-        setFeedbackRunning(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const pending = sessionStorage.getItem(FEEDBACK_JOB_KEY)
-    if (pending !== null && implicitFeedbackStatus !== undefined) {
-      setFeedbackRunning(true)
-      setFeedbackMessage('隐性整理中…')
-      void pollImplicitFeedback(pending, ++feedbackGeneration.current)
-    }
-    return () => { feedbackGeneration.current += 1 }
-    // Resume tracking at most once per mount; pollImplicitFeedback reads the
-    // latest generation on every iteration.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   return (
     <section className={styles.page} aria-labelledby="memory-page-title">
       <PageHeader
@@ -332,11 +250,6 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
               ＋ 新增记忆
             </Button>
           )}
-          {runImplicitFeedback !== undefined && implicitFeedbackStatus !== undefined && !unavailable && (
-            <Button onClick={() => { void submitImplicitFeedback() }} disabled={feedbackRunning}>
-              {feedbackRunning ? '整理中…' : '隐性整理'}
-            </Button>
-          )}
           <Button onClick={() => { navigate('#/feedback') }}>整理记录</Button>
           <div className={styles.viewSwitch} role="tablist" aria-label="视图">
             <button type="button" role="tab" aria-selected={view === 'list'} onClick={() => { setView('list') }}>列表</button>
@@ -345,13 +258,6 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
           <Button onClick={() => { void onRefresh() }} disabled={loading}>{loading ? '加载中…' : '刷新'}</Button>
         </>}
       />
-
-      {feedbackMessage !== null && (
-        <div className={styles.feedbackNotice} role="status">
-          <span>{feedbackMessage}</span>
-          <button type="button" onClick={() => { setFeedbackMessage(null) }}>关闭</button>
-        </div>
-      )}
 
       {creating && !unavailable && (
         <div className={styles.createPanel} aria-label="新增记忆表单">

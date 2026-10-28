@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { FeedbackRun, FeedbackRunDetail } from '../api/http'
+import type { FeedbackRun, FeedbackRunDetail, ImplicitFeedbackRun } from '../api/http'
 import { Badge, type BadgeVariant } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
@@ -39,9 +39,13 @@ type Props = {
   loadDetail: (jobId: string) => Promise<FeedbackRunDetail>
   /** Sessions list for title lookup; unknown ids render the raw session id. */
   sessions?: { session_id: string; title: string }[]
+  /** 手动触发隐性整理：入队后台任务后轮询到终态。 */
+  runImplicitFeedback?: () => Promise<ImplicitFeedbackRun>
   unavailable?: boolean
   pollMs?: number
 }
+
+const FEEDBACK_JOB_KEY = 'homemaster:implicit-feedback-job'
 
 function formatEpoch(epoch: number): string {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -55,7 +59,7 @@ function formatDuration(start: number, end: number): string {
   return `${Math.floor(seconds / 60)}m${seconds % 60}s`
 }
 
-export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, unavailable = false, pollMs = 2000 }: Props) {
+export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, runImplicitFeedback, unavailable = false, pollMs = 2000 }: Props) {
   const [runs, setRuns] = useState<FeedbackRun[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -63,7 +67,11 @@ export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, unavailable =
   const [detail, setDetail] = useState<FeedbackRunDetail | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
+  const [showScheduled, setShowScheduled] = useState(false)
+  const [feedbackRunning, setFeedbackRunning] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const generation = useRef(0)
+  const feedbackGeneration = useRef(0)
 
   const titles = useMemo(() => {
     const map = new Map<string, string>()
@@ -112,9 +120,89 @@ export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, unavailable =
     })()
   }, [loadDetail, pollMs])
 
-  useEffect(() => () => { generation.current += 1 }, [])
+  useEffect(() => () => { generation.current += 1; feedbackGeneration.current += 1 }, [])
+
+  // When the tracked manual run reaches a terminal state, clear the stored
+  // job id, surface the outcome, and refresh the card list.
+  const handleTerminal = useCallback((next: FeedbackRunDetail) => {
+    if (sessionStorage.getItem(FEEDBACK_JOB_KEY) === next.job_id) {
+      sessionStorage.removeItem(FEEDBACK_JOB_KEY)
+      if (next.status === 'completed') {
+        const changed = next.actions.filter(action => action.action !== 'noop').length
+        setFeedbackMessage(changed > 0 ? `整理完成，已更新 ${changed} 条记忆。` : '整理完成。')
+      } else if (next.status === 'no_action') {
+        setFeedbackMessage('整理完成，没有需要更新的记忆。')
+      } else {
+        setFeedbackMessage(`隐性整理失败：${next.error ?? '未知错误'}`)
+      }
+      setFeedbackRunning(false)
+    }
+    void refresh()
+  }, [refresh])
+
+  // Dedicated poll for the tracked job so the header state survives the user
+  // clicking a different run card (the detail poll is per-selection).
+  const trackJob = useCallback((jobId: string) => {
+    const generationId = ++feedbackGeneration.current
+    void (async () => {
+      const deadline = Date.now() + 600_000
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, pollMs))
+        if (feedbackGeneration.current !== generationId) return
+        try {
+          const next = await loadDetail(jobId)
+          if (feedbackGeneration.current !== generationId) return
+          if (TERMINAL.has(next.status)) {
+            handleTerminal(next)
+            return
+          }
+        } catch {
+          // Transient read failures keep polling until the deadline.
+        }
+      }
+      if (feedbackGeneration.current === generationId) {
+        setFeedbackMessage('隐性整理仍在后台进行，稍后请刷新查看。')
+        setFeedbackRunning(false)
+      }
+    })()
+  }, [handleTerminal, loadDetail, pollMs])
+
+  const submitFeedback = async () => {
+    if (runImplicitFeedback === undefined) return
+    setFeedbackRunning(true)
+    setFeedbackMessage('整理中…')
+    try {
+      const run = await runImplicitFeedback()
+      sessionStorage.setItem(FEEDBACK_JOB_KEY, run.job_id)
+      trackJob(run.job_id)
+      await refresh()
+      select(run.job_id)
+    } catch (cause) {
+      sessionStorage.removeItem(FEEDBACK_JOB_KEY)
+      setFeedbackMessage(cause instanceof Error ? cause.message : '隐性整理提交失败。')
+      setFeedbackRunning(false)
+    }
+  }
+
+  // Resume tracking an in-flight manual run after a remount.
+  useEffect(() => {
+    const pending = sessionStorage.getItem(FEEDBACK_JOB_KEY)
+    if (pending !== null) {
+      setFeedbackRunning(true)
+      setFeedbackMessage('整理中…')
+      trackJob(pending)
+      select(pending)
+    }
+    // Resume once per mount; trackJob/select read the latest generation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const running = detail !== null && !TERMINAL.has(detail.status)
+
+  const visibleRuns = useMemo(
+    () => (runs ?? []).filter(run => showScheduled || run.trigger === 'manual'),
+    [runs, showScheduled],
+  )
 
   return (
     <section className={styles.page} aria-labelledby="feedback-page-title">
@@ -123,8 +211,22 @@ export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, unavailable =
         title="记忆整理"
         titleId="feedback-page-title"
         subtitle="隐性整理对最近对话的扫描记录与记忆改动前后对照。"
-        actions={<Button onClick={() => { void refresh() }} disabled={loading}>{loading ? '加载中…' : '刷新'}</Button>}
+        actions={<>
+          {runImplicitFeedback !== undefined && !unavailable && (
+            <Button variant="primary" onClick={() => { void submitFeedback() }} disabled={feedbackRunning}>
+              {feedbackRunning ? '整理中…' : '隐性整理'}
+            </Button>
+          )}
+          <Button onClick={() => { void refresh() }} disabled={loading}>{loading ? '加载中…' : '刷新'}</Button>
+        </>}
       />
+
+      {feedbackMessage !== null && (
+        <div className={styles.notice} role="status">
+          <span>{feedbackMessage}</span>
+          <button type="button" onClick={() => { setFeedbackMessage(null) }}>关闭</button>
+        </div>
+      )}
 
       {error !== null && (
         <div className={styles.error} role="alert">
@@ -143,10 +245,21 @@ export function FeedbackRunsPage({ loadRuns, loadDetail, sessions, unavailable =
       ) : (
         <div className={styles.layout}>
           <div className={styles.runList} role="list" aria-label="整理记录">
+            <label className={styles.listFilter}>
+              <input
+                type="checkbox"
+                checked={showScheduled}
+                onChange={event => { setShowScheduled(event.target.checked) }}
+              />
+              显示定时整理
+            </label>
             {runs !== null && runs.length === 0 && !loading && (
               <div className={styles.empty}>还没有整理记录。</div>
             )}
-            {(runs ?? []).map(run => (
+            {runs !== null && runs.length > 0 && visibleRuns.length === 0 && !loading && (
+              <div className={styles.empty}>没有手动整理记录，定时整理已折叠。</div>
+            )}
+            {visibleRuns.map(run => (
               <button
                 type="button"
                 key={run.job_id}

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { FeedbackRun, FeedbackRunDetail } from '../api/http'
 import { FeedbackRunsPage } from './FeedbackRunsPage'
@@ -40,6 +40,10 @@ const detail: FeedbackRunDetail = {
 }
 
 describe('FeedbackRunsPage', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+
   it('lists runs and shows scanned sessions plus before/after diffs', async () => {
     const loadRuns = vi.fn().mockResolvedValue({ runs: [run] })
     const loadDetail = vi.fn().mockResolvedValue(detail)
@@ -84,5 +88,45 @@ describe('FeedbackRunsPage', () => {
 
     await waitFor(() => expect(loadDetail).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('住苏州')).toBeInTheDocument()
+  })
+
+  it('hides scheduled runs behind the filter toggle', async () => {
+    const scheduled: FeedbackRun = { ...run, job_id: 'job-2', trigger: 'scheduled' }
+    const loadRuns = vi.fn().mockResolvedValue({ runs: [run, scheduled] })
+    const loadDetail = vi.fn().mockResolvedValue(detail)
+    render(<FeedbackRunsPage loadRuns={loadRuns} loadDetail={loadDetail} pollMs={0} />)
+
+    expect(await screen.findByRole('button', { name: /手动/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /定时/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /显示定时整理/ }))
+    expect(await screen.findByRole('button', { name: /定时/ })).toBeInTheDocument()
+  })
+
+  it('triggers a manual run and tracks it to a terminal outcome', async () => {
+    const newRun: FeedbackRun = { ...run, job_id: 'job-9', status: 'processing', actions_count: 0 }
+    const newDetail: FeedbackRunDetail = { ...detail, job_id: 'job-9', status: 'completed' }
+    const runImplicitFeedback = vi.fn().mockResolvedValue({ job_id: 'job-9', status: 'accepted' })
+    const loadRuns = vi
+      .fn()
+      .mockResolvedValueOnce({ runs: [run] })
+      .mockResolvedValue({ runs: [newRun, run] })
+    const loadDetail = vi.fn().mockResolvedValue(newDetail)
+    render(
+      <FeedbackRunsPage
+        loadRuns={loadRuns}
+        loadDetail={loadDetail}
+        runImplicitFeedback={runImplicitFeedback}
+        pollMs={0}
+      />,
+    )
+
+    await screen.findByRole('button', { name: /手动/ })
+    fireEvent.click(screen.getByRole('button', { name: '隐性整理' }))
+
+    expect(await screen.findByText('整理完成，已更新 1 条记忆。')).toBeInTheDocument()
+    expect(runImplicitFeedback).toHaveBeenCalledOnce()
+    expect(loadDetail).toHaveBeenCalledWith('job-9')
+    expect(sessionStorage.getItem('homemaster:implicit-feedback-job')).toBeNull()
   })
 })
