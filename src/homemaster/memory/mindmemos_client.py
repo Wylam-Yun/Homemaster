@@ -168,6 +168,21 @@ class EvolutionBatchReceipt:
     reason: str | None
 
 
+@dataclass(frozen=True)
+class SkillVersionInfo:
+    version_id: str
+    parent_version_id: str | None
+    status: str
+    version_label: str | None
+    content_hash: str | None
+
+
+@dataclass(frozen=True)
+class SkillVersionContent:
+    version: SkillVersionInfo
+    content: str
+
+
 def _data(envelope: Any) -> dict[str, Any]:
     data = getattr(envelope, "data", None)
     return data if isinstance(data, dict) else {}
@@ -545,6 +560,48 @@ class MindMemOSClient:
             reason=data.get("reason"),
         )
 
+    async def list_skill_versions(self, *, cloud_skill_id: str) -> list[SkillVersionInfo]:
+        """All versions of one cloud skill with parent lineage (read-only).
+
+        UNVERIFIED: response shape follows vendored ``skill_routes.py`` /
+        ``SkillVersionsData``; confirm against a live server before trusting
+        draft visibility.
+        """
+        data = await self._get(f"/v1/skills/{cloud_skill_id}/versions")
+        return [
+            SkillVersionInfo(
+                version_id=str(item.get("version_id") or ""),
+                parent_version_id=item.get("parent_version_id"),
+                status=str(item.get("status") or ""),
+                version_label=item.get("version_label"),
+                content_hash=item.get("content_hash"),
+            )
+            for item in data.get("versions") or []
+            if isinstance(item, dict)
+        ]
+
+    async def get_skill_version_content(
+        self, *, cloud_skill_id: str, version_id: str
+    ) -> SkillVersionContent:
+        """Full SKILL.md text of one version (read-only).
+
+        UNVERIFIED: same caveat as :meth:`list_skill_versions`.
+        """
+        data = await self._get(
+            f"/v1/skills/{cloud_skill_id}/versions/{version_id}/content"
+        )
+        version = data.get("version") or {}
+        return SkillVersionContent(
+            version=SkillVersionInfo(
+                version_id=str(version.get("version_id") or ""),
+                parent_version_id=version.get("parent_version_id"),
+                status=str(version.get("status") or ""),
+                version_label=version.get("version_label"),
+                content_hash=version.get("content_hash"),
+            ),
+            content=str(data.get("content") or ""),
+        )
+
     # -- health ----------------------------------------------------------------------
 
     async def health(self) -> bool:
@@ -574,4 +631,6 @@ __all__ = [
     "SearchHit",
     "SearchReceipt",
     "SkillTraceReceipt",
+    "SkillVersionContent",
+    "SkillVersionInfo",
 ]
