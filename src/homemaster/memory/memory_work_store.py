@@ -259,6 +259,7 @@ class MemoryWorkStore(Protocol):
 
     def job(self, job_id: str) -> OutboxJob | None: ...
     def job_by_operation_key(self, operation_key: str) -> OutboxJob | None: ...
+    def list_jobs(self, kind: str, *, limit: int = 50) -> list[OutboxJob]: ...
 
     def claim_jobs(
         self,
@@ -882,6 +883,15 @@ class SQLiteMemoryWorkStore:
                 "SELECT * FROM outbox_jobs WHERE operation_key = ?", (operation_key,)
             ).fetchone()
             return None if row is None else self._job_row(row)
+
+    def list_jobs(self, kind: str, *, limit: int = 50) -> list[OutboxJob]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM outbox_jobs WHERE kind = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (kind, limit),
+            ).fetchall()
+            return [self._job_row(row) for row in rows]
 
     def claim_jobs(
         self,

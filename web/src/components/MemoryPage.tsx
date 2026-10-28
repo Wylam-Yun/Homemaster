@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ImplicitFeedbackRun, ImplicitFeedbackStatus, ManagedMemory, MemoryGraph as MemoryGraphData, MemoryHistory, MemorySnapshot } from '../api/http'
+import { navigate } from '../router'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
@@ -336,6 +337,7 @@ export function MemoryPage({ snapshot, loading, error, unavailable = false, onRe
               {feedbackRunning ? '整理中…' : '隐性整理'}
             </Button>
           )}
+          <Button onClick={() => { navigate('#/feedback') }}>整理记录</Button>
           <div className={styles.viewSwitch} role="tablist" aria-label="视图">
             <button type="button" role="tab" aria-selected={view === 'list'} onClick={() => { setView('list') }}>列表</button>
             <button type="button" role="tab" aria-selected={view === 'graph'} onClick={() => { setView('graph') }} disabled={loadGraph === undefined}>图谱</button>

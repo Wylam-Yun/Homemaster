@@ -30,6 +30,15 @@ from homemaster.web.schemas import (
 logger = logging.getLogger(__name__)
 
 
+def _non_noop_actions_count(result: object) -> int:
+    actions = result.get("actions") if isinstance(result, dict) else None
+    return sum(
+        1
+        for action in actions or []
+        if isinstance(action, dict) and action.get("action") not in (None, "noop")
+    )
+
+
 def register(app: FastAPI, ctx: WebAppContext) -> None:
     application = ctx.application
 
@@ -223,17 +232,131 @@ def register(app: FastAPI, ctx: WebAppContext) -> None:
                 retryable=False,
             )
         result = job.result if isinstance(job.result, dict) else {}
-        actions = result.get("actions") or []
         return {
             "job_id": job.job_id,
             "status": job.status,
             "error": job.last_error,
-            "actions_count": sum(
-                1
-                for action in actions
-                if isinstance(action, dict) and action.get("action") not in (None, "noop")
-            ),
+            "actions_count": _non_noop_actions_count(result),
             "raw_verified": result.get("raw_verified"),
+        }
+
+    # ``/api/memories/feedback-runs`` is a literal segment like ``graph`` /
+    # ``search`` — registered before ``/{memory_id}`` for the same reason.
+
+    @app.get("/api/memories/feedback-runs")
+    async def feedback_runs(limit: int = 50) -> object:
+        """List implicit-feedback runs from the durable outbox (read-only)."""
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        store = _application_services(application).get("memory_work_store")
+        list_jobs = getattr(store, "list_jobs", None)
+        if not callable(list_jobs):
+            return _error(
+                503,
+                "feedback_runs_unavailable",
+                "Implicit-feedback runs are unavailable.",
+                retryable=True,
+            )
+        jobs = await asyncio.to_thread(list_jobs, JOB_IMPLICIT_FEEDBACK, limit=limit)
+        return {
+            "runs": [
+                {
+                    "job_id": job.job_id,
+                    "trigger": "manual" if ":manual:" in job.operation_key else "scheduled",
+                    "status": job.status,
+                    "window": (job.payload or {}).get("window"),
+                    "created_at": job.created_at,
+                    "updated_at": job.updated_at,
+                    "actions_count": _non_noop_actions_count(job.result),
+                    "error": job.last_error,
+                }
+                for job in jobs
+            ]
+        }
+
+    @app.get("/api/memories/feedback-runs/{job_id}")
+    async def feedback_run_detail(job_id: str) -> object:
+        """Rebuild one run's scanned sessions and per-action memory diffs."""
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        services = _application_services(application)
+        store = services.get("memory_work_store")
+        job_fn = getattr(store, "job", None)
+        inspector = services.get("feedback_run_inspector")
+        if not callable(job_fn) or inspector is None:
+            return _error(
+                503,
+                "feedback_runs_unavailable",
+                "Implicit-feedback run details are unavailable.",
+                retryable=True,
+            )
+        job = await asyncio.to_thread(job_fn, job_id)
+        if job is None or job.kind != JOB_IMPLICIT_FEEDBACK:
+            return _error(
+                404,
+                "feedback_job_not_found",
+                "The implicit-feedback job does not exist.",
+                retryable=False,
+            )
+        window = (job.payload or {}).get("window") or {}
+        sessions = await inspector.scanned_sessions(window)
+        result = job.result if isinstance(job.result, dict) else {}
+        diffs = await inspector.action_diffs(result.get("actions") or [])
+        return {
+            "job_id": job.job_id,
+            "trigger": "manual" if ":manual:" in job.operation_key else "scheduled",
+            "status": job.status,
+            "window": window or None,
+            "created_at": job.created_at,
+            "updated_at": job.updated_at,
+            "error": job.last_error,
+            "sessions": [
+                {
+                    "session_id": session.session_id,
+                    "records_count": session.records_count,
+                    "excerpts": [
+                        {
+                            "add_record_id": excerpt.add_record_id,
+                            "submitted_at": excerpt.submitted_at,
+                            "preview": excerpt.preview,
+                        }
+                        for excerpt in session.excerpts
+                    ],
+                }
+                for session in sessions
+            ],
+            "actions": [
+                {
+                    "action_id": diff.action_id,
+                    "action": diff.action,
+                    "memory_id": diff.memory_id,
+                    "memory_session_id": diff.memory_session_id,
+                    "before": (
+                        {"content": diff.before.content, "status": diff.before.status}
+                        if diff.before is not None
+                        else None
+                    ),
+                    "after": (
+                        {"content": diff.after.content, "status": diff.after.status}
+                        if diff.after is not None
+                        else None
+                    ),
+                    "missing": diff.missing,
+                }
+                for diff in diffs
+            ],
         }
 
     @app.get("/api/memories/{memory_id}")
